@@ -1,10 +1,12 @@
-import { PITCH_LENGTH, PITCH_WIDTH, SCHEMA_VERSION, type MatchFixture } from "./contract";
+import { PITCH_LENGTH, PITCH_WIDTH, type FormationId, type MatchFixture, type SlotAssignments } from "./contract";
+import { assignmentErrors, isFormationId } from "./formations";
 
 /** Ball may legitimately sit a little beyond the lines (e.g. in the net). */
 const BALL_MARGIN = 4;
 
 const SIDES = ["home", "away"] as const;
 const DIRECTIONS = ["increasing-x", "decreasing-x"] as const;
+const SCHEMA_VERSIONS = ["1.0.0", "1.1.0", "1.2.0", "1.3.0"];
 
 /** True for finite numbers only — rejects NaN, ±Infinity and non-numbers from untyped JSON. */
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -17,7 +19,7 @@ export function validateFixture(f: MatchFixture): string[] {
   const errors: string[] = [];
   const err = (msg: string) => errors.push(msg);
 
-  if (f.schemaVersion !== SCHEMA_VERSION && f.schemaVersion !== "1.1.0" && f.schemaVersion !== "1.2.0") err(`Unsupported schema version ${f.schemaVersion}`);
+  if (!SCHEMA_VERSIONS.includes(f.schemaVersion)) err(`Unsupported schema version ${f.schemaVersion}`);
   if (!finite(f.durationMs) || f.durationMs <= 0) err("durationMs must be a positive finite number");
 
   // Teams and roster
@@ -119,5 +121,59 @@ export function validateFixture(f: MatchFixture): string[] {
     }
   });
 
+  if (f.tactics !== undefined) validateTactics(f, err);
+  else if (f.events.some((e) => e.type === "formation-change")) err("formation-change events require tactics metadata");
+
   return errors;
+}
+
+/**
+ * Formation metadata: one starting formation per team with a complete, valid
+ * assignment, and applied changes that are ordered, inside the match, chained
+ * from the previous formation, and announced by a formation-change event at
+ * the same time.
+ */
+function validateTactics(f: MatchFixture, err: (msg: string) => void) {
+  const { initial, applied } = f.tactics!;
+  if (!Array.isArray(initial) || !Array.isArray(applied) || !Array.isArray(f.tactics!.scheduled)) {
+    err("tactics: initial, scheduled and applied must be lists");
+    return;
+  }
+  const current = new Map<string, { formation: FormationId; assignments: SlotAssignments }>();
+  const checkFormation = (where: string, teamId: string, formation: unknown, assignments: SlotAssignments) => {
+    if (!isFormationId(formation)) {
+      err(`${where}: unknown formation ${String(formation)}`);
+      return false;
+    }
+    const squad = f.roster.filter((p) => p.teamId === teamId);
+    for (const e of assignmentErrors(formation, assignments, squad, f.roster)) err(`${where}: ${e}`);
+    return true;
+  };
+  for (const team of f.teams) {
+    const entries = initial.filter((x) => x.teamId === team.id);
+    if (entries.length !== 1) {
+      err(`tactics: team ${team.id} needs exactly one starting formation`);
+      continue;
+    }
+    const x = entries[0]!;
+    if (checkFormation(`tactics: team ${team.id}`, team.id, x.formation, x.assignments)) current.set(team.id, x);
+  }
+  if (initial.some((x) => !f.teams.some((t) => t.id === x.teamId))) err("tactics: starting formation for an unknown team");
+  const changeEvents = f.events.filter((e) => e.type === "formation-change");
+  if (changeEvents.length !== applied.length) err("tactics: every applied change needs exactly one formation-change event");
+  applied.forEach((c, i) => {
+    const where = `tactics: change ${i} (${c.teamId} at ${c.t})`;
+    if (!finite(c.t) || c.t <= 0 || c.t > f.durationMs) err(`${where}: time outside fixture duration`);
+    if (i > 0 && c.t < applied[i - 1]!.t) err(`${where}: changes must be ordered by time`);
+    const before = current.get(c.teamId);
+    if (!before) {
+      err(`${where}: unknown team`);
+      return;
+    }
+    if (before.formation !== c.from) err(`${where}: previous formation should be ${before.formation}, not ${c.from}`);
+    if (checkFormation(where, c.teamId, c.to, c.assignments)) current.set(c.teamId, { formation: c.to, assignments: c.assignments });
+    const event = changeEvents[i];
+    if (!event || event.id !== c.eventId || event.t !== c.t || event.teamId !== c.teamId)
+      err(`${where}: does not match formation-change event ${c.eventId}`);
+  });
 }

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MatchEvent, MatchFixture, Score } from "@/match/contract";
 import { validateFixture } from "@/match/validate";
-import { nextEventTime, previousEventTime } from "@/playback/derive";
+import { nextEventTime, previousEventTime, type ActiveFormation } from "@/playback/derive";
 import { PlaybackEngine, type PlaybackStatus, type Speed } from "@/playback/engine";
 import type { CameraView, MatchScene } from "@/scene/MatchScene";
 import { EventFeed } from "./EventFeed";
@@ -18,6 +18,7 @@ import { Timeline } from "./Timeline";
 import { PlaybackControls } from "./PlaybackControls";
 import { Scoreboard } from "./Scoreboard";
 import { MatchStats } from "./MatchStats";
+import { Formations } from "./Formations";
 import { statisticsAt } from "@/playback/statistics";
 
 /** Longest real-time step fed to the engine, so a backgrounded tab doesn't jump on return. */
@@ -33,6 +34,7 @@ interface UiState {
   status: PlaybackStatus;
   score: Score;
   events: MatchEvent[];
+  formations: ActiveFormation[] | null;
 }
 
 function detectWebGL(): boolean {
@@ -49,13 +51,14 @@ function detectWebGL(): boolean {
 
 function readUi(engine: PlaybackEngine): UiState {
   const frame = engine.frame();
-  return { status: engine.status, score: frame.score, events: frame.events };
+  return { status: engine.status, score: frame.score, events: frame.events, formations: frame.formations };
 }
 
 /** Only re-render React when something visible changes (clock is shown to 0.1 s). */
 function uiKey(ui: UiState): string {
   const s = ui.status;
-  return `${Math.floor(s.timeMs / 100)}|${s.playing}|${s.speed}|${ui.events.length}|${ui.score.home}-${ui.score.away}`;
+  const shapes = ui.formations?.map((f) => `${f.formation}@${f.since}`).join(",") ?? "";
+  return `${Math.floor(s.timeMs / 100)}|${s.playing}|${s.speed}|${ui.events.length}|${ui.score.home}-${ui.score.away}|${shapes}`;
 }
 
 function safeValidate(fixture: MatchFixture): string[] {
@@ -282,6 +285,7 @@ function PlaybackViewer({ fixture }: { fixture: MatchFixture }) {
         />
       </div>
       <aside className="viewer__side">
+        <Formations teams={fixture.teams} roster={fixture.roster} formations={ui.formations} />
         <MatchStats teams={fixture.teams} stats={stats} />
         <EventFeed events={ui.events} teams={fixture.teams} />
       </aside>

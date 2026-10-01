@@ -4,7 +4,17 @@
  * computed from the fixture's starting state plus data with timestamps ≤ t, so
  * nothing from the future can leak and any time can be reproduced exactly.
  */
-import type { MatchEvent, MatchFixture, PlayerState, Possession, Score, Snapshot, Vec3 } from "@/match/contract";
+import type {
+  FormationId,
+  MatchEvent,
+  MatchFixture,
+  PlayerState,
+  Possession,
+  Score,
+  SlotAssignments,
+  Snapshot,
+  Vec3,
+} from "@/match/contract";
 
 export interface PlaybackFrame {
   timeMs: number;
@@ -14,6 +24,8 @@ export interface PlaybackFrame {
   score: Score;
   /** Events whose timestamp has been reached, oldest first. */
   events: MatchEvent[];
+  /** Each team's active formation, or null for fixtures without formation data. */
+  formations: ActiveFormation[] | null;
 }
 
 /** Index of the last element with key ≤ t, or -1. Arrays must be sorted by key. */
@@ -122,6 +134,7 @@ export function frameAt(fixture: MatchFixture, t: number): PlaybackFrame {
     ...positionsAt(fixture, time),
     score: scoreAt(fixture, time),
     events: eventsAt(fixture, time),
+    formations: formationsAt(fixture, time),
   };
 }
 
@@ -148,4 +161,31 @@ export function previousEventTime(fixture: MatchFixture, t: number): number | nu
 export function nextEventTime(fixture: MatchFixture, t: number): number | null {
   const i = lastAtOrBefore(fixture.events, t, (e) => e.t) + 1;
   return i < fixture.events.length ? fixture.events[i]!.t : null;
+}
+
+export interface ActiveFormation {
+  teamId: string;
+  formation: FormationId;
+  assignments: SlotAssignments;
+  /** Time this formation took effect: 0 for the starting formation, otherwise the change's timestamp. */
+  since: number;
+}
+
+/**
+ * Each team's formation at time t: the starting formation plus every applied
+ * change with a timestamp ≤ t, so seeking back restores the earlier one and
+ * future changes never show early. Null for fixtures without formation data.
+ */
+export function formationsAt(fixture: MatchFixture, t: number): ActiveFormation[] | null {
+  const tactics = fixture.tactics;
+  if (!tactics) return null;
+  const time = clampTime(fixture, t);
+  return tactics.initial.map((start) => {
+    let active: ActiveFormation = { ...start, since: 0 };
+    for (const c of tactics.applied) {
+      if (c.t > time) break;
+      if (c.teamId === start.teamId) active = { teamId: c.teamId, formation: c.to, assignments: c.assignments, since: c.t };
+    }
+    return active;
+  });
 }
