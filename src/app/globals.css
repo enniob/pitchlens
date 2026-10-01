@@ -11,6 +11,20 @@
   color-scheme: dark;
 }
 
+.match-stats {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.match-stats table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.match-stats caption { text-align: left; font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+.match-stats th, .match-stats td { padding: 6px 3px; border-bottom: 1px solid var(--border); }
+.match-stats th { text-align: left; font-weight: 500; }
+.match-stats td, .match-stats thead th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.match-stats p { margin: 10px 0 0; font-size: 0.75rem; color: var(--muted); }
+
 *,
 *::before,
 *::after {

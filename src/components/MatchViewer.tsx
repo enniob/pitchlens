@@ -17,6 +17,8 @@ import { EventFeed } from "./EventFeed";
 import { Timeline } from "./Timeline";
 import { PlaybackControls } from "./PlaybackControls";
 import { Scoreboard } from "./Scoreboard";
+import { MatchStats } from "./MatchStats";
+import { statisticsAt } from "@/playback/statistics";
 
 /** Longest real-time step fed to the engine, so a backgrounded tab doesn't jump on return. */
 const MAX_FRAME_MS = 250;
@@ -100,6 +102,7 @@ function PlaybackViewer({ fixture }: { fixture: MatchFixture }) {
   const [view, setView] = useState<CameraView>("overhead");
   const [ui, setUi] = useState<UiState>(() => readUi(engineRef.current!));
   const uiKeyRef = useRef(uiKey(ui));
+  const stats = useMemo(() => statisticsAt(fixture, ui.status.timeMs), [fixture, ui.status.timeMs]);
 
   const syncUi = useCallback((force = false) => {
     const next = readUi(engineRef.current!);
@@ -279,6 +282,7 @@ function PlaybackViewer({ fixture }: { fixture: MatchFixture }) {
         />
       </div>
       <aside className="viewer__side">
+        <MatchStats teams={fixture.teams} stats={stats} />
         <EventFeed events={ui.events} teams={fixture.teams} />
       </aside>
     </div>

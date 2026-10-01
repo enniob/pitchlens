@@ -1,5 +1,23 @@
 # PitchLens
 
+## Playback statistics (MVP 4)
+
+The match statistics panel compares possession, completed passes, shots, saves,
+and goals for both teams at the current playback time. Seeking backwards removes
+later totals; restarting or generating a match resets the panel. Both fixture
+schemas are supported, and statistics also work without WebGL.
+
+Possession measures controlled time using snapshot intervals, excluding ball
+flight and dead-ball time. Percentages remain blank until there is controlled
+time and are rounded to sum to 100%. Completed passes count only successful
+receptions. Shots count at the strike; saves count only when the result arrives
+and are credited to the defending team. Goals count goals in this sequence,
+excluding any score carried into its starting state. These are synthetic sequence
+statistics, not full-match or predictive metrics.
+
+`statisticsAt` in `src/playback/statistics.ts` derives totals without modifying
+the fixture or keeping counters, so playback speed does not affect results.
+
 PitchLens is a prototype for the MS and Premier League hackathon. **MVP 1** is a 3D match viewer that plays back a short, scripted football sequence on a 3D pitch. The default camera looks down from above.
 
 > **Everything shown is synthetic.** The teams (Harbor City FC and Northvale Rovers), the players, their movement and the events are made up for the demo. The app uses no real match data, footage or club branding, and it makes no network calls at runtime.
