@@ -378,3 +378,12 @@ body {
 .notice--error {
   border-color: #f87171;
 }
+
+.generator { display:flex; flex-wrap:wrap; gap:12px; align-items:end; padding:16px; margin-bottom:16px; border:1px solid #334155; border-radius:12px; background:#111c2e; }
+.generator label { display:flex; flex-direction:column; gap:6px; font-size:0.85rem; }
+.generator input,.generator select,.generator button { font:inherit; color:#f1f5f9; background:#1e293b; border:1px solid #64748b; border-radius:6px; padding:10px 12px; min-height:44px; }
+.generator input { width:170px; max-width:100%; }
+.generator button { cursor:pointer; }
+.generator button:hover { background:#334155; }
+.generator p { width:100%; margin:0; font-size:0.85rem; color:#cbd5e1; }
+.generator [role=alert] { color:#fca5a5; }
