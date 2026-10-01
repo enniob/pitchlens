@@ -19,8 +19,9 @@ const STEP_MS = 100;
 /**
  * Scrub bar with previous/next event buttons. The slider is a native range
  * input, so arrow keys, Home/End and touch dragging work without extra code.
- * Event ticks are decorative; the whole fixture's event times are public data,
- * but their descriptions stay hidden until playback reaches them.
+ * Event ticks are decorative and, like the feed and score, appear only once
+ * playback has reached their timestamp, so neither a tick nor a goal's
+ * highlight can spoil what is still to come.
  */
 export function Timeline({
   timeMs,
@@ -55,13 +56,15 @@ export function Timeline({
           onPointerCancel={onScrubEnd}
         />
         <div className="timeline__ticks" aria-hidden="true">
-          {events.map((e) => (
-            <span
-              key={e.id}
-              className={`timeline__tick${e.type === "goal" ? " timeline__tick--goal" : ""}`}
-              style={{ left: `${(e.t / durationMs) * 100}%` }}
-            />
-          ))}
+          {events
+            .filter((e) => e.t <= timeMs)
+            .map((e) => (
+              <span
+                key={e.id}
+                className={`timeline__tick${e.type === "goal" ? " timeline__tick--goal" : ""}`}
+                style={{ left: `${(e.t / durationMs) * 100}%` }}
+              />
+            ))}
         </div>
       </div>
       <button type="button" className="btn" disabled={!hasNext} onClick={onNextEvent}>

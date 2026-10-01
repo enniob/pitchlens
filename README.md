@@ -186,7 +186,7 @@ coverage of goals, saves, misses, and interceptions. Original demo tests remain.
 Seeking only moves the clock (clamped to the fixture; non-finite values are ignored).
 Positions, ball, possession, score and the event feed are all pure functions of that
 time (`frameAt`), so a seek gives exactly the same frame as playing to that time and
-never reveals later events — including when scrubbing backwards, where the score and
+never reveals later events â€” including when scrubbing backwards, where the score and
 feed shrink again. Seeking does not emit crossed events, and playing on afterwards
 reports only events after the new position. The discontinuity rule still applies:
 a seek into a kickoff reset never interpolates across the cut.
