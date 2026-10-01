@@ -10,6 +10,9 @@ export function MatchStats({ teams, stats }: { teams: [Team, Team]; stats: Match
     ["Shots", stats.home.shots, stats.away.shots],
     ["Saves", stats.home.saves, stats.away.saves],
     ["Goals", stats.home.goals, stats.away.goals],
+    ["Corners", stats.home.corners, stats.away.corners],
+    ["Fouls", stats.home.fouls, stats.away.fouls],
+    ["Offsides", stats.home.offsides, stats.away.offsides],
   ] as const;
   return (
     <section className="match-stats" aria-label="Match statistics">

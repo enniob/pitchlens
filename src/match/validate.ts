@@ -17,7 +17,7 @@ export function validateFixture(f: MatchFixture): string[] {
   const errors: string[] = [];
   const err = (msg: string) => errors.push(msg);
 
-  if (f.schemaVersion !== SCHEMA_VERSION && f.schemaVersion !== "1.1.0") err(`Unsupported schema version ${f.schemaVersion}`);
+  if (f.schemaVersion !== SCHEMA_VERSION && f.schemaVersion !== "1.1.0" && f.schemaVersion !== "1.2.0") err(`Unsupported schema version ${f.schemaVersion}`);
   if (!finite(f.durationMs) || f.durationMs <= 0) err("durationMs must be a positive finite number");
 
   // Teams and roster
