@@ -7,7 +7,7 @@
  *
  * Playback works without WebGL — only the 3D view is replaced by a message.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MatchEvent, MatchFixture, Score } from "@/match/contract";
 import { validateFixture } from "@/match/validate";
 import { PlaybackEngine, type PlaybackStatus, type Speed } from "@/playback/engine";
@@ -54,12 +54,46 @@ function uiKey(ui: UiState): string {
   return `${Math.floor(s.timeMs / 100)}|${s.playing}|${s.speed}|${ui.events.length}|${ui.score.home}-${ui.score.away}`;
 }
 
+function safeValidate(fixture: MatchFixture): string[] {
+  try {
+    return validateFixture(fixture);
+  } catch (err) {
+    // Structurally malformed data (e.g. missing arrays) can make validation itself throw.
+    return [`Fixture is malformed: ${err instanceof Error ? err.message : String(err)}`];
+  }
+}
+
+/**
+ * Validates the fixture before anything reads from it; invalid data shows the
+ * errors and never reaches the playback engine or the scene.
+ */
 export function MatchViewer({ fixture }: { fixture: MatchFixture }) {
+  const errors = useMemo(() => safeValidate(fixture), [fixture]);
+  if (errors.length > 0) return <FixtureErrors errors={errors} />;
+  // Keyed by fixture so a new fixture gets a fresh engine and scene.
+  return <PlaybackViewer key={fixture.matchId} fixture={fixture} />;
+}
+
+function FixtureErrors({ errors }: { errors: string[] }) {
+  return (
+    <div className="notice notice--error" role="alert">
+      <h2>Match data could not be loaded</h2>
+      <p>The fixture failed validation{errors.length > 10 ? ` (showing 10 of ${errors.length} problems)` : ""}:</p>
+      <ul>
+        {errors.slice(0, 10).map((e, i) => (
+          <li key={i}>{e}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Only ever rendered with a fixture that passed validation. */
+function PlaybackViewer({ fixture }: { fixture: MatchFixture }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<PlaybackEngine | null>(null);
   engineRef.current ??= new PlaybackEngine(fixture);
   const sceneRef = useRef<MatchScene | null>(null);
-  const [fixtureErrors] = useState(() => validateFixture(fixture));
   const [sceneState, setSceneState] = useState<SceneState>({ kind: "loading" });
   const [view, setView] = useState<CameraView>("overhead");
   const [ui, setUi] = useState<UiState>(() => readUi(engineRef.current!));
@@ -76,7 +110,6 @@ export function MatchViewer({ fixture }: { fixture: MatchFixture }) {
 
   // Animation loop + scene lifecycle.
   useEffect(() => {
-    if (fixtureErrors.length > 0) return;
     const engine = engineRef.current!;
     const stage = stageRef.current!;
     let cancelled = false;
@@ -132,7 +165,7 @@ export function MatchViewer({ fixture }: { fixture: MatchFixture }) {
       sceneRef.current?.dispose();
       sceneRef.current = null;
     };
-  }, [fixture, fixtureErrors, syncUi]);
+  }, [fixture, syncUi]);
 
   const onTogglePlay = useCallback(() => {
     engineRef.current!.togglePlay();
@@ -159,20 +192,6 @@ export function MatchViewer({ fixture }: { fixture: MatchFixture }) {
     if (direction === "reset") scene.resetZoom();
     else scene.zoomBy(direction === "in" ? 1.35 : 1 / 1.35);
   }, []);
-
-  if (fixtureErrors.length > 0) {
-    return (
-      <div className="notice notice--error" role="alert">
-        <h2>Match data could not be loaded</h2>
-        <p>The fixture failed validation:</p>
-        <ul>
-          {fixtureErrors.slice(0, 10).map((e) => (
-            <li key={e}>{e}</li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
 
   return (
     <div className="viewer">

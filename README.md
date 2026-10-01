@@ -127,7 +127,7 @@ scene.x = x − 52.5      scene.y = z      scene.z = y − 34      rotation.y = 
 
 | Check | Result |
 | --- | --- |
-| `npm test` | 43 tests pass: fixture validity, ball/event sync, kickoff reset, movement speed limits, the clock, pause/resume, every speed with several frame sizes, large frames that cross multiple events, no early reveals, deterministic replay, restart (including from a nonzero starting score) |
+| `npm test` | 63 tests pass: fixture validity, ball/event sync, kickoff reset, movement speed limits, the clock, pause/resume, every speed with several frame sizes, large frames that cross multiple events, no early reveals, deterministic replay, restart (including from a nonzero starting score), validator rejection of non-finite values and invalid team sides, and the viewer showing validation errors instead of crashing |
 | `npm run typecheck` | Passes |
 | `npm run build` | Passes. The `/` route is prerendered as static content |
 

@@ -3,6 +3,12 @@ import { PITCH_LENGTH, PITCH_WIDTH, SCHEMA_VERSION, type MatchFixture } from "./
 /** Ball may legitimately sit a little beyond the lines (e.g. in the net). */
 const BALL_MARGIN = 4;
 
+const SIDES = ["home", "away"] as const;
+const DIRECTIONS = ["increasing-x", "decreasing-x"] as const;
+
+/** True for finite numbers only — rejects NaN, ±Infinity and non-numbers from untyped JSON. */
+const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
 /**
  * Checks a fixture against the contract's structural rules. Returns a list of
  * human-readable problems; an empty list means the fixture is valid.
@@ -12,11 +18,18 @@ export function validateFixture(f: MatchFixture): string[] {
   const err = (msg: string) => errors.push(msg);
 
   if (f.schemaVersion !== SCHEMA_VERSION) err(`Unsupported schema version ${f.schemaVersion}`);
-  if (!(f.durationMs > 0)) err("durationMs must be positive");
+  if (!finite(f.durationMs) || f.durationMs <= 0) err("durationMs must be a positive finite number");
 
   // Teams and roster
   const teamIds = new Set(f.teams.map((t) => t.id));
-  if (teamIds.size !== 2) err("Fixture must have two teams with distinct IDs");
+  if (f.teams.length !== 2 || teamIds.size !== 2) err("Fixture must have two teams with distinct IDs");
+  for (const t of f.teams) {
+    if (!(SIDES as readonly string[]).includes(t.side)) err(`Team ${t.id} has invalid side ${String(t.side)}`);
+    if (!(DIRECTIONS as readonly string[]).includes(t.attacksTowards))
+      err(`Team ${t.id} has invalid attacksTowards ${String(t.attacksTowards)}`);
+  }
+  const sides = f.teams.map((t) => t.side);
+  if (!sides.includes("home") || !sides.includes("away")) err("Fixture must have exactly one home team and one away team");
   const playerIds = new Set<string>();
   for (const p of f.roster) {
     if (playerIds.has(p.id)) err(`Duplicate player ID ${p.id}`);
@@ -41,7 +54,7 @@ export function validateFixture(f: MatchFixture): string[] {
 
   // Starting state
   const { score } = f.startingState;
-  if (!Number.isInteger(score.home) || !Number.isInteger(score.away) || score.home < 0 || score.away < 0)
+  if (!Number.isInteger(score?.home) || !Number.isInteger(score?.away) || score.home < 0 || score.away < 0)
     err("Starting score must be non-negative integers");
   checkPossession("startingState", f.startingState.possession);
 
@@ -51,20 +64,23 @@ export function validateFixture(f: MatchFixture): string[] {
   if (f.snapshots[f.snapshots.length - 1]?.t !== f.durationMs) err("Last snapshot must be at t = durationMs");
   f.snapshots.forEach((s, i) => {
     const where = `snapshot[${i}] t=${s.t}`;
-    if (i > 0 && s.t <= f.snapshots[i - 1]!.t) err(`${where}: timestamps must be strictly increasing`);
+    if (!finite(s.t)) err(`${where}: timestamp must be a finite number`);
+    else if (i > 0 && !(s.t > f.snapshots[i - 1]!.t)) err(`${where}: timestamps must be strictly increasing`);
     if (i === 0 && s.discontinuity) err(`${where}: first snapshot cannot be a discontinuity`);
     const seen = new Set<string>();
     for (const ps of s.players) {
       if (!playerIds.has(ps.playerId)) err(`${where}: unknown player ${ps.playerId}`);
       if (seen.has(ps.playerId)) err(`${where}: duplicate player ${ps.playerId}`);
       seen.add(ps.playerId);
-      if (ps.x < 0 || ps.x > PITCH_LENGTH || ps.y < 0 || ps.y > PITCH_WIDTH)
+      if (!finite(ps.x) || !finite(ps.y)) err(`${where}: player ${ps.playerId} has non-finite coordinates`);
+      else if (ps.x < 0 || ps.x > PITCH_LENGTH || ps.y < 0 || ps.y > PITCH_WIDTH)
         err(`${where}: player ${ps.playerId} outside the pitch`);
-      if (!Number.isFinite(ps.facing)) err(`${where}: player ${ps.playerId} has invalid facing`);
+      if (!finite(ps.facing)) err(`${where}: player ${ps.playerId} has invalid facing`);
     }
     if (seen.size !== playerIds.size) err(`${where}: expected ${playerIds.size} players, got ${seen.size}`);
     const b = s.ball;
-    if (
+    if (!b || !finite(b.x) || !finite(b.y) || !finite(b.z)) err(`${where}: ball has non-finite coordinates`);
+    else if (
       b.x < -BALL_MARGIN ||
       b.x > PITCH_LENGTH + BALL_MARGIN ||
       b.y < -BALL_MARGIN ||
@@ -81,9 +97,18 @@ export function validateFixture(f: MatchFixture): string[] {
     const where = `event[${i}] ${e.id}`;
     if (eventIds.has(e.id)) err(`Duplicate event ID ${e.id}`);
     eventIds.add(e.id);
-    if (i > 0 && e.t < f.events[i - 1]!.t) err(`${where}: events must be ordered by timestamp`);
-    if (e.t < 0 || e.t > f.durationMs) err(`${where}: timestamp outside fixture duration`);
-    if (e.startT !== undefined && (e.startT > e.t || e.startT < 0)) err(`${where}: startT must be within [0, t]`);
+    if (!finite(e.t)) err(`${where}: timestamp must be a finite number`);
+    else {
+      if (i > 0 && e.t < f.events[i - 1]!.t) err(`${where}: events must be ordered by timestamp`);
+      if (e.t < 0 || e.t > f.durationMs) err(`${where}: timestamp outside fixture duration`);
+    }
+    if (e.startT !== undefined && !(finite(e.startT) && e.startT >= 0 && e.startT <= e.t))
+      err(`${where}: startT must be a finite number within [0, t]`);
+    for (const key of ["start", "end"] as const) {
+      const p = e[key];
+      if (p !== undefined && !(finite(p.x) && finite(p.y) && finite(p.z)))
+        err(`${where}: ${key} position has non-finite coordinates`);
+    }
     if (!teamIds.has(e.teamId)) err(`${where}: unknown team ${e.teamId}`);
     if (e.playerId !== undefined && !playerIds.has(e.playerId)) err(`${where}: unknown player ${e.playerId}`);
     if (e.type === "pass") {

@@ -66,6 +66,7 @@ export function positionsAt(
   t: number,
 ): Pick<PlaybackFrame, "players" | "ball" | "possession"> {
   const snaps = fixture.snapshots;
+  if (snaps.length === 0) throw new Error("Fixture has no snapshots; validate it before playback");
   const time = clampTime(fixture, t);
   const i = Math.max(0, lastAtOrBefore(snaps, time, (s) => s.t));
   const a = snaps[i]!;
