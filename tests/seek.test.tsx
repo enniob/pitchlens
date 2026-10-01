@@ -192,6 +192,16 @@ describe("Timeline markup", () => {
     expect(html.match(/disabled=""/g)).toHaveLength(2);
   });
 
+  it("shows ticks only for events already reached, and no gold goal tick early", () => {
+    const goal = sampleFixture.events.find((e) => e.type === "goal")!;
+    const ticks = (html: string) => html.match(/class="timeline__tick/g)?.length ?? 0;
+    expect(ticks(render({ timeMs: 0 }))).toBe(sampleFixture.events.filter((e) => e.t <= 0).length);
+    const before = render({ timeMs: goal.t - 1 });
+    expect(before).not.toContain("timeline__tick--goal");
+    expect(ticks(before)).toBe(sampleFixture.events.filter((e) => e.t < goal.t).length);
+    expect(render({ timeMs: goal.t })).toContain("timeline__tick--goal");
+  });
+
   it("does not leak event descriptions", () => {
     const html = render();
     for (const e of sampleFixture.events) expect(html).not.toContain(e.description);
