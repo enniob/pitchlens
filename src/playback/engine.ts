@@ -4,7 +4,7 @@
  * back frames. Nothing else in the app keeps its own simulation timer.
  */
 import type { MatchEvent, MatchFixture } from "@/match/contract";
-import { eventsBetween, frameAt, type PlaybackFrame } from "./derive";
+import { clampTime, eventsBetween, frameAt, nextEventTime, previousEventTime, type PlaybackFrame } from "./derive";
 
 export const SPEEDS = [0.5, 1, 2, 4] as const;
 export type Speed = (typeof SPEEDS)[number];
@@ -57,6 +57,34 @@ export class PlaybackEngine {
   /** Back to t = 0: positions, score and event history return to the fixture's starting state. */
   restart(): void {
     this.time = 0;
+  }
+
+  /**
+   * Jump to simulation time `t` (clamped to the fixture). Play/pause state and
+   * speed are kept, except that seeking to the very end stops playback just as
+   * reaching it naturally does. Non-finite input is ignored. Everything shown is
+   * derived from the time alone, so seeking cannot reveal future events.
+   */
+  seek(t: number): void {
+    if (!Number.isFinite(t)) return;
+    this.time = clampTime(this.fixture, t);
+    if (this.time >= this.fixture.durationMs) this.isPlaying = false;
+  }
+
+  /** Seek to the latest event before the current time. Returns false when there is none. */
+  seekToPreviousEvent(): boolean {
+    const t = previousEventTime(this.fixture, this.time);
+    if (t === null) return false;
+    this.seek(t);
+    return true;
+  }
+
+  /** Seek to the earliest event after the current time. Returns false when there is none. */
+  seekToNextEvent(): boolean {
+    const t = nextEventTime(this.fixture, this.time);
+    if (t === null) return false;
+    this.seek(t);
+    return true;
   }
 
   /**

@@ -20,7 +20,7 @@ npm run dev        # http://localhost:3000
 | `npm run dev` | Development server with hot reload |
 | `npm run build` | Production build |
 | `npm start` | Serve the production build (run `npm run build` first) |
-| `npm test` | Unit tests (Vitest): playback clock, event processing, restart, fixture validity |
+| `npm test` | Unit tests (Vitest): playback clock, seeking and event navigation, event processing, restart, fixture validity |
 | `npm run typecheck` | `tsc --noEmit` |
 
 ### Using the viewer
@@ -144,7 +144,7 @@ I also checked the app by hand in headless Chromium (SwiftShader WebGL) at 1440Ã
 - The player models are simple capsules. The number badges stay the same size on screen, and players and the ball are drawn slightly larger than life so they stay readable from the overhead camera.
 - Movement is linear between keyframes and 100 ms snapshots. There is no physics, animation rigging or tactical logic.
 - The kickoff reset is an instant cut. Players walk back beforehand, so in practice only the ball jumps.
-- There's no seek bar or keyboard shortcuts yet. All controls are standard buttons and work with Tab, Enter and Space.
+- There are no global keyboard shortcuts. All controls are standard buttons and a native slider, and work with Tab, Enter, Space and the arrow keys.
 - Pinch zoom and pan on the canvas turn off the browser's touch scrolling over the 3D view. On mobile, scroll the page using the area outside the view.
 - Shadows are simple discs. No real-time shadow maps are used.
 
@@ -179,3 +179,19 @@ completion event. This is a synthetic demo generator, not a calibrated tactical 
 Tests cover multiple seeds, deterministic replay, bounded player speed, valid
 fixtures, possession at reception, goal scoring, conceding-team kickoffs, and
 coverage of goals, saves, misses, and interceptions. Original demo tests remain.
+
+## Seeking and event navigation (MVP 3)
+
+`PlaybackEngine` gained `seek(t)`, `seekToPreviousEvent()` and `seekToNextEvent()`.
+Seeking only moves the clock (clamped to the fixture; non-finite values are ignored).
+Positions, ball, possession, score and the event feed are all pure functions of that
+time (`frameAt`), so a seek gives exactly the same frame as playing to that time and
+never reveals later events — including when scrubbing backwards, where the score and
+feed shrink again. Seeking does not emit crossed events, and playing on afterwards
+reports only events after the new position. The discontinuity rule still applies:
+a seek into a kickoff reset never interpolates across the cut.
+
+Event navigation uses distinct event timestamps (equal-time events share one stop),
+strictly before/after the current time. Landing on an event includes it in the feed
+and score. Both fixture schemas (1.0.0 and 1.1.0) are covered by `tests/seek.test.tsx`.
+Statistics and match import/export are not part of this milestone.

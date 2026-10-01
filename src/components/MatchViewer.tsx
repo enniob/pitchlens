@@ -10,9 +10,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MatchEvent, MatchFixture, Score } from "@/match/contract";
 import { validateFixture } from "@/match/validate";
+import { nextEventTime, previousEventTime } from "@/playback/derive";
 import { PlaybackEngine, type PlaybackStatus, type Speed } from "@/playback/engine";
 import type { CameraView, MatchScene } from "@/scene/MatchScene";
 import { EventFeed } from "./EventFeed";
+import { Timeline } from "./Timeline";
 import { PlaybackControls } from "./PlaybackControls";
 import { Scoreboard } from "./Scoreboard";
 
@@ -175,6 +177,35 @@ function PlaybackViewer({ fixture }: { fixture: MatchFixture }) {
     engineRef.current!.restart();
     syncUi(true);
   }, [syncUi]);
+  const wasPlayingRef = useRef<boolean | null>(null);
+  const onSeek = useCallback(
+    (timeMs: number) => {
+      engineRef.current!.seek(timeMs);
+      syncUi(true);
+    },
+    [syncUi],
+  );
+  // Dragging the slider holds playback so the clock doesn't fight the pointer.
+  const onScrubStart = useCallback(() => {
+    const engine = engineRef.current!;
+    wasPlayingRef.current = engine.status.playing;
+    engine.pause();
+    syncUi(true);
+  }, [syncUi]);
+  const onScrubEnd = useCallback(() => {
+    const engine = engineRef.current!;
+    if (wasPlayingRef.current && !engine.status.ended) engine.play();
+    wasPlayingRef.current = null;
+    syncUi(true);
+  }, [syncUi]);
+  const onPreviousEvent = useCallback(() => {
+    engineRef.current!.seekToPreviousEvent();
+    syncUi(true);
+  }, [syncUi]);
+  const onNextEvent = useCallback(() => {
+    engineRef.current!.seekToNextEvent();
+    syncUi(true);
+  }, [syncUi]);
   const onSpeed = useCallback(
     (speed: Speed) => {
       engineRef.current!.setSpeed(speed);
@@ -224,6 +255,18 @@ function PlaybackViewer({ fixture }: { fixture: MatchFixture }) {
             </div>
           )}
         </div>
+        <Timeline
+          timeMs={ui.status.timeMs}
+          durationMs={fixture.durationMs}
+          events={fixture.events}
+          hasPrevious={previousEventTime(fixture, ui.status.timeMs) !== null}
+          hasNext={nextEventTime(fixture, ui.status.timeMs) !== null}
+          onSeek={onSeek}
+          onScrubStart={onScrubStart}
+          onScrubEnd={onScrubEnd}
+          onPreviousEvent={onPreviousEvent}
+          onNextEvent={onNextEvent}
+        />
         <PlaybackControls
           status={ui.status}
           view={view}
