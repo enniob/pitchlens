@@ -17,7 +17,7 @@
  */
 
 export const SCHEMA_VERSION = "1.0.0" as const;
-export type SchemaVersion = typeof SCHEMA_VERSION;
+export type SchemaVersion = typeof SCHEMA_VERSION | "1.1.0";
 
 export const PITCH_LENGTH = 105;
 export const PITCH_WIDTH = 68;
@@ -89,7 +89,7 @@ export interface Snapshot {
   discontinuity?: boolean;
 }
 
-export type EventType = "kickoff" | "turnover" | "pass" | "shot" | "goal";
+export type EventType = "kickoff" | "turnover" | "pass" | "shot" | "goal" | "shot-result" | "goal-kick";
 
 export interface MatchEvent {
   /** Unique within the fixture. */
@@ -104,7 +104,7 @@ export interface MatchEvent {
   playerId?: string;
   /** Pass recipient (required for passes). */
   recipientId?: string;
-  outcome: "won" | "complete" | "on-target" | "scored" | "taken";
+  outcome: "won" | "complete" | "on-target" | "scored" | "taken" | "pending" | "intercepted" | "saved" | "missed";
   /** Time the action began (e.g. ball struck for a pass), if earlier than `t`. */
   startT?: number;
   start?: Vec3;

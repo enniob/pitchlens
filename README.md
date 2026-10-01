@@ -147,3 +147,35 @@ I also checked the app by hand in headless Chromium (SwiftShader WebGL) at 1440�
 - There's no seek bar or keyboard shortcuts yet. All controls are standard buttons and work with Tab, Enter and Space.
 - Pinch zoom and pan on the canvas turn off the browser's touch scrolling over the 3D view. On mobile, scroll the page using the area outside the view.
 - Shadows are simple discs. No real-time shadow maps are used.
+
+## Seeded simulator (MVP 2)
+
+Use **Generate match** with an integer seed (0–4294967295) and a duration.
+The same seed, duration, and simulator version reproduce the same match.
+**Scripted demo** restores the original MVP 1 fixture. Generation resets playback
+and starts paused; playback speed does not change simulation outcomes.
+
+`generateMatch({ seed, durationMs })` in `src/simulation/generate.ts` is a pure
+TypeScript producer, independent of the renderer. It uses fixed 100 ms steps,
+a seeded PRNG, speed-limited formation movement, carrying, passes, corridor-based
+interceptions, shots, saves, goals, and simplified dead-ball restarts.
+
+Generated fixtures use schema **1.1.0**; the original **1.0.0** fixture remains
+supported. New event types are `shot-result` and `goal-kick`; new outcomes are
+`pending`, `intercepted`, `saved`, and `missed`. A `shot` is published at the strike
+with outcome `pending`, with no future destination. Its result appears only on
+arrival as `goal` or `shot-result`. Failed passes preserve the intended recipient;
+a following turnover identifies the interceptor. Equal-time events retain array
+order. Results are simplified sampled outcomes, not predictions of real football.
+
+After a goal the conceding team kicks off. Misses lead to a simplified goal kick.
+Dead-ball periods last two seconds, followed by an explicit discontinuity cut to
+restart positions. The viewer never interpolates through this cut. There are no
+throw-ins, corners, fouls, offsides, substitutions, fatigue, or full physics yet.
+Durations are 10–180 seconds in 100 ms increments through the API; the UI offers
+30, 60, and 120 seconds. A sequence can end during a ball flight, with no invented
+completion event. This is a synthetic demo generator, not a calibrated tactical model.
+
+Tests cover multiple seeds, deterministic replay, bounded player speed, valid
+fixtures, possession at reception, goal scoring, conceding-team kickoffs, and
+coverage of goals, saves, misses, and interceptions. Original demo tests remain.
