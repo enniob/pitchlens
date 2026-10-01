@@ -8,8 +8,8 @@ import { generateMatch } from "@/simulation/generate";
 
 const fixtures = [
   ["scripted 1.0.0", sampleFixture],
-  ["generated 1.1.0", generateMatch({ seed: 42, durationMs: 60_000 })],
-  ["generated 1.1.0 (seed 7)", generateMatch({ seed: 7, durationMs: 120_000 })],
+  ["generated 1.2.0", generateMatch({ seed: 42, durationMs: 60_000 })],
+  ["generated 1.2.0 (seed 7)", generateMatch({ seed: 7, durationMs: 120_000 })],
 ] as const;
 
 describe.each(fixtures)("seeking: %s", (_name, f) => {

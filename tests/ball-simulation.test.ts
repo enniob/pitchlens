@@ -16,6 +16,7 @@ import { PlaybackEngine, SPEEDS } from "@/playback/engine";
 import { statisticsAt } from "@/playback/statistics";
 import { BALL_RADIUS, GRAVITY, ROLL_DECELERATION } from "@/simulation/ball";
 import {
+  BLOCK_REACH,
   CONTROL_HEIGHT,
   CONTROL_REACH,
   DRIBBLE_OFFSET,
@@ -28,6 +29,8 @@ import {
   SNAPSHOT_INTERVAL_MS,
   STEP_MS,
   TACKLE_RANGE,
+  THROW_HEIGHT,
+  THROW_REACH,
 } from "@/simulation/generate";
 
 const SEEDS = [0, 1, 2, 3, 7, 42, 100, 999];
@@ -39,6 +42,9 @@ const playerIn = (s: Snapshot, id: string) => s.players.find((p) => p.playerId =
 const gap = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
 const inGoalMouth = (b: { y: number; z: number }) => Math.abs(b.y - PITCH_WIDTH / 2) < GOAL_WIDTH / 2 && b.z < GOAL_HEIGHT;
 const overEndLine = (b: { x: number }) => b.x > PITCH_LENGTH + BALL_RADIUS - 1e-9 || b.x < -BALL_RADIUS + 1e-9;
+const RESTARTS = ["kickoff", "goal-kick", "throw-in", "corner", "free-kick", "penalty"];
+/** Thrown passes leave from the hands; every other pass and shot from the foot. */
+const thrown = (e: MatchEvent) => e.type === "pass" && e.start!.z === THROW_HEIGHT;
 
 describe("deterministic replay", () => {
   it("regenerates byte-identical fixtures from the same seed", () => {
@@ -84,9 +90,9 @@ describe("deterministic replay", () => {
 });
 
 describe.each(fixtures)("ball physics in generated match, seed %s", (_seed, f) => {
-  it("is a valid schema 1.1.0 fixture on a fixed timestep", () => {
+  it("is a valid schema 1.2.0 fixture on a fixed timestep", () => {
     expect(validateFixture(f)).toEqual([]);
-    expect(f.schemaVersion).toBe("1.1.0");
+    expect(f.schemaVersion).toBe("1.2.0");
     const times = new Set(f.snapshots.map((s) => s.t));
     for (const s of f.snapshots) expect(s.t % STEP_MS).toBe(0);
     for (let t = 0; t <= f.durationMs; t += SNAPSHOT_INTERVAL_MS) expect(times.has(t)).toBe(true);
@@ -114,8 +120,8 @@ describe.each(fixtures)("ball physics in generated match, seed %s", (_seed, f) =
       const inPlay =
         b.x >= -BALL_RADIUS && b.x <= PITCH_LENGTH + BALL_RADIUS && b.y >= -BALL_RADIUS && b.y <= PITCH_WIDTH + BALL_RADIUS;
       if (!inPlay && !dead) {
-        // The first snapshot out of play is exactly the one carrying the goal or miss.
-        expect(f.events.some((e) => e.t === s.t && ["scored", "missed"].includes(e.outcome))).toBe(true);
+        // The first snapshot out of play is exactly the one carrying the goal, or the result of the kick that went out.
+        expect(f.events.some((e) => e.t === s.t && ["goal", "shot-result", "pass"].includes(e.type))).toBe(true);
         expect(i).toBeGreaterThan(0);
         dead = true;
       }
@@ -143,7 +149,9 @@ describe.each(fixtures)("ball physics in generated match, seed %s", (_seed, f) =
   it("moves a passed ball by gravity in the air and friction on the ground", () => {
     let airborne = 0;
     let rolling = 0;
-    for (const pass of f.events.filter((e) => e.type === "pass" && e.outcome === "complete")) {
+    // Passes that came off someone or the frame on the way change direction mid-flight; they are covered elsewhere.
+    const clean = (e: MatchEvent) => !f.events.some((d) => d.type === "deflection" && d.t > e.startT! && d.t < e.t);
+    for (const pass of f.events.filter((e) => e.type === "pass" && e.outcome === "complete" && clean(e))) {
       // Free flight only: from the strike up to, not including, the controlling touch.
       const path = f.snapshots.filter((s) => s.t >= pass.startT! && s.t < pass.t);
       for (let i = 2; i < path.length; i++) {
@@ -189,8 +197,19 @@ describe.each(fixtures)("event/contact alignment, seed %s", (_seed, f) => {
   };
   const strikes = (e: MatchEvent) => (e.type === "pass" ? e.startT! : e.t);
 
-  it("starts every pass and shot at the kicker's foot", () => {
-    const kicks = f.events.filter((e) => e.type === "pass" || e.type === "shot");
+  it("starts every pass and shot at the kicker's foot, and every throw-in from the hands", () => {
+    for (const e of f.events.filter(thrown)) {
+      const s = snapshotAt(f, e.startT!);
+      const p = playerIn(s, e.playerId!);
+      expect(s.ball).toEqual(e.start);
+      expect(gap(s.ball, { x: p.x + Math.cos(p.facing) * THROW_REACH, y: p.y + Math.sin(p.facing) * THROW_REACH })).toBeLessThan(1e-9);
+      // The thrower is the one who took the throw-in, standing on the touchline.
+      const restart = f.events.filter((x) => RESTARTS.includes(x.type) && x.t <= e.startT!).at(-1)!;
+      expect(restart.type).toBe("throw-in");
+      expect(restart.playerId).toBe(e.playerId);
+      expect([0, PITCH_WIDTH]).toContain(p.y);
+    }
+    const kicks = f.events.filter((e) => (e.type === "pass" && !thrown(e)) || e.type === "shot");
     expect(kicks.length).toBeGreaterThan(5);
     for (const e of kicks) {
       const t = strikes(e);
@@ -213,7 +232,11 @@ describe.each(fixtures)("event/contact alignment, seed %s", (_seed, f) => {
     const recognised = new Set(contacts.map((c) => key(c.t, c.playerId)));
     for (const e of f.events.filter((x) => x.type === "pass" || x.type === "shot"))
       expect(recognised.has(key(strikes(e), e.playerId!))).toBe(true);
-    for (const c of contacts) expect(gap(snapshotAt(f, c.t).ball, atFoot(snapshotAt(f, c.t), c.playerId))).toBeLessThan(1e-9);
+    for (const c of contacts) {
+      const s = snapshotAt(f, c.t);
+      if (c.kind === "throw") expect(s.ball.z).toBe(THROW_HEIGHT);
+      else expect(gap(s.ball, atFoot(s, c.playerId))).toBeLessThan(1e-9);
+    }
     // Derived from snapshots only: stripping the events changes nothing.
     expect(kickContacts({ ...f, events: [] })).toEqual(contacts);
   });
@@ -254,20 +277,26 @@ describe.each(fixtures)("event/contact alignment, seed %s", (_seed, f) => {
     }
   });
 
-  it("resolves every shot from where the ball actually went", () => {
+  it("resolves every shot once, from where the ball actually went", () => {
     for (const shot of f.events.filter((e) => e.type === "shot")) {
-      const result = f.events.find((e) => e.startT === shot.t && (e.type === "goal" || e.type === "shot-result"));
+      const results = f.events.filter((e) => e.startT === shot.t && (e.type === "goal" || e.type === "shot-result"));
+      expect(results.length).toBeLessThanOrEqual(1);
+      const result = results[0];
       if (!result) {
         // Still in flight when the sequence ended; no outcome is invented.
-        expect(f.events.some((e) => e.t > shot.t && e.type !== "shot")).toBe(false);
+        expect(f.events.some((e) => e.t > shot.t && !["shot", "deflection"].includes(e.type))).toBe(false);
         continue;
       }
       const s = snapshotAt(f, result.t);
       const end = result.end!;
       expect(result.t).toBeGreaterThan(shot.t);
+      // Touches on the way, which decide a result that is not a goal or a catch.
+      const touches = f.events.filter((e) => e.type === "deflection" && e.t > shot.t && e.t <= result.t);
+      const first = touches[0];
       // Whole ball over a goal line: the event records the crossing point on that line.
       const onEndLine = Math.abs(end.x - (PITCH_LENGTH + BALL_RADIUS)) < 1e-9 || Math.abs(end.x + BALL_RADIUS) < 1e-9;
       const insideFrame = Math.abs(end.y - PITCH_WIDTH / 2) < GOAL_WIDTH / 2 - BALL_RADIUS && end.z < GOAL_HEIGHT - BALL_RADIUS;
+      const keeper = keeperOfOpponents(shot.teamId);
       if (result.outcome === "scored") {
         expect(onEndLine && insideFrame).toBe(true);
         expect(overEndLine(s.ball)).toBe(true);
@@ -277,19 +306,27 @@ describe.each(fixtures)("event/contact alignment, seed %s", (_seed, f) => {
         // It went in at the end the shooter attacks.
         const attacksUp = f.teams.find((team) => team.id === shot.teamId)!.attacksTowards === "increasing-x";
         expect(end.x > PITCH_LENGTH / 2).toBe(attacksUp);
-      } else if (result.outcome === "saved") {
-        const keeper = keeperOfOpponents(shot.teamId);
+      } else if (result.outcome === "saved" && s.possession?.playerId === keeper && !first) {
+        // Held at the first attempt.
         expect(s.ball).toEqual(end);
-        expect(s.possession?.playerId).toBe(keeper);
         expect(gap(playerIn(s, keeper), s.ball)).toBeLessThanOrEqual(KEEPER_REACH + 1e-9);
         expect(s.ball.z).toBeLessThanOrEqual(KEEPER_HEIGHT);
         expect(overEndLine(s.ball)).toBe(false);
+      } else if (result.outcome === "saved") {
+        // Parried: the goalkeeper's touch came first.
+        expect(first?.playerId).toBe(keeper);
+        expect(first?.description).toMatch(/^Parried/);
+      } else if (result.outcome === "blocked") {
+        expect(first?.description).toMatch(/^Blocked/);
+        expect(f.roster.find((p) => p.id === first!.playerId)!.teamId).not.toBe(shot.teamId);
       } else {
         expect(result.outcome).toBe("missed");
+        expect(first === undefined || /hits the/.test(first.description)).toBe(true);
+        const offside = f.events.some((e) => e.t === result.t && e.type === "offside");
         if (s.possession) {
-          // Ran out of pace and was picked up.
+          // Picked up once it had run out of pace.
           expect(s.ball).toEqual(end);
-        } else {
+        } else if (!offside) {
           // Left the pitch outside the frame.
           const onTouchline = Math.abs(end.y + BALL_RADIUS) < 1e-9 || Math.abs(end.y - PITCH_WIDTH - BALL_RADIUS) < 1e-9;
           expect(onTouchline || (onEndLine && !insideFrame)).toBe(true);
@@ -297,42 +334,80 @@ describe.each(fixtures)("event/contact alignment, seed %s", (_seed, f) => {
       }
     }
   });
+
+  it("deflects the ball only off a player within reach of it, or the woodwork", () => {
+    for (const d of f.events.filter((e) => e.type === "deflection")) {
+      const s = snapshotAt(f, d.t);
+      expect(s.possession).toBeNull();
+      expect(s.ball).toEqual(d.start);
+      if (d.playerId) {
+        const reach = /^Parried/.test(d.description) ? KEEPER_REACH : BLOCK_REACH;
+        expect(gap(playerIn(s, d.playerId), s.ball)).toBeLessThanOrEqual(reach + 1e-9);
+      }
+      // The ball leaves the contact on a new path.
+      const next = f.snapshots[f.snapshots.indexOf(s) + 1];
+      if (next && !next.discontinuity) expect(gap(next.ball, s.ball)).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("ball out of play", () => {
+  /** Every kick that ended with the ball over a line without a goal: the event at that instant and the fixture. */
   const out = fixtures.flatMap(([, f]) =>
-    f.events.filter((e) => e.type === "pass" && e.outcome === "missed").map((e) => [f, e] as const),
+    f.events
+      .filter((e) => (e.type === "pass" || e.type === "shot-result") && !snapshotAt(f, e.t).possession && e.end)
+      .filter((e) => !f.events.some((x) => x.t === e.t && x.type === "offside"))
+      .map((e) => [f, e] as const),
   );
+  /** Team of the last player to touch the ball before it went out: the kicker, or whoever it came off since. */
+  const lastTouch = (f: MatchFixture, e: MatchEvent) => {
+    const touched = f.events.filter((x) => x.type === "deflection" && x.playerId && x.t > e.startT! && x.t <= e.t).at(-1);
+    return touched ? f.roster.find((p) => p.id === touched.playerId)!.teamId : e.teamId;
+  };
 
-  it("happens for overhit passes in the sampled seeds", () => {
-    expect(out.length).toBeGreaterThan(0);
+  it("happens for passes and shots in the sampled seeds", () => {
+    expect(out.length).toBeGreaterThan(5);
   });
 
-  it("stops play where the ball crossed the line and restarts with the other team", () => {
+  it("restarts with a throw-in, corner or goal kick against the team that touched it last", () => {
+    const kinds = new Set<string>();
     for (const [f, e] of out) {
       const end = e.end!;
-      const onLine =
-        Math.abs(end.y + BALL_RADIUS) < 1e-9 ||
-        Math.abs(end.y - PITCH_WIDTH - BALL_RADIUS) < 1e-9 ||
-        Math.abs(end.x + BALL_RADIUS) < 1e-9 ||
-        Math.abs(end.x - PITCH_LENGTH - BALL_RADIUS) < 1e-9;
-      expect(onLine).toBe(true);
-      expect(snapshotAt(f, e.t).possession).toBeNull();
-      const restart = f.events.find((x) => x.t > e.t && (x.type === "turnover" || x.type === "goal-kick"));
+      const side = Math.abs(end.y + BALL_RADIUS) < 1e-9 || Math.abs(end.y - PITCH_WIDTH - BALL_RADIUS) < 1e-9;
+      const endLine = Math.abs(end.x + BALL_RADIUS) < 1e-9 || Math.abs(end.x - PITCH_LENGTH - BALL_RADIUS) < 1e-9;
+      expect(side || endLine).toBe(true);
+      const restart = f.events.find((x) => x.t > e.t && RESTARTS.includes(x.type));
       if (!restart) continue; // sequence ended during the dead ball
-      expect(restart.teamId).not.toBe(e.teamId);
       // Nothing else happens while the ball is dead.
-      expect(f.events.filter((x) => x.t > e.t && x.t < restart.t)).toEqual([]);
+      expect(f.events.filter((x) => x.t > e.t && x.t < restart.t && x.type !== "deflection")).toEqual([]);
+      const touched = lastTouch(f, e);
+      expect(restart.teamId).not.toBe(touched);
       const s = snapshotAt(f, restart.t);
       expect(s.discontinuity).toBe(true);
       expect(s.possession?.playerId).toBe(restart.playerId);
       const taker = playerIn(s, restart.playerId!);
-      expect(gap(s.ball, taker)).toBeCloseTo(DRIBBLE_OFFSET, 9);
-      expect(s.ball.x).toBeGreaterThan(0);
-      expect(s.ball.x).toBeLessThan(PITCH_LENGTH);
-      expect(s.ball.y).toBeGreaterThan(0);
-      expect(s.ball.y).toBeLessThan(PITCH_WIDTH);
+      kinds.add(restart.type);
+      if (side) {
+        // Thrown in from the touchline where it went out, held over the head.
+        expect(restart.type).toBe("throw-in");
+        expect(taker.y).toBe(end.y < 0 ? 0 : PITCH_WIDTH);
+        expect(taker.x).toBeCloseTo(Math.min(PITCH_LENGTH - 1, Math.max(1, end.x)), 9);
+        expect(s.ball.z).toBe(THROW_HEIGHT);
+      } else {
+        const defending = f.teams.find((t) => (t.attacksTowards === "increasing-x") === end.x < 0)!;
+        expect(restart.type).toBe(touched === defending.id ? "corner" : "goal-kick");
+        expect(gap(s.ball, taker)).toBeCloseTo(DRIBBLE_OFFSET, 9);
+        if (restart.type === "corner") {
+          // From the corner on the side it went out, inside the corner arc.
+          const corner = { x: end.x < 0 ? 0 : PITCH_LENGTH, y: end.y < PITCH_WIDTH / 2 ? 0 : PITCH_WIDTH };
+          expect(gap(s.ball, corner)).toBeLessThan(1.5);
+        } else {
+          expect(f.roster.find((p) => p.id === restart.playerId)!.role).toBe("GK");
+        }
+      }
     }
+    expect(kinds.has("throw-in")).toBe(true);
+    expect(kinds.has("goal-kick")).toBe(true);
   });
 });
 
@@ -378,12 +453,12 @@ describe("scripted demo (schema 1.0.0) is unchanged", () => {
     expect(sampleFixture.snapshots).toHaveLength(241);
     expect(sampleFixture.events.map((e) => e.type)).toEqual(["turnover", "pass", "pass", "pass", "shot", "goal", "kickoff", "pass"]);
     // The same snapshot-only rule finds the scripted kicks, so the demo gets the kick animation too.
-    expect(kickContacts(sampleFixture)).toEqual([
-      { t: 2_900, playerId: "hcf-6" },
-      { t: 5_300, playerId: "hcf-8" },
-      { t: 7_300, playerId: "hcf-10" },
-      { t: 8_800, playerId: "hcf-9" },
-      { t: 20_000, playerId: "nvr-9" },
+    expect(kickContacts(sampleFixture).map(({ t, playerId, kind }) => ({ t, playerId, kind }))).toEqual([
+      { t: 2_900, playerId: "hcf-6", kind: "kick" },
+      { t: 5_300, playerId: "hcf-8", kind: "kick" },
+      { t: 7_300, playerId: "hcf-10", kind: "kick" },
+      { t: 8_800, playerId: "hcf-9", kind: "kick" },
+      { t: 20_000, playerId: "nvr-9", kind: "kick" },
     ]);
   });
 });

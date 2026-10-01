@@ -215,7 +215,8 @@ export class PlayerSquad {
       this.shorts.setMatrixAt(i, rig.pelvis);
       this.head.setMatrixAt(i, rig.head);
       this.hair.setMatrixAt(i, rig.head);
-      this.shadow.setMatrixAt(i, this.ground.makeTranslation(rig.root.elements[12]!, 0.02, rig.root.elements[14]!));
+      // Under the hips, so a diving or fallen player's shadow stays under their body.
+      this.shadow.setMatrixAt(i, this.ground.makeTranslation(rig.pelvis.elements[12]!, 0.02, rig.pelvis.elements[14]!));
       for (const side of [0, 1] as const) {
         this.upperArm.setMatrixAt(i * 2 + side, rig.upperArm[side]);
         this.forearm.setMatrixAt(i * 2 + side, rig.forearm[side]);

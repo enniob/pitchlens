@@ -8,6 +8,10 @@ export interface TeamStatistics {
   shots: number;
   saves: number;
   goals: number;
+  /** Fouls committed, corners won and times caught offside (schema 1.2.0; always 0 for older fixtures). */
+  fouls: number;
+  corners: number;
+  offsides: number;
 }
 
 export type MatchStatistics = Record<TeamSide, TeamStatistics>;
@@ -15,7 +19,17 @@ export type MatchStatistics = Record<TeamSide, TeamStatistics>;
 /** Totals for this sequence up to t; no future results or prior-match totals. */
 export function statisticsAt(fixture: MatchFixture, t: number): MatchStatistics {
   const time = clampTime(fixture, Number.isFinite(t) ? t : 0);
-  const empty = (): TeamStatistics => ({ possessionMs: 0, possessionPercent: null, completedPasses: 0, shots: 0, saves: 0, goals: 0 });
+  const empty = (): TeamStatistics => ({
+    possessionMs: 0,
+    possessionPercent: null,
+    completedPasses: 0,
+    shots: 0,
+    saves: 0,
+    goals: 0,
+    fouls: 0,
+    corners: 0,
+    offsides: 0,
+  });
   const stats: MatchStatistics = { home: empty(), away: empty() };
   const sides = new Map(fixture.teams.map((team) => [team.id, team.side]));
   // A snapshot's possession holds until the next snapshot, including reset cuts.
@@ -38,6 +52,9 @@ export function statisticsAt(fixture: MatchFixture, t: number): MatchStatistics 
     if (event.type === "pass" && event.outcome === "complete") stats[side].completedPasses++;
     if (event.type === "shot") stats[side].shots++;
     if (event.type === "goal") stats[side].goals++;
+    if (event.type === "foul") stats[side].fouls++;
+    if (event.type === "corner") stats[side].corners++;
+    if (event.type === "offside") stats[side].offsides++;
     if (event.type === "shot-result" && event.outcome === "saved") {
       stats[side === "home" ? "away" : "home"].saves++;
     }

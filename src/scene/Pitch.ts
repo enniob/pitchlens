@@ -3,7 +3,7 @@
  * Markings are painted onto one canvas texture at 20 px per metre.
  */
 import * as THREE from "three";
-import { GOAL_HEIGHT, GOAL_WIDTH, PITCH_LENGTH, PITCH_WIDTH } from "@/match/contract";
+import { GOAL_HEIGHT, GOAL_WIDTH, PITCH_LENGTH, PITCH_WIDTH, POST_RADIUS } from "@/match/contract";
 import { HALF_LENGTH } from "./coords";
 
 /** Grass beyond the lines, in metres. */
@@ -11,7 +11,6 @@ const APRON = 6;
 const PX_PER_M = 20;
 const LINE_WIDTH = 0.12;
 const GOAL_DEPTH = 2;
-const POST_RADIUS = 0.07;
 
 function paintGrass(): HTMLCanvasElement {
   const totalL = PITCH_LENGTH + APRON * 2;

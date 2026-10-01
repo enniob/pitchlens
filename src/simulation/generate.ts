@@ -2,23 +2,32 @@
  * Deterministic seeded match simulator. No renderer, wall clock or network
  * dependencies: the same seed and duration always produce the same fixture.
  *
- * The simulation advances in fixed STEP_MS steps. Every step moves the players,
- * then either carries the ball at its owner's foot or advances the free ball
- * with the physics in ./ball.ts. Outcomes are read off the ball's actual path:
- * a pass is received or intercepted when the ball comes within a player's
- * reach, a shot is saved when it comes within the goalkeeper's reach, and a
+ * The simulation advances in fixed STEP_MS steps. Every step moves the players
+ * (who keep a body's width apart), then either carries the ball at its owner's
+ * foot or advances the free ball with the physics in ./ball.ts. Outcomes are
+ * read off the ball's actual path, earliest contact first: a pass is received
+ * or intercepted when the ball comes within a player's reach, it deflects off
+ * an opponent's body or the woodwork, a goalkeeper holds or parries it, and a
  * goal is scored when the whole ball crosses the line inside the frame.
  *
+ * Play stops for goals, the ball leaving the pitch, fouls and offside, and
+ * restarts after a dead-ball pause with a kickoff, throw-in, corner, goal kick,
+ * free kick or penalty, depending on where the ball went and who touched it last.
+ *
  * Snapshots are recorded every SNAPSHOT_INTERVAL_MS and additionally at every
- * contact step (kick, reception, tackle, save, bounce, line crossing), so each
- * event has a snapshot at exactly its timestamp. Playback only ever replays
- * these snapshots; nothing is re-simulated in the viewer.
+ * contact step (kick, reception, tackle, deflection, save, bounce, line
+ * crossing), so each event has a snapshot at exactly its timestamp. Playback
+ * only ever replays these snapshots; nothing is re-simulated in the viewer.
  */
 import {
   GOAL_HEIGHT,
   GOAL_WIDTH,
+  PENALTY_AREA_DEPTH,
+  PENALTY_AREA_HALF_WIDTH,
+  PENALTY_SPOT_DISTANCE,
   PITCH_LENGTH,
   PITCH_WIDTH,
+  POST_RADIUS,
   type MatchEvent,
   type MatchFixture,
   type Player,
@@ -65,6 +74,23 @@ export const KEEPER_HEIGHT = 2.6;
 export const NET_DEPTH = 2;
 /** A ball that leaves the pitch is stopped this far beyond the lines. */
 export const RUN_OFF = 3;
+/** Players' centres are kept at least this far apart: nobody runs through anybody. */
+export const PLAYER_GAP = 0.7;
+/** A ball passing within this distance of an opponent's centre, below BODY_HEIGHT, hits them. */
+export const BODY_REACH = 0.5;
+/** A defender stretching a leg can block a shot passing this close. */
+export const BLOCK_REACH = 0.9;
+export const BODY_HEIGHT = 1.9;
+/** Height at which a throw-in is held and released, and how far in front of the thrower. */
+export const THROW_HEIGHT = 2.2;
+export const THROW_REACH = 0.3;
+/** Opponents stand at least this far from the ball at a free kick, corner or kickoff. */
+export const RESTART_DISTANCE = 9.15;
+/** An opponent this close to the ball at the carrier's feet can win it, m. */
+export const TACKLE_RANGE = 1.8;
+/** Fraction of horizontal speed kept by a deflection off a body or the frame (normal component). */
+export const BODY_RESTITUTION = 0.3;
+export const WOODWORK_RESTITUTION = 0.6;
 
 const DT = STEP_MS / 1000;
 const DRIBBLE_SPEED = 5.5;
@@ -76,18 +102,34 @@ const WINDUP_SPEED = 1.5;
 const TURN_RATE = 10;
 /** Speed at which a newly won ball is drawn in to the foot, m/s. Faster than any foot moves. */
 const GATHER_SPEED = 14;
-/** An opponent this close to the ball at the carrier's feet can win it, m. */
-export const TACKLE_RANGE = 1.8;
 const WINDUP_MS = 160;
 const DEAD_BALL_MS = 2000;
 const INTERCEPT_CHANCE = 0.5;
 /** A pass cannot be cut out until it has travelled this far from the kick, m. */
 const INTERCEPT_MIN_TRAVEL = 2.5;
+/** A shot cannot be blocked until it has left the shooter's foot by this much, m. */
+const BLOCK_MIN_TRAVEL = 1;
+/** Nobody can touch a kicked ball until it has left the foot by this much, m (a loose ball excepted). */
+const CONTACT_MIN_TRAVEL = 0.25;
 const TACKLE_CHANCE = 0.25;
+/** Chance that a challenge is a foul instead (checked when the tackle does not win the ball cleanly). */
+const FOUL_CHANCE = 0.035;
 const MISHIT_CHANCE = 0.06;
 /** An opponent this close to a pass's path moves to cut it out, m. */
 const CUT_OUT_RANGE = 5;
 const SAVE_CHANCE = 0.65;
+/** When a goalkeeper fails to hold a shot, the chance they still get a hand to it. */
+const PARRY_CHANCE = 0.7;
+/** A player who has just deflected the ball cannot touch it again for this long. */
+const DEFLECT_RECOVERY_MS = 400;
+/** Chance that a passer notices a team-mate is offside and looks for someone else. */
+const OFFSIDE_AWARENESS = 0.75;
+/** Once a carrier is this close to goal, a defender steps into the line between them and the goal. */
+const COVER_RANGE = 32;
+/** ...this far in front of the ball. */
+const COVER_DISTANCE = 5;
+/** A direct free kick this close to goal gets a wall. */
+const WALL_RANGE = 32;
 const GROUND_PASS_ARRIVAL_SPEED = 9;
 const MAX_GROUND_PASS_SPEED = 24;
 const LOFT_ANGLE = (32 * Math.PI) / 180;
@@ -102,6 +144,10 @@ const angleDelta = (from: number, to: number) => {
   if (d < -Math.PI) d += TAU;
   return d;
 };
+const onPitch = (p: Vec2, margin = 0): Vec2 => ({
+  x: clamp(p.x, margin, PITCH_LENGTH - margin),
+  y: clamp(p.y, margin, PITCH_WIDTH - margin),
+});
 
 /** Mulberry32: all stochastic choices use this one seeded stream. */
 function random(seed: number) {
@@ -118,6 +164,9 @@ function random(seed: number) {
 const SHAPE: [number, number][] = [
   [2.5, 34], [27, 56], [25, 42], [25, 26], [27, 12], [37, 34], [41, 23], [41, 45], [49, 58], [50, 34], [49, 10],
 ];
+
+/** Where the attackers stand for a corner, as [metres from the goal line, metres across from the goal's centre]. */
+const CORNER_SPOTS: [number, number][] = [[6, -2.5], [8, 3], [11, -0.5], [9.5, 6.5], [13, -6]];
 
 interface Body {
   info: Player;
@@ -139,27 +188,39 @@ interface Flight {
   start: Vec3;
   /** When the ball is expected to reach the aim point. */
   arriveT: number;
-  /** Players who got a touch but failed to hold the ball; they do not get a second attempt. */
-  beaten: Set<Body>;
+  /** Players who cannot touch the ball before the given time: beaten by it (for good), or recovering from a deflection. */
+  barred: Map<Body, number>;
   /** Nobody is expected to receive it any more; anyone may collect it. */
   loose: boolean;
   /** Earliest time the defending goalkeeper reacts to a shot. */
   reactT: number;
+  /** Team-mates of the kicker in an offside position at the strike; empty for restarts exempt from offside. */
+  offside: Set<Body>;
+  /** For a shot, the first touch that turned it away; it decides the result unless the ball still goes in or is held. */
+  turned: { kind: "parry" | "block" | "woodwork"; by: Body | null } | null;
 }
 
 type Intent =
-  | { kind: "pass"; since: number; receiver: Body; lofted: boolean }
+  | { kind: "pass"; since: number; receiver: Body; lofted: boolean; thrown: boolean; exempt: boolean }
   | { kind: "shot"; since: number; target: Vec3; speed: number };
 
+type RestartKind = "kickoff" | "goal-kick" | "throw-in" | "corner" | "free-kick" | "penalty";
+
 interface Restart {
-  kind: "kickoff" | "goal-kick" | "throw-in";
+  kind: RestartKind;
   until: number;
   /** Team that restarts play. */
   team: Team;
   /** Which goal the ball is in (+1 = the x = 105 end), or 0. */
   net: -1 | 0 | 1;
-  /** Where a throw-in restart is taken. */
+  /** Where the restart is taken (for a corner, which corner). */
   at: Vec2;
+  /** Player who takes it, when already decided (the fouled player). */
+  taker?: Body;
+  /** An indirect free kick may not be shot at goal. */
+  indirect?: boolean;
+  /** Players who stay where they are during the stoppage (the fouled player and the fouler). */
+  still?: Body[];
 }
 
 /** Closest approach of point `p` to the ball's path over one step. */
@@ -171,6 +232,43 @@ function approach(prev: Vec3, cur: Vec3, p: Vec2): { u: number; gap: number; at:
   const at = { x: prev.x + dx * u, y: prev.y + dy * u, z: prev.z + (cur.z - prev.z) * u };
   return { u, gap: distance(at, p), at };
 }
+
+/**
+ * Fraction of the way along a→b at which a point moving in a plane first
+ * touches a circle of radius r around c, or null if it does not during the
+ * segment. A point already inside the circle is moving away from a contact it
+ * has already made, so it is ignored.
+ */
+function sweep(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, r: number): number | null {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const fx = ax - cx;
+  const fy = ay - cy;
+  const a = dx * dx + dy * dy;
+  const b = 2 * (fx * dx + fy * dy);
+  const c = fx * fx + fy * fy - r * r;
+  if (c <= 0 || a < 1e-12) return null;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+  const u = (-b - Math.sqrt(disc)) / (2 * a);
+  return u >= 0 && u <= 1 ? u : null;
+}
+
+const lerpBall = (a: BallState, b: BallState, u: number): BallState => ({
+  x: a.x + (b.x - a.x) * u,
+  y: a.y + (b.y - a.y) * u,
+  z: a.z + (b.z - a.z) * u,
+  vx: a.vx + (b.vx - a.vx) * u,
+  vy: a.vy + (b.vy - a.vy) * u,
+  vz: a.vz + (b.vz - a.vz) * u,
+});
+
+/** Things the ball can meet during one step, in the order they are resolved (earliest u first). */
+type Hit =
+  | { u: number; kind: "out"; at: Vec3; end: -1 | 0 | 1 }
+  | { u: number; kind: "frame"; part: "post" | "crossbar"; normal: Vec3 }
+  | { u: number; kind: "control"; by: Body; at: Vec3; chance: number; solid: boolean }
+  | { u: number; kind: "body"; by: Body };
 
 export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions): MatchFixture {
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff)
@@ -208,18 +306,28 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
   }
   // Snapshots list players in roster order.
   bodies.sort((a, b) => roster.indexOf(a.info) - roster.indexOf(b.info));
+  const signOf = (team: Team): 1 | -1 => (team.attacksTowards === "increasing-x" ? 1 : -1);
   const keeperOf = (team: Team) => bodies.find((b) => b.team === team && b.keeper)!;
   const strikerOf = (team: Team) => bodies.find((b) => b.team === team && b.info.number === 9)!;
+  const outfieldOf = (team: Team) => bodies.filter((b) => b.team === team && !b.keeper);
+  /** x of the goal line a team attacks. */
+  const goalLineOf = (team: Team) => (signOf(team) > 0 ? PITCH_LENGTH : 0);
   const label = (b: Body) => `#${b.info.number} ${b.info.name}`;
 
   let t = 0;
   let owner = null as Body | null;
   /** True once a held ball has been drawn in to the owner's foot. */
   let gathered = true;
+  /** True while a thrower holds the ball over their head. */
+  let held = false;
   let ball: BallState = { ...CENTRE, z: BALL_RADIUS, vx: 0, vy: 0, vz: 0 };
   let flight = null as Flight | null;
   let intent = null as Intent | null;
   let restart = null as Restart | null;
+  /** The restart just taken, consumed by the taker's first decision. */
+  let setPlay = null as { taker: Body; kind: RestartKind; indirect: boolean } | null;
+  /** Last player to touch the ball; decides who gets a throw-in, corner or goal kick. */
+  let lastTouch = null as Body | null;
   let nextAction = 1000;
   /** Set when this step contains a contact, so a snapshot is recorded at exactly this time. */
   let contact = false;
@@ -245,20 +353,38 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     y: b.state.y + Math.sin(b.state.facing) * DRIBBLE_OFFSET,
     z: BALL_RADIUS,
   });
+  const handsOf = (b: Body): Vec3 => ({
+    x: b.state.x + Math.cos(b.state.facing) * THROW_REACH,
+    y: b.state.y + Math.sin(b.state.facing) * THROW_REACH,
+    z: THROW_HEIGHT,
+  });
   const give = (b: Body, at?: Vec3) => {
     owner = b;
+    lastTouch = b;
     gathered = false;
+    held = false;
     flight = null;
     intent = null;
     ball = { ...(at ?? ballPosition()), vx: 0, vy: 0, vz: 0 };
     contact = true;
   };
-  const place = (b: Body) => {
+  const place = (b: Body, hands = false) => {
     owner = b;
+    lastTouch = b;
     gathered = true;
+    held = hands;
     flight = null;
     intent = null;
-    ball = { ...footOf(b), vx: 0, vy: 0, vz: 0 };
+    ball = { ...(hands ? handsOf(b) : footOf(b)), vx: 0, vy: 0, vz: 0 };
+  };
+  /** Stands `b` so the ball at `spot` is at their foot, facing `towards`. */
+  const standAt = (b: Body, spot: Vec2, towards: Vec2) => {
+    const facing = Math.atan2(towards.y - spot.y, towards.x - spot.x);
+    Object.assign(b.state, {
+      x: clamp(spot.x - Math.cos(facing) * DRIBBLE_OFFSET, 0, PITCH_LENGTH),
+      y: clamp(spot.y - Math.sin(facing) * DRIBBLE_OFFSET, 0, PITCH_WIDTH),
+      facing,
+    });
   };
   const nearest = (candidates: Body[], to: Vec2): Body | null => {
     let best: Body | null = null;
@@ -272,6 +398,28 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     }
     return best;
   };
+  const inPenaltyArea = (p: Vec2, defending: Team) =>
+    Math.abs(p.x - goalLineOf(opponentOf(defending))) <= PENALTY_AREA_DEPTH &&
+    Math.abs(p.y - CENTRE.y) <= PENALTY_AREA_HALF_WIDTH;
+  /** x of the second-last defender of `defending`, the offside line for the other team. */
+  const offsideLine = (defending: Team) => {
+    const attackSign = -signOf(defending);
+    const depths = bodies.filter((b) => b.team === defending).map((b) => b.state.x * attackSign);
+    depths.sort((a, b) => b - a);
+    return depths[1]! * attackSign;
+  };
+  /** Team-mates of `kicker` in an offside position right now. */
+  const offsidePlayers = (kicker: Body): Set<Body> => {
+    const sign = kicker.sign;
+    const line = offsideLine(opponentOf(kicker.team)) * sign;
+    const set = new Set<Body>();
+    for (const b of bodies) {
+      if (b.team !== kicker.team || b === kicker) continue;
+      const depth = b.state.x * sign;
+      if ((b.state.x - CENTRE.x) * sign > 0 && depth > ball.x * sign && depth > line) set.add(b);
+    }
+    return set;
+  };
 
   /** Dead-ball cut to restart positions; never interpolated across by the viewer. */
   const setPiece = (team: Team, kind: "kickoff" | "goal-kick") => {
@@ -282,7 +430,7 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
       taker.state.y = CENTRE.y;
       // Non-kicking opponents must stay outside the centre circle.
       for (const b of bodies)
-        if (b.team !== team && distance(b.state, CENTRE) < 9.15) b.state.x = CENTRE.x - b.sign * 10;
+        if (b.team !== team && distance(b.state, CENTRE) < RESTART_DISTANCE) b.state.x = CENTRE.x - b.sign * 10;
     }
     place(taker);
     nextAction = t + 1000;
@@ -312,10 +460,49 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     s.facing = angleDelta(0, s.facing + turn);
   };
 
+  /**
+   * Keeps players a body's width apart by pushing overlapping pairs away from
+   * each other, then limits each player's movement this step to their top speed
+   * and keeps them on the pitch. Pairs are visited in a fixed order, so this is
+   * deterministic; any overlap left over is resolved in the following steps.
+   */
+  const separate = (from: Vec2[]) => {
+    for (let i = 0; i < bodies.length; i++) {
+      const a = bodies[i]!.state;
+      for (let j = i + 1; j < bodies.length; j++) {
+        const b = bodies[j]!.state;
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let d = Math.hypot(dx, dy);
+        if (d >= PLAYER_GAP) continue;
+        if (d < 1e-6) [dx, dy, d] = [i % 2 === 0 ? 1 : -1, 0, 1];
+        const push = (PLAYER_GAP - d) / 2;
+        a.x -= (dx / d) * push;
+        a.y -= (dy / d) * push;
+        b.x += (dx / d) * push;
+        b.y += (dy / d) * push;
+      }
+    }
+    const limit = MAX_PLAYER_SPEED * DT;
+    bodies.forEach((b, i) => {
+      const s = b.state;
+      const o = from[i]!;
+      const d = Math.hypot(s.x - o.x, s.y - o.y);
+      if (d > limit) {
+        s.x = o.x + ((s.x - o.x) / d) * limit;
+        s.y = o.y + ((s.y - o.y) / d) * limit;
+      }
+      s.x = clamp(s.x, 0, PITCH_LENGTH);
+      s.y = clamp(s.y, 0, PITCH_WIDTH);
+    });
+  };
+  const positions = () => bodies.map((b) => ({ x: b.state.x, y: b.state.y }));
+
   const formationSpot = (b: Body, attacking: Team | null): Vec2 => ({
     x: clamp(b.base.x + (ball.x - CENTRE.x) * 0.55 + (attacking === b.team ? b.sign * 14 : 0), 2, PITCH_LENGTH - 2),
     y: clamp(b.base.y + (ball.y - CENTRE.y) * 0.25, 2, PITCH_WIDTH - 2),
   });
+  const keeperSpot = (b: Body): Vec2 => ({ x: b.base.x, y: clamp(ball.y, 30.5, 37.5) });
   const ballLead = (): Vec2 => ({
     x: clamp(ball.x + ball.vx * 0.25, 0.5, PITCH_LENGTH - 0.5),
     y: clamp(ball.y + ball.vy * 0.25, 0.5, PITCH_WIDTH - 0.5),
@@ -326,10 +513,12 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
   };
 
   const movePlayers = () => {
+    const start = positions();
     const attacking = owner?.team ?? flight?.from.team ?? null;
     const outfield = bodies.filter((b) => !b.keeper);
     // One opponent closes down an outfield carrier; a loose ball draws one chaser per team.
-    const presser = owner && !owner.keeper ? nearest(outfield.filter((b) => b.team !== owner!.team), owner.state) : null;
+    const presser =
+      owner && !owner.keeper && !held ? nearest(outfield.filter((b) => b.team !== owner!.team), owner.state) : null;
     const chasers = flight?.loose ? teams.map((team) => nearest(outfield.filter((b) => b.team === team), ballLead())) : [];
     // The opponent closest to a pass's remaining path steps in to cut it out.
     let cutter: Body | null = null;
@@ -343,11 +532,30 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
         if (a.gap < best) [cutter, cutPoint, best] = [b, a.at, a.gap];
       }
     }
+    // Near goal, a second defender closes the angle between the carrier and the goal, ready to block a shot.
+    let cover: Body | null = null;
+    let coverPoint: Vec2 = CENTRE;
+    if (owner && !owner.keeper && !held) {
+      const goal = { x: goalLineOf(owner.team), y: CENTRE.y };
+      const d = distance(owner.state, goal);
+      if (d < COVER_RANGE && d > COVER_DISTANCE + 1) {
+        coverPoint = {
+          x: owner.state.x + ((goal.x - owner.state.x) / d) * COVER_DISTANCE,
+          y: owner.state.y + ((goal.y - owner.state.y) / d) * COVER_DISTANCE,
+        };
+        cover = nearest(outfield.filter((b) => b.team !== owner!.team && b !== presser), coverPoint);
+      }
+    }
+    // Forwards of the attacking team time runs along the defenders' offside line, sometimes drifting beyond it.
+    const runLine = attacking ? offsideLine(opponentOf(attacking)) : 0;
 
     for (const b of bodies) {
       const s = b.state;
       if (b === owner) {
-        if (intent) {
+        if (held) {
+          // A thrower stays on the line and only turns.
+          move(b, s, 0, intent ? kickDirection(b, intent) : s.facing);
+        } else if (intent) {
           // Plant and turn to face the kick.
           move(b, { x: s.x + Math.cos(s.facing), y: s.y + Math.sin(s.facing) }, WINDUP_SPEED, kickDirection(b, intent));
         } else if (b.keeper) {
@@ -363,7 +571,7 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
       } else if (chasers.includes(b)) {
         move(b, ballLead(), MAX_PLAYER_SPEED, null);
       } else if (b.keeper) {
-        let target = { x: b.base.x, y: clamp(ball.y, 30.5, 37.5) };
+        let target = keeperSpot(b);
         let speed = MAX_PLAYER_SPEED;
         if (flight?.kind === "shot" && flight.from.team !== b.team && !flight.loose) {
           // Move across the line towards where the shot will arrive, after a reaction delay.
@@ -371,29 +579,55 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
           const eta = Math.abs(ball.vx) > 0.5 ? (s.x - ball.x) / ball.vx : -1;
           target = t < flight.reactT || eta <= 0 ? s : { x: b.base.x, y: clamp(ball.y + ball.vy * eta, 29.5, 38.5) };
         }
-        move(b, target, speed, null);
+        // Goalkeepers shuffle across their goal while facing the ball, so they can dive either way.
+        move(b, target, speed, Math.atan2(ball.y - s.y, ball.x - s.x));
       } else if (b === cutter) {
         move(b, cutPoint, MAX_PLAYER_SPEED, null);
       } else if (b === presser) {
         move(b, owner!.state, PRESS_SPEED, null);
+      } else if (b === cover) {
+        move(b, coverPoint, MAX_PLAYER_SPEED, null);
       } else {
-        move(b, formationSpot(b, attacking), MAX_PLAYER_SPEED, null);
+        const spot = formationSpot(b, attacking);
+        if (b.info.role === "FW" && attacking === b.team) {
+          const run = Math.sin(t / 2600 + b.info.number * 1.7) * 3 - 1;
+          spot.x = clamp(runLine + b.sign * run, 2, PITCH_LENGTH - 2);
+        }
+        move(b, spot, MAX_PLAYER_SPEED, null);
       }
     }
+    separate(start);
   };
 
   // Kicks ---------------------------------------------------------------------
 
-  const release = (from: Body, f: Pick<Flight, "kind" | "intended" | "aim" | "arriveT" | "reactT">, v: Vec3) => {
+  const release = (
+    from: Body,
+    f: Pick<Flight, "kind" | "intended" | "aim" | "arriveT" | "reactT">,
+    v: Vec3,
+    exempt: boolean,
+  ) => {
     const start = ballPosition();
     ball = { ...start, vx: v.x, vy: v.y, vz: v.z };
-    flight = { ...f, from, startT: t, start, beaten: new Set(), loose: false };
+    flight = {
+      ...f,
+      from,
+      startT: t,
+      start,
+      barred: new Map(),
+      loose: false,
+      offside: exempt ? new Set() : offsidePlayers(from),
+      turned: null,
+    };
     owner = null;
+    lastTouch = from;
+    held = false;
     intent = null;
     contact = true;
   };
 
-  const strikePass = (from: Body, receiver: Body, lofted: boolean) => {
+  const strikePass = (from: Body, i: Extract<Intent, { kind: "pass" }>) => {
+    const { receiver, lofted, thrown } = i;
     const range = distance(ball, receiver.state);
     const spread = 0.2 + 0.02 * range;
     const aim = {
@@ -402,7 +636,7 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     };
     const d = Math.max(0.5, distance(ball, aim));
     // A mishit is dragged off line and overhit; the receiver still runs to where it was meant to go.
-    const mishit = rng() < MISHIT_CHANCE;
+    const mishit = !thrown && rng() < MISHIT_CHANCE;
     const skew = mishit ? (rng() < 0.5 ? -1 : 1) * (0.15 + rng() * 0.2) : 0;
     const heading = Math.atan2(aim.y - ball.y, aim.x - ball.x) + skew;
     const dir = { x: Math.cos(heading), y: Math.sin(heading) };
@@ -410,7 +644,12 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     let speed: number;
     let lift = 0;
     let seconds: number;
-    if (lofted) {
+    if (thrown) {
+      // From the hands, dropping onto the aim point.
+      seconds = 0.35 + d / 16;
+      speed = d / seconds;
+      lift = loftLaunchSpeed(BALL_RADIUS - ball.z, seconds);
+    } else if (lofted) {
       // Fixed launch angle; the ball lands on the aim point.
       speed = Math.sqrt((d * 9.81) / Math.sin(2 * LOFT_ANGLE)) * Math.cos(LOFT_ANGLE);
       seconds = d / speed;
@@ -424,11 +663,14 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
       from,
       { kind: "pass", intended: receiver, aim, arriveT: t + seconds * 1000, reactT: 0 },
       { x: dir.x * speed, y: dir.y * speed, z: lift },
+      i.exempt,
     );
   };
 
-  const strikeShot = (from: Body, target: Vec3, speed: number) => {
-    const d = Math.max(0.5, distance(ball, target));
+  const strikeShot = (from: Body, aim: Vec3, speed: number) => {
+    const d = Math.max(0.5, distance(ball, aim));
+    // From close in, a shot cannot climb more steeply than about 30°, or it would leave the foot implausibly fast.
+    const target = { ...aim, z: Math.min(aim.z, ball.z + d * 0.6) };
     const seconds = d / speed;
     emit({
       type: "shot",
@@ -452,41 +694,150 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
         y: ((target.y - ball.y) / d) * speed,
         z: loftLaunchSpeed(target.z - ball.z, seconds),
       },
+      false,
     );
+  };
+
+  // Stoppages -----------------------------------------------------------------
+
+  /** Stops play with the ball where it is; the restart follows after the dead-ball pause. */
+  const stopPlay = (next: Omit<Restart, "until" | "net">) => {
+    owner = null;
+    held = false;
+    flight = null;
+    intent = null;
+    ball.vx = 0;
+    ball.vy = 0;
+    restart = { ...next, net: 0, until: t + DEAD_BALL_MS };
+  };
+
+  const commitFoul = (fouler: Body, victim: Body) => {
+    const at = ballPosition();
+    const penalty = inPenaltyArea(at, fouler.team);
+    emit({
+      type: "foul",
+      teamId: fouler.team.id,
+      playerId: fouler.info.id,
+      outcome: "committed",
+      start: at,
+      description: `Foul by ${label(fouler)} on ${label(victim)}${penalty ? " in the area" : ""}`,
+    });
+    stopPlay({ kind: penalty ? "penalty" : "free-kick", team: victim.team, at, taker: victim, still: [fouler, victim] });
+  };
+
+  /** Emits a shot's result unless it was scored. `by` is whoever ended its flight, if anyone did. */
+  const shotResult = (f: Flight, at: Vec3, by: Body | null) => {
+    const shooter = label(f.from);
+    const caught = !!by && by.keeper && by.team !== f.from.team && !f.loose;
+    let outcome: MatchEvent["outcome"] = "missed";
+    let description = by ? `Shot by ${shooter} comes to nothing` : `Shot by ${shooter} misses the target`;
+    if (caught) {
+      outcome = "saved";
+      description = `Shot by ${shooter} saved by ${label(by)}`;
+    } else if (f.turned?.kind === "parry") {
+      outcome = "saved";
+      description = `Shot by ${shooter} saved by ${label(f.turned.by!)}`;
+    } else if (f.turned?.kind === "block") {
+      outcome = "blocked";
+      description = `Shot by ${shooter} blocked by ${label(f.turned.by!)}`;
+    } else if (f.turned?.kind === "woodwork") {
+      description = `Shot by ${shooter} comes back off the woodwork`;
+    } else if (by && f.loose) {
+      description = `Shot by ${shooter} runs out of pace`;
+    }
+    emit({ type: "shot-result", teamId: f.from.team.id, playerId: f.from.info.id, outcome, startT: f.startT, end: at, description });
+    return caught;
+  };
+
+  const callOffside = (f: Flight, by: Body, at: Vec3) => {
+    if (f.kind === "shot") shotResult(f, at, by);
+    ball = { ...at, vx: ball.vx, vy: ball.vy, vz: ball.vz };
+    emit({
+      type: "offside",
+      teamId: by.team.id,
+      playerId: by.info.id,
+      outcome: "flagged",
+      startT: f.startT,
+      start: f.start,
+      end: at,
+      description: `${label(by)} is offside`,
+    });
+    stopPlay({ kind: "free-kick", team: opponentOf(by.team), at, indirect: true });
   };
 
   /** The carrier picks its next action; kicks become an intent that is struck once the player has turned. */
   const decide = (from: Body) => {
     const s = from.state;
+    const play = setPlay?.taker === from ? setPlay : null;
+    setPlay = null;
     const opponents = bodies.filter((b) => b.team !== from.team);
-    const tackler = from.keeper ? null : nearest(opponents.filter((b) => distance(b.state, ball) < TACKLE_RANGE), ball);
-    const goal = { x: from.sign > 0 ? PITCH_LENGTH : 0, y: CENTRE.y };
+    const team = bodies.filter((b) => b.team === from.team && b !== from);
+    const goal = { x: goalLineOf(from.team), y: CENTRE.y };
     const depth = Math.abs(goal.x - s.x);
-    if (tackler && rng() < TACKLE_CHANCE) {
-      give(tackler);
-      emit({
-        type: "turnover",
-        teamId: tackler.team.id,
-        playerId: tackler.info.id,
-        outcome: "won",
-        start: ballPosition(),
-        description: `${label(tackler)} wins the ball from ${label(from)}`,
-      });
-      nextAction = t + 900;
-    } else if (!from.keeper && distance(s, goal) < 28 && Math.abs(s.y - goal.y) < depth * 0.9 + 6 && rng() < 0.65) {
+    const pick = <T>(list: T[]) => list[Math.floor(rng() * list.length)];
+
+    if (play?.kind === "penalty") {
+      const side = rng() < 0.5 ? -1 : 1;
+      const target = { x: goal.x, y: goal.y + side * (0.4 + rng() * 3.1), z: 0.3 + rng() * 1.9 };
+      intent = { kind: "shot", since: t, target, speed: 22 + rng() * 6 };
+      return;
+    }
+    if (play?.kind === "throw-in" || play?.kind === "corner") {
+      // Throw-ins go to a nearby team-mate; corners are crossed to an attacker in the area.
+      const options =
+        play.kind === "throw-in"
+          ? team.filter((b) => !b.keeper && distance(b.state, s) > 4 && distance(b.state, s) < 22)
+          : team.filter((b) => inPenaltyArea(b.state, opponentOf(from.team)));
+      const receiver = pick(options) ?? nearest(team.filter((b) => !b.keeper), s)!;
+      intent = { kind: "pass", since: t, receiver, lofted: true, thrown: play.kind === "throw-in", exempt: true };
+      return;
+    }
+
+    const tackler = from.keeper || play ? null : nearest(opponents.filter((b) => distance(b.state, ball) < TACKLE_RANGE), ball);
+    if (tackler) {
+      const challenge = rng();
+      if (challenge < TACKLE_CHANCE) {
+        give(tackler);
+        emit({
+          type: "turnover",
+          teamId: tackler.team.id,
+          playerId: tackler.info.id,
+          outcome: "won",
+          start: ballPosition(),
+          description: `${label(tackler)} wins the ball from ${label(from)}`,
+        });
+        nextAction = t + 900;
+        return;
+      }
+      if (challenge < TACKLE_CHANCE + FOUL_CHANCE) {
+        commitFoul(tackler, from);
+        return;
+      }
+    }
+    if (
+      !from.keeper &&
+      !play?.indirect &&
+      distance(s, goal) < 28 &&
+      Math.abs(s.y - goal.y) < depth * 0.9 + 6 &&
+      rng() < 0.65
+    ) {
       // Aim somewhere around the frame; wide and high aims miss on their own.
       const target = { x: goal.x, y: goal.y + (rng() * 2 - 1) * 4.3, z: 0.25 + rng() * 2.6 };
       intent = { kind: "shot", since: t, target, speed: 21 + rng() * 6 };
-    } else if (rng() < 0.4) {
+    } else if (!play && rng() < 0.4) {
       // Carry into space before reconsidering a pass.
       nextAction = t + 1200;
     } else {
-      const candidates = bodies.filter((b) => {
+      const candidates = team.filter((b) => {
         const d = distance(b.state, s);
-        return b.team === from.team && b !== from && d > 3 && d < 35;
+        return d > 3 && d < 35;
       });
       candidates.sort((a, b) => (b.state.x - a.state.x) * from.sign);
-      const receiver = candidates[Math.floor(rng() * Math.min(3, candidates.length))];
+      let receiver = pick(candidates.slice(0, 3));
+      const offside = offsidePlayers(from);
+      if (receiver && offside.has(receiver) && rng() < OFFSIDE_AWARENESS) {
+        receiver = pick(candidates.filter((b) => !offside.has(b)).slice(0, 3));
+      }
       if (!receiver) {
         nextAction = t + 600;
         return;
@@ -499,7 +850,8 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
       });
       // Long balls are chipped; a blocked lane is chipped over only some of the time.
       const lofted = Math.sqrt(len2) > 26 || (blocked && rng() < 0.5);
-      intent = { kind: "pass", since: t, receiver, lofted };
+      // Offside does not apply to the first pass from a goal kick.
+      intent = { kind: "pass", since: t, receiver, lofted, thrown: false, exempt: play?.kind === "goal-kick" };
     }
   };
 
@@ -508,8 +860,20 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
   const settle = () => (nextAction = t + 800 + Math.floor(rng() * 8) * 100);
 
   /** The ball has left the pitch (or entered a goal): resolve the kick and stop play. */
-  const leavePitch = (f: Flight, at: Vec3, next: Omit<Restart, "until">, scored: boolean) => {
-    const attackers = opponentOf(next.team);
+  const leavePitch = (f: Flight, at: Vec3, end: -1 | 0 | 1) => {
+    flight = null;
+    const until = t + DEAD_BALL_MS;
+    if (end === 0) {
+      // Over a touchline: a throw-in to the team that did not touch it last, where it went out.
+      if (f.kind === "shot") shotResult(f, at, null);
+      else passOut(f, at);
+      const spot = { x: clamp(at.x, 1, PITCH_LENGTH - 1), y: at.y < CENTRE.y ? 0 : PITCH_WIDTH };
+      restart = { kind: "throw-in", team: opponentOf(lastTouch!.team), at: spot, net: 0, until };
+      return;
+    }
+    const defenders = teams.find((team) => signOf(team) !== end)!;
+    const attackers = opponentOf(defenders);
+    const scored = Math.abs(at.y - CENTRE.y) < GOAL_WIDTH / 2 - BALL_RADIUS && at.z < GOAL_HEIGHT - BALL_RADIUS;
     if (scored) {
       const own = f.from.team !== attackers;
       emit({
@@ -521,46 +885,40 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
         end: at,
         description: own ? `Own goal by ${label(f.from)}` : `Goal! ${label(f.from)} scores for ${attackers.name}`,
       });
-    } else if (f.kind === "shot") {
-      emit({
-        type: "shot-result",
-        teamId: f.from.team.id,
-        playerId: f.from.info.id,
-        outcome: "missed",
-        startT: f.startT,
-        end: at,
-        description: `Shot by ${label(f.from)} misses the target`,
-      });
-    } else {
-      emit({
-        type: "pass",
-        teamId: f.from.team.id,
-        playerId: f.from.info.id,
-        recipientId: f.intended!.info.id,
-        outcome: "missed",
-        startT: f.startT,
-        start: f.start,
-        end: at,
-        description: `Pass by ${label(f.from)} runs out of play`,
-      });
+      restart = { kind: "kickoff", team: defenders, at: CENTRE, net: end, until };
+      return;
     }
-    flight = null;
-    restart = { ...next, until: t + DEAD_BALL_MS };
+    if (f.kind === "shot") shotResult(f, at, null);
+    else passOut(f, at);
+    // Over the goal line: a corner if a defender touched it last, otherwise a goal kick.
+    restart =
+      lastTouch!.team === defenders
+        ? { kind: "corner", team: attackers, at: { x: end > 0 ? PITCH_LENGTH : 0, y: at.y < CENTRE.y ? 0 : PITCH_WIDTH }, net: 0, until }
+        : { kind: "goal-kick", team: defenders, at: CENTRE, net: 0, until };
   };
 
+  const passOut = (f: Flight, at: Vec3) =>
+    emit({
+      type: "pass",
+      teamId: f.from.team.id,
+      playerId: f.from.info.id,
+      recipientId: f.intended!.info.id,
+      outcome: "missed",
+      startT: f.startT,
+      start: f.start,
+      end: at,
+      description: `Pass by ${label(f.from)} runs out of play`,
+    });
+
   const collect = (f: Flight, by: Body, at: Vec3) => {
+    if (f.offside.has(by)) {
+      callOffside(f, by, at);
+      return;
+    }
     give(by, at);
+    let saved = false;
     if (f.kind === "shot") {
-      const saved = by.keeper && by.team !== f.from.team && !f.loose;
-      emit({
-        type: "shot-result",
-        teamId: f.from.team.id,
-        playerId: f.from.info.id,
-        outcome: saved ? "saved" : "missed",
-        startT: f.startT,
-        end: at,
-        description: saved ? `Shot by ${label(f.from)} saved by ${label(by)}` : `Shot by ${label(f.from)} runs out of pace`,
-      });
+      saved = shotResult(f, at, by);
     } else if (by !== f.from) {
       const complete = by.team === f.from.team;
       emit({
@@ -575,7 +933,7 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
         description: complete ? `Pass ${label(f.from)} → ${label(by)}` : `Pass by ${label(f.from)} intercepted`,
       });
     }
-    if (by.team !== f.from.team && !(f.kind === "shot" && by.keeper && !f.loose))
+    if (by.team !== f.from.team && !saved)
       emit({
         type: "turnover",
         teamId: by.team.id,
@@ -587,69 +945,188 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     settle();
   };
 
+  /** The ball changes direction off a player or the frame without anyone controlling it. */
+  const deflect = (f: Flight, at: BallState, v: Vec3, by: Body | null, what: string) => {
+    ball = { x: at.x, y: at.y, z: Math.max(BALL_RADIUS, at.z), vx: v.x, vy: v.y, vz: v.z };
+    f.loose = true;
+    contact = true;
+    if (by) {
+      lastTouch = by;
+      f.barred.set(by, Math.max(f.barred.get(by) ?? 0, t + DEFLECT_RECOVERY_MS));
+    }
+    emit({
+      type: "deflection",
+      teamId: (by ?? f.from).team.id,
+      ...(by ? { playerId: by.info.id } : {}),
+      outcome: "deflected",
+      start: ballPosition(),
+      description: what,
+    });
+  };
+
+  /** Reflects velocity `v` off a surface with unit normal `n`, keeping `e` of the normal component. */
+  const reflect = (v: Vec3, n: Vec3, e: number): Vec3 => {
+    const vn = v.x * n.x + v.y * n.y + v.z * n.z;
+    return { x: v.x - (1 + e) * vn * n.x, y: v.y - (1 + e) * vn * n.y, z: v.z - (1 + e) * vn * n.z };
+  };
+
+  /** Bounces the ball off a player's body: reflected off the side it hit, slowed, popped up a little. */
+  const bodyDeflection = (f: Flight, by: Body, at: BallState) => {
+    const nx = at.x - by.state.x;
+    const ny = at.y - by.state.y;
+    const n = Math.hypot(nx, ny) || 1;
+    const out = reflect({ x: at.vx, y: at.vy, z: 0 }, { x: nx / n, y: ny / n, z: 0 }, BODY_RESTITUTION);
+    const turn = (rng() * 2 - 1) * 0.25;
+    const keep = 0.6 + rng() * 0.2;
+    const v = {
+      x: (out.x * Math.cos(turn) - out.y * Math.sin(turn)) * keep,
+      y: (out.x * Math.sin(turn) + out.y * Math.cos(turn)) * keep,
+      z: Math.abs(at.vz) * 0.3 + rng() * 2.5,
+    };
+    const what = f.kind === "shot" && !f.turned ? `Blocked by ${label(by)}` : `Deflected off ${label(by)}`;
+    if (f.kind === "shot") f.turned ??= { kind: "block", by };
+    deflect(f, at, v, by, what);
+  };
+
+  /** A goalkeeper gets a hand to a shot but cannot hold it: pushed round the post, or back out and wide. */
+  const parry = (f: Flight, keeper: Body, at: BallState) => {
+    const speed = Math.hypot(at.vx, at.vy);
+    const side = rng() < 0.5 ? -1 : 1;
+    const round = rng() < 0.6;
+    const heading = Math.atan2(at.vy, at.vx) + (round ? side * (0.9 + rng() * 0.4) : Math.PI + side * (0.9 + rng() * 0.9));
+    const keep = round ? 0.5 + rng() * 0.2 : 0.3 + rng() * 0.2;
+    f.turned ??= { kind: "parry", by: keeper };
+    deflect(
+      f,
+      at,
+      { x: Math.cos(heading) * speed * keep, y: Math.sin(heading) * speed * keep, z: 1 + rng() * 3 },
+      keeper,
+      `Parried by ${label(keeper)}`,
+    );
+  };
+
   const moveFreeBall = (f: Flight) => {
-    const prev = ballPosition();
+    const prev: BallState = { ...ball };
     const step = stepBall(ball, STEP_MS);
-    ball = step.state;
+    const next = step.state;
     if (step.bounces > 0) contact = true;
+    f.loose ||= t > f.arriveT + 500 || (!isAirborne(next) && horizontalSpeed(next) < (f.kind === "shot" ? 4 : 2));
 
-    // Out of play once the whole ball is over a line; a goal if that happens inside the frame.
-    const overEnd = ball.x > PITCH_LENGTH + BALL_RADIUS ? 1 : ball.x < -BALL_RADIUS ? -1 : 0;
+    const hits: Hit[] = [];
+
+    // Out of play once the whole ball is over a line; whether it is a goal is decided in leavePitch.
+    const overEnd = next.x > PITCH_LENGTH + BALL_RADIUS ? 1 : next.x < -BALL_RADIUS ? -1 : 0;
+    const overSide = next.y < -BALL_RADIUS ? -1 : next.y > PITCH_WIDTH + BALL_RADIUS ? 1 : 0;
+    const crossing = (axis: "x" | "y", line: number) => {
+      const k = (line - prev[axis]) / (next[axis] - prev[axis]);
+      const at = lerpBall(prev, next, k);
+      return { k, at: { x: at.x, y: at.y, z: at.z } };
+    };
     if (overEnd !== 0) {
-      const line = overEnd > 0 ? PITCH_LENGTH + BALL_RADIUS : -BALL_RADIUS;
-      const k = (line - prev.x) / (ball.x - prev.x);
-      const y = prev.y + (ball.y - prev.y) * k;
-      const z = prev.z + (ball.z - prev.z) * k;
-      const scored = Math.abs(y - CENTRE.y) < GOAL_WIDTH / 2 - BALL_RADIUS && z < GOAL_HEIGHT - BALL_RADIUS;
-      const defenders = teams.find((team) => (team.attacksTowards === "increasing-x") !== overEnd > 0)!;
-      const next = { kind: scored ? "kickoff" : "goal-kick", team: defenders, net: scored ? overEnd : 0, at: CENTRE } as const;
-      // The event records where the ball crossed the line.
-      leavePitch(f, { x: line, y, z }, next, scored);
-      contain(next.net);
-      return;
+      const { k, at } = crossing("x", overEnd > 0 ? PITCH_LENGTH + BALL_RADIUS : -BALL_RADIUS);
+      hits.push({ u: k, kind: "out", at, end: overEnd });
     }
-    if (ball.y < -BALL_RADIUS || ball.y > PITCH_WIDTH + BALL_RADIUS) {
-      const line = ball.y < 0 ? -BALL_RADIUS : PITCH_WIDTH + BALL_RADIUS;
-      const k = (line - prev.y) / (ball.y - prev.y);
-      const crossing = { x: prev.x + (ball.x - prev.x) * k, y: line, z: prev.z + (ball.z - prev.z) * k };
-      const at = { x: clamp(crossing.x, 1, PITCH_LENGTH - 1), y: ball.y < 0 ? 1 : PITCH_WIDTH - 1 };
-      leavePitch(f, crossing, { kind: "throw-in", team: opponentOf(f.from.team), at, net: 0 }, false);
-      return;
+    if (overSide !== 0) {
+      const { k, at } = crossing("y", overSide > 0 ? PITCH_WIDTH + BALL_RADIUS : -BALL_RADIUS);
+      hits.push({ u: k, kind: "out", at, end: 0 });
     }
 
-    f.loose ||= t > f.arriveT + 500 || (!isAirborne(ball) && horizontalSpeed(ball) < (f.kind === "shot" ? 4 : 2));
+    // The woodwork: posts are upright cylinders on the goal line, the crossbar a cylinder across the top.
+    const frame = POST_RADIUS + BALL_RADIUS;
+    for (const line of [0, PITCH_LENGTH]) {
+      if (Math.min(Math.abs(prev.x - line), Math.abs(next.x - line)) > 2) continue;
+      for (const side of [-1, 1]) {
+        const py = CENTRE.y + (side * GOAL_WIDTH) / 2;
+        const u = sweep(prev.x, prev.y, next.x, next.y, line, py, frame);
+        if (u === null) continue;
+        const at = lerpBall(prev, next, u);
+        if (at.z > GOAL_HEIGHT) continue;
+        hits.push({ u, kind: "frame", part: "post", normal: { x: (at.x - line) / frame, y: (at.y - py) / frame, z: 0 } });
+      }
+      const u = sweep(prev.x, prev.z, next.x, next.z, line, GOAL_HEIGHT, frame);
+      if (u !== null) {
+        const at = lerpBall(prev, next, u);
+        if (Math.abs(at.y - CENTRE.y) <= GOAL_WIDTH / 2)
+          hits.push({ u, kind: "frame", part: "crossbar", normal: { x: (at.x - line) / frame, y: 0, z: (at.z - GOAL_HEIGHT) / frame } });
+      }
+    }
 
-    // Players the ball came within reach of during this step, earliest first.
-    const touches: { by: Body; u: number; at: Vec3; chance: number }[] = [];
+    // Players the ball comes within reach of.
+    const travelled = distance(next, f.start);
     for (const b of bodies) {
-      if (f.beaten.has(b)) continue;
+      if ((f.barred.get(b) ?? -Infinity) > t) continue;
       const opponent = b.team !== f.from.team;
       let reach = CONTROL_REACH;
       let height = CONTROL_HEIGHT;
       let chance = 1;
+      let controls = true;
+      let solid = false;
       if (f.loose) {
         // Anyone, including the kicker, may pick up a loose ball.
       } else if (f.kind === "shot") {
-        if (!opponent || !b.keeper) continue;
-        [reach, height, chance] = [KEEPER_REACH, KEEPER_HEIGHT, SAVE_CHANCE];
+        if (!opponent) continue;
+        if (b.keeper) [reach, height, chance] = [KEEPER_REACH, KEEPER_HEIGHT, SAVE_CHANCE];
+        else [controls, solid] = [false, travelled >= BLOCK_MIN_TRAVEL];
       } else if (opponent) {
-        if (distance(ball, f.start) < INTERCEPT_MIN_TRAVEL) continue;
-        [reach, height, chance] = [INTERCEPT_REACH, INTERCEPT_HEIGHT, INTERCEPT_CHANCE];
+        if (travelled < INTERCEPT_MIN_TRAVEL) continue;
+        [reach, height, chance, solid] = [INTERCEPT_REACH, INTERCEPT_HEIGHT, INTERCEPT_CHANCE, true];
       } else if (b !== f.intended) {
         continue;
       }
-      const a = approach(prev, ball, b.state);
-      if (a.gap <= reach && a.at.z <= height) touches.push({ by: b, u: a.u, at: a.at, chance });
-    }
-    touches.sort((a, b) => a.u - b.u);
-    for (const touch of touches) {
-      if (touch.chance < 1 && rng() >= touch.chance) {
-        f.beaten.add(touch.by);
-        continue;
+      if (controls) {
+        const a = approach(prev, next, b.state);
+        if (a.gap <= reach && a.at.z <= height && (f.loose || distance(a.at, f.start) >= CONTACT_MIN_TRAVEL)) {
+          hits.push({ u: a.u, kind: "control", by: b, at: a.at, chance, solid });
+          continue;
+        }
       }
-      collect(f, touch.by, touch.at);
-      return;
+      if (solid) {
+        const u = sweep(prev.x, prev.y, next.x, next.y, b.state.x, b.state.y, f.kind === "shot" ? BLOCK_REACH : BODY_REACH);
+        if (u !== null && lerpBall(prev, next, u).z <= BODY_HEIGHT) hits.push({ u, kind: "body", by: b });
+      }
     }
+
+    // Resolve the earliest contact; equal fractions keep the order above.
+    hits.sort((a, b) => a.u - b.u);
+    for (const hit of hits) {
+      if (hit.kind === "out") {
+        ball = next;
+        leavePitch(f, hit.at, hit.end);
+        contain(restart!.net);
+        return;
+      }
+      if (hit.kind === "frame") {
+        const at = lerpBall(prev, next, hit.u);
+        const v = reflect({ x: at.vx, y: at.vy, z: at.vz }, hit.normal, WOODWORK_RESTITUTION);
+        if (f.kind === "shot") f.turned ??= { kind: "woodwork", by: null };
+        const kick = f.kind === "shot" ? "Shot" : "Pass";
+        deflect(f, at, v, null, `${kick} by ${label(f.from)} hits the ${hit.part}`);
+        return;
+      }
+      if (hit.kind === "body") {
+        bodyDeflection(f, hit.by, lerpBall(prev, next, hit.u));
+        return;
+      }
+      // A controlling touch: held, or, when it fails, the ball may still strike the player.
+      if (hit.chance >= 1 || rng() < hit.chance) {
+        ball = next;
+        collect(f, hit.by, hit.at);
+        return;
+      }
+      if (hit.by.keeper && f.kind === "shot" && rng() < PARRY_CHANCE) {
+        parry(f, hit.by, lerpBall(prev, next, hit.u));
+        return;
+      }
+      f.barred.set(hit.by, Infinity);
+      if (hit.solid) {
+        const u = sweep(prev.x, prev.y, next.x, next.y, hit.by.state.x, hit.by.state.y, BODY_REACH);
+        if (u !== null && lerpBall(prev, next, u).z <= BODY_HEIGHT) {
+          bodyDeflection(f, hit.by, lerpBall(prev, next, u));
+          return;
+        }
+      }
+    }
+    ball = next;
   };
 
   /** After the whistle the ball keeps moving until the net or the run-off stops it. */
@@ -682,32 +1159,117 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     contain(net);
   };
 
-  const takeRestart = (r: Restart) => {
-    if (r.kind === "throw-in") {
-      // Simplified: the nearest opponent restarts with the ball at their feet where it went out.
-      const taker = nearest(bodies.filter((b) => b.team === r.team && !b.keeper), r.at)!;
-      Object.assign(taker.state, r.at, { facing: Math.atan2(CENTRE.y - r.at.y, CENTRE.x - r.at.x) });
-      place(taker);
-      nextAction = t + 1000;
-      emit({
-        type: "turnover",
-        teamId: r.team.id,
-        playerId: taker.info.id,
-        outcome: "won",
-        start: ballPosition(),
-        description: `${r.team.name} restart after the ball went out of play`,
-      });
-    } else {
-      setPiece(r.team, r.kind);
-      emit({
-        type: r.kind,
-        teamId: r.team.id,
-        playerId: owner!.info.id,
-        outcome: "taken",
-        start: ballPosition(),
-        description: r.kind === "kickoff" ? "Kickoff by the conceding team" : "Goal kick after the ball went out of play",
-      });
+  /** Moves every opponent of `team` at least RESTART_DISTANCE away from `spot`. */
+  const clearFrom = (spot: Vec2, team: Team) => {
+    for (const b of bodies) {
+      if (b.team === team) continue;
+      const d = distance(b.state, spot);
+      if (d >= RESTART_DISTANCE) continue;
+      // Straight back towards their own goal when standing on the spot itself.
+      const [dx, dy] = d > 1e-6 ? [(b.state.x - spot.x) / d, (b.state.y - spot.y) / d] : [-b.sign, 0];
+      Object.assign(b.state, onPitch({ x: spot.x + dx * (RESTART_DISTANCE + 0.05), y: spot.y + dy * (RESTART_DISTANCE + 0.05) }));
     }
+  };
+
+  const takeRestart = (r: Restart) => {
+    const attacking = r.team;
+    const sign = signOf(attacking);
+    const goal = { x: goalLineOf(attacking), y: CENTRE.y };
+    let description: string;
+    let indirect = false;
+    switch (r.kind) {
+      case "kickoff":
+      case "goal-kick":
+        setPiece(attacking, r.kind);
+        description = r.kind === "kickoff" ? "Kickoff by the conceding team" : `Goal kick to ${attacking.name}`;
+        break;
+      case "throw-in": {
+        // Taken from the touchline where the ball went out, holding the ball over the head.
+        const taker = nearest(outfieldOf(attacking), r.at)!;
+        const infield = r.at.y === 0 ? 1 : -1;
+        Object.assign(taker.state, r.at, { facing: Math.atan2(infield * 4, (CENTRE.x - r.at.x) * 0.1 + sign) });
+        place(taker, true);
+        description = `Throw-in to ${attacking.name}`;
+        break;
+      }
+      case "corner": {
+        const spot = { x: r.at.x === 0 ? 1 : PITCH_LENGTH - 1, y: r.at.y === 0 ? 1 : PITCH_WIDTH - 1 };
+        const taker = nearest(outfieldOf(attacking), spot)!;
+        standAt(taker, spot, { x: goal.x - sign * PENALTY_SPOT_DISTANCE, y: CENTRE.y });
+        // The most advanced attackers go into the area; each is picked up by the nearest free defender, goal-side.
+        const runners = outfieldOf(attacking)
+          .filter((b) => b !== taker)
+          .sort((a, b) => b.base.x * sign - a.base.x * sign)
+          .slice(0, CORNER_SPOTS.length);
+        const markers = outfieldOf(opponentOf(attacking));
+        runners.forEach((b, i) => {
+          const [deep, across] = CORNER_SPOTS[i]!;
+          Object.assign(b.state, { x: goal.x - sign * deep, y: CENTRE.y + across, facing: Math.atan2(spot.y - CENTRE.y, spot.x - b.state.x) });
+          const marker = nearest(markers, b.state);
+          if (!marker) return;
+          markers.splice(markers.indexOf(marker), 1);
+          Object.assign(marker.state, { x: b.state.x + sign * 1, y: b.state.y + 0.4 });
+        });
+        Object.assign(keeperOf(opponentOf(attacking)).state, { x: goal.x - sign * 1, y: CENTRE.y });
+        place(taker);
+        clearFrom(spot, attacking);
+        description = `Corner to ${attacking.name}`;
+        break;
+      }
+      case "free-kick": {
+        const spot = onPitch(r.at, 1);
+        const taker = r.taker && r.taker.team === attacking && !r.taker.keeper ? r.taker : nearest(outfieldOf(attacking), spot)!;
+        standAt(taker, spot, goal);
+        indirect = !!r.indirect;
+        if (!indirect && distance(spot, goal) < WALL_RANGE) {
+          // A three-player wall on the line from the ball to the middle of the goal.
+          const ux = (goal.x - spot.x) / distance(spot, goal);
+          const uy = (goal.y - spot.y) / distance(spot, goal);
+          const wall = outfieldOf(opponentOf(attacking))
+            .sort((a, b) => distance(a.state, spot) - distance(b.state, spot))
+            .slice(0, 3);
+          wall.forEach((b, i) => {
+            const across = (i - 1) * 0.75;
+            Object.assign(b.state, onPitch({ x: spot.x + ux * (RESTART_DISTANCE + 0.1) - uy * across, y: spot.y + uy * (RESTART_DISTANCE + 0.1) + ux * across }), {
+              facing: Math.atan2(-uy, -ux),
+            });
+          });
+        }
+        place(taker);
+        clearFrom(spot, attacking);
+        description = `${indirect ? "Indirect free kick" : "Free kick"} to ${attacking.name}`;
+        break;
+      }
+      case "penalty": {
+        const spot = { x: goal.x - sign * PENALTY_SPOT_DISTANCE, y: CENTRE.y };
+        const taker = strikerOf(attacking);
+        const keeper = keeperOf(opponentOf(attacking));
+        // Everyone else waits outside the area and the arc.
+        bodies
+          .filter((b) => b !== taker && b !== keeper)
+          .forEach((b, i) => {
+            Object.assign(b.state, {
+              x: goal.x - sign * (PENALTY_AREA_DEPTH + 2.5 + (i % 3) * 1.5),
+              y: CENTRE.y + ((i % 7) - 3) * 5 + (i % 2) * 1.2,
+            });
+          });
+        Object.assign(keeper.state, { x: goal.x - sign * 0.5, y: CENTRE.y, facing: sign > 0 ? Math.PI : 0 });
+        standAt(taker, spot, goal);
+        place(taker);
+        description = `Penalty to ${attacking.name}`;
+        break;
+      }
+    }
+    setPlay = { taker: owner!, kind: r.kind, indirect };
+    nextAction = t + 1000;
+    emit({
+      type: r.kind,
+      teamId: attacking.id,
+      playerId: owner!.info.id,
+      outcome: "taken",
+      start: ballPosition(),
+      description,
+    });
   };
 
   // Main loop -----------------------------------------------------------------
@@ -722,31 +1284,42 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
         takeRestart(r);
         cut = true;
       } else {
-        // Players drift towards where play will resume while the ball runs on.
-        for (const b of bodies) move(b, r.kind === "throw-in" ? formationSpot(b, r.team) : b.base, WALK_SPEED, null);
+        // Players drift towards where play will resume while the ball runs on; a fouled player stays down.
+        const start = positions();
+        for (const b of bodies) {
+          if (r.still?.includes(b)) move(b, b.state, 0, null);
+          else if (r.kind === "kickoff" || r.kind === "goal-kick") move(b, b.base, WALK_SPEED, null);
+          else move(b, b.keeper ? keeperSpot(b) : formationSpot(b, r.team), WALK_SPEED, null);
+        }
+        separate(start);
         moveDeadBall(r.net);
       }
     } else {
       movePlayers();
       if (owner) {
         const carrier: Body = owner;
-        const foot = footOf(carrier);
-        const gap = Math.hypot(foot.x - ball.x, foot.y - ball.y, foot.z - ball.z);
-        const reach = GATHER_SPEED * DT;
-        if (gathered || gap <= reach) {
-          Object.assign(ball, foot);
-          gathered = true;
+        if (held) {
+          Object.assign(ball, handsOf(carrier));
         } else {
-          ball.x += ((foot.x - ball.x) / gap) * reach;
-          ball.y += ((foot.y - ball.y) / gap) * reach;
-          ball.z += ((foot.z - ball.z) / gap) * reach;
+          const foot = footOf(carrier);
+          const gap = Math.hypot(foot.x - ball.x, foot.y - ball.y, foot.z - ball.z);
+          const reach = GATHER_SPEED * DT;
+          if (gathered || gap <= reach) {
+            Object.assign(ball, foot);
+            gathered = true;
+          } else {
+            ball.x += ((foot.x - ball.x) / gap) * reach;
+            ball.y += ((foot.y - ball.y) / gap) * reach;
+            ball.z += ((foot.z - ball.z) / gap) * reach;
+          }
         }
         if (intent) {
-          // Strike once the ball is at the foot and the player faces the kick.
+          // Strike once the ball is at the foot (or in the hands) and the player faces the kick.
           const i: Intent = intent;
           const aligned = Math.abs(angleDelta(carrier.state.facing, kickDirection(carrier, i))) < 0.2;
           if (gathered && aligned && t - i.since >= WINDUP_MS) {
-            if (i.kind === "pass") strikePass(carrier, i.receiver, i.lofted);
+            if (held) Object.assign(ball, handsOf(carrier));
+            if (i.kind === "pass") strikePass(carrier, i);
             else strikeShot(carrier, i.target, i.speed);
           }
         } else if (gathered && t >= nextAction) {
@@ -760,8 +1333,8 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
   }
 
   return {
-    schemaVersion: "1.1.0",
-    matchId: `sim-v2-${seed}-${durationMs}`,
+    schemaVersion: "1.2.0",
+    matchId: `sim-v3-${seed}-${durationMs}`,
     title: `Generated match · seed ${seed}`,
     synthetic: true,
     durationMs,

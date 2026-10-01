@@ -40,7 +40,7 @@ npm run dev        # http://localhost:3000
 | `npm run dev` | Development server with hot reload |
 | `npm run build` | Production build |
 | `npm start` | Serve the production build (run `npm run build` first) |
-| `npm test` | Unit tests (Vitest): playback clock, seeking and event navigation, statistics, fixture validity, ball physics, simulator replay and event/contact alignment, animation poses |
+| `npm test` | Unit tests (Vitest): playback clock, seeking and event navigation, statistics, fixture validity, ball physics, simulator replay and event/contact alignment, match rules, contact recognition and animation poses |
 | `npm run typecheck` | `tsc --noEmit` |
 
 ### Using the viewer
@@ -64,15 +64,15 @@ src/
   playback/               Playback logic. Has no rendering dependencies.
     derive.ts             Pure functions: positions, score and events at time t
     statistics.ts         Pure function: match statistics at time t
-    animation.ts          Pure functions: player speed, distance travelled and kick timing at time t
+    animation.ts          Pure functions: player speed, distance travelled and ball contacts (kicks, throws, saves, tackles…) at time t
     engine.ts             PlaybackEngine: the single simulation clock
   simulation/             Seeded match producer. Has no rendering or playback dependencies.
     ball.ts               Deterministic ball physics: flight, bounce, roll
-    generate.ts           Fixed-timestep simulator that records snapshots and events
+    generate.ts           Fixed-timestep simulator: rules, restarts, collisions and deflections; records snapshots and events
   scene/                  Three.js only. Has no clock of its own.
     coords.ts             Conversion from pitch space to scene space
     Pitch.ts              Grass, markings and goals (static)
-    pose.ts               Joint angles for idle, running and kicking
+    pose.ts               Joint angles for idle, running and every ball contact (kick, throw-in, save and dive, tackle, block, fall)
     rig.ts                Footballer skeleton: one matrix per body part from a pose
     Player.ts             Procedural footballers, instanced across all 22 players
     Ball.ts               Ball and its height shadow; sized to the camera zoom
@@ -154,7 +154,7 @@ scene.x = x − 52.5      scene.y = z      scene.z = y − 34      rotation.y = 
 
 | Check | Result |
 | --- | --- |
-| `npm test` | 251 tests pass. As well as the MVP 1–4 suites (fixture validity, clock, speeds, seeking, no early reveals, restart, statistics, validator and viewer error handling), MVP 5 adds ball trajectories, deterministic replay, pitch boundaries, event/contact alignment, statistics compatibility and animation poses (see below) |
+| `npm test` | 291 tests pass. As well as the MVP 1–4 suites (fixture validity, clock, speeds, seeking, no early reveals, restart, statistics, validator and viewer error handling), MVP 5 adds ball trajectories, deterministic replay, pitch boundaries, event/contact alignment, statistics compatibility and animation poses, and MVP 6 adds the match rules, collisions, deflections and contact animations (see those sections) |
 | `npm run typecheck` | Passes |
 | `npm run build` | Passes. The `/` route is prerendered as static content |
 
@@ -169,11 +169,12 @@ For MVP 1 I also checked the app by hand in headless Chromium (SwiftShader WebGL
 
 - There is one hard-coded fixture and no loader for external fixture files yet. Any data that follows the contract can be passed to `MatchViewer`.
 - The number badges stay the same size on screen, and players are drawn larger than life (1.4×) so they stay readable from the overhead camera. The ball is drawn much larger from the full-pitch view and shrinks to the players' scale as you zoom in.
-- Playback is linear between snapshots. The scripted demo is keyframed and has no physics; only the seeded simulator does. There is no tactical logic.
+- Playback is linear between snapshots. The scripted demo is keyframed and has no physics or rules; only the seeded simulator has them. Tactics are limited to holding a shape, pressing, covering, cutting out passes and timing forward runs.
 - The kickoff reset is an instant cut. Players walk back beforehand, so in practice only the ball jumps.
 - There are no global keyboard shortcuts. All controls are standard buttons and a native slider, and work with Tab, Enter, Space and the arrow keys.
 - Pinch zoom and pan on the canvas turn off the browser's touch scrolling over the 3D view. On mobile, scroll the page using the area outside the view.
 - Shadows are simple discs. No real-time shadow maps are used.
+- The rules are simplified; see "Not in this milestone" under MVP 6.
 
 ## Seeded simulator (MVP 2)
 
@@ -321,12 +322,12 @@ seed produces a different match than the MVP 2–4 simulator did.
 
 - No player collisions: players pass through each other, and a shot can only be
   stopped by the goalkeeper, not blocked by an outfield player. The ball does not
-  rebound off posts, the bar or bodies.
+  rebound off posts, the bar or bodies. *(Added in MVP 6.)*
 - No air drag, spin or wind.
 - Out-of-play restarts are simplified. A ball over the touchline is restarted at
   the feet of the nearest opponent rather than thrown in, and a ball over the goal
-  line always gives a goal kick, never a corner.
-- No save, tackle or receiving animations; goalkeepers use the same three poses.
+  line always gives a goal kick, never a corner. *(Replaced by real restarts in MVP 6.)*
+- No save, tackle or receiving animations; goalkeepers use the same three poses. *(Added in MVP 6.)*
 - The scripted demo's facing was authored before the models had legs, so one of
   its passes (the kickoff pass at 20.0 s) is struck backwards relative to the way
   the player faces.
@@ -367,3 +368,174 @@ desktop width and in a 390 px wide viewport: both camera views, zoom, the kick
 frames around a strike, the scripted demo and a generated match, with no console
 errors and no horizontal scroll on the narrow layout. The older PNGs in
 `docs/screenshots` still show the capsule models.
+
+## Fuller rules, collisions and contact animations (MVP 6)
+
+![A goalkeeper diving to save a penalty](docs/screenshots/mvp6-desktop-dive.jpg)
+
+![A corner: five attackers in the area, each picked up by a marker](docs/screenshots/mvp6-desktop-corner.jpg)
+
+![A fouled player down, with the foul in the events panel](docs/screenshots/mvp6-desktop-foul.jpg)
+
+![A throw-in held overhead on the touchline](docs/screenshots/mvp6-desktop-throw-in.jpg)
+
+### Rules
+
+The simulator now tracks who touched the ball last and restarts play the way the
+laws of the game do, in simplified form:
+
+- **Throw-ins.** A ball over a touchline goes to the team that did not touch it
+  last. The nearest outfield player throws it in from where it crossed the line.
+  They stand on the line holding the ball over their head, then throw it to a
+  team-mate 4–22 m away.
+- **Corners and goal kicks.** A ball over a goal line without a goal is a corner
+  if a defender touched it last (a parry round the post or a deflection off a
+  defender), and otherwise a goal kick. At a corner the five most advanced
+  attackers go into the area, each picked up by the nearest defender standing
+  goal-side. The goalkeeper stands on the line and the taker crosses to one of
+  the attackers.
+- **Fouls.** A challenge on the player with the ball either wins it cleanly (25%),
+  is a foul (3.5%), or fails. A foul stops play with the ball where it happened.
+  The fouled player goes down and takes a free kick two seconds later, with
+  opponents 9.15 m away. Within 32 m of goal, three defenders form a wall on the
+  line to goal. A foul inside the defending team's penalty area is a penalty:
+  the striker shoots from the spot while everyone except the goalkeeper waits
+  outside the area.
+- **Offside.** Offside is judged when the ball is played. A team-mate is in an
+  offside position when they are in the opponents' half, ahead of the ball and
+  beyond the second-last defender. If one of them is the player who then
+  receives the ball, including from a rebound, they are flagged. The defending
+  team gets an indirect free kick there, which cannot be shot straight at goal.
+  Throw-ins, corners and goal kicks are exempt. Forwards time runs along the
+  defenders' line, so they sometimes drift offside. Passers usually (75%) notice
+  this and look for someone else.
+
+### Physics
+
+- **Player collisions.** Players keep their centres 0.7 m apart. Each step,
+  overlapping pairs are pushed apart, but no further than a player's top speed
+  allows, so a short overlap can remain for a moment. Players no longer run
+  through each other: across 24 sampled matches no two players come closer than
+  0.53 m (the test requires more than 0.49 m).
+- **Blocks and deflections.** An opponent's body deflects a ball that passes
+  within 0.5 m of its centre, below 1.9 m. For shots this reach is 0.9 m, for a
+  stretching leg. A deflected ball comes off the side it hit, slower and popping
+  up, and the player who deflected it cannot play it again for 400 ms. One
+  defender closes the angle between a carrier near goal and the goal, so shots
+  are blocked about as often as in real football (17% of shots).
+- **Saves and parries.** A goalkeeper who fails to hold a shot usually (70%) still
+  gets a hand to it. The parry is pushed round the post or back out wide, and
+  can lead to a corner, a scramble or, occasionally, a goal.
+- **The woodwork.** The posts are upright cylinders and the crossbar is a
+  horizontal one, matching the rendered goal: radius 0.07 m, with post centres
+  on the goal line. The ball is swept against them each step and bounces off
+  with 60% of its speed along the contact normal.
+
+All contacts in a step are resolved in the order the ball reaches them. A goal
+still needs the whole ball over the line inside the frame. A shot from very close
+range can no longer climb more steeply than about 30°: before, such a shot could
+leave the foot at over 50 m/s, and the crossbar made that visible.
+
+Each shot still has exactly one result, so the statistics stay consistent:
+
+| Result | When |
+| --- | --- |
+| Goal | It goes in, even off the woodwork, a block or a parry. |
+| Saved | The goalkeeper holds it, or parried it first. |
+| Blocked | An outfield player blocked it first. |
+| Missed | Anything else. |
+
+Touches along the way appear in the feed as **deflection** events ("Blocked by
+#4", "Parried by #1", "hits the post") the moment they happen. The final result
+follows when the ball is next controlled or goes out.
+
+Across 200 seeds at 120 s every fixture is valid. A match has, on average, 3.3
+shots: 17% are goals, 50% saved, 17% blocked and 15% missed. It also has 1.1
+fouls, 0.1 penalties, 0.3 offsides, 0.35 throw-ins, 0.15 corners and 0.3
+woodwork hits.
+
+### Contact animations
+
+`src/playback/animation.ts` now recognises every ball contact from snapshots
+alone, using who has the ball and where it goes. Events are never read, so
+animation still cannot reveal anything early:
+
+| Contact | Recognised when | Animation |
+| --- | --- | --- |
+| Kick | Possession ends with the ball moving away from the foot | Backswing, strike and follow-through (MVP 5) |
+| Throw | The same, from above head height | Ball held behind the head from the restart, then whipped over it |
+| Receive | A player takes a free ball | A cushioning touch with the foot, or a high ball taken on the chest |
+| Save | A goalkeeper takes, or turns away, a shot | Squares up to the shot. A catch at the ball's height, or a full-length dive towards it that lands on the side and gets back up |
+| Tackle | Possession passes straight to an opponent, or a foul | A standing lunge when close, a slide along the grass from more than 1 m away |
+| Block | A free ball turns sharply next to an outfield player | Braced, arms tucked, leaning into the ball |
+| Fall | Play stops with the ball dead at the carrier's feet | Goes down face first, stays down, then gets up |
+
+Dives, slides and falls tip the whole body over about the feet (new `tilt`,
+`roll`, `rise`, `advance` and `turn` in the pose), so the player's recorded
+position stays where their feet are. The shadow follows the hips. In tests
+against the simulator's own events across 12 seeds, every foul, reception,
+tackle, parry and throw-in is recognised, with no falls or blocks where none
+happened. The pose is still a pure function of the fixture and the time.
+
+### Data and UI
+
+Generated fixtures are now schema **1.2.0** and match IDs are `sim-v3-…`. The
+version adds the event types `throw-in`, `corner`, `free-kick`, `penalty`, `foul`,
+`offside` and `deflection`, and the outcomes `blocked`, `deflected`, `committed`
+and `flagged`. The old simplified restart, a `turnover` after the ball went out,
+is gone. Schema 1.0.0 (the scripted demo) and 1.1.0 fixtures still validate and
+play.
+
+The statistics panel adds corners, fouls and offsides. In the events panel,
+fouls, offsides and penalties are marked in red, and restarts and deflections
+are dimmed.
+
+### Not in this milestone
+
+- No cards, advantage, handball, drop balls or substitutions. Every foul is
+  given.
+- No headers: a ball above control height can only be blocked, not played.
+- Players do not jump to challenge for the ball. A collision only moves players
+  apart; nobody is knocked over except by a foul.
+- At a penalty the goalkeeper starts on the line but steps out towards their
+  usual spot before the kick. Free kicks are taken by the player who was
+  fouled, without a run-up.
+- The ball does not hit the net's side or roof from outside the goal. The posts
+  and crossbar are the only woodwork.
+- Corner and throw-in rates are below real football, because the simulator has
+  few crosses or clearances to put the ball out.
+
+### Validation
+
+New and updated tests:
+
+- `tests/rules.test.ts`:
+  - Every new event appears across 24 seeds.
+  - Players never pass through each other.
+  - Fouls stop play where they happen and restart two seconds later with a free
+    kick or a penalty, with opponents back the required distance.
+  - Penalties are shot from the spot, and near-goal free kicks get a wall.
+  - Every flag is for a player who was in an offside position at the pass, and
+    no completed pass went to one (outside the exempt restarts).
+  - Indirect free kicks are not shot at goal.
+  - Woodwork contacts are on the post or bar surface and send the ball back off
+    it.
+  - Shot results, fouls, corners and offsides match the statistics.
+- `tests/ball-simulation.test.ts`:
+  - Out-of-play restarts go against the last toucher, as a throw-in from the
+    crossing point, a corner from the right corner, or a goal kick.
+  - Throw-ins leave from the hands.
+  - Every deflection is within reach of the player who made it.
+  - Each shot has one result consistent with what touched it.
+- `tests/animation.test.ts`:
+  - Recognition matches the simulator's events.
+  - Every recognised dive lays the keeper out towards where the ball was.
+  - Each pose has the expected geometry: a dive towards the ball, overhead
+    catches, a face-down fall, a feet-first slide, the throw-in hold and
+    release, and foot and chest receptions.
+  - Every animation blends in from, and back out to, the ordinary pose.
+
+`npm run typecheck` and `npm run build` pass. I checked each new animation in the
+production build in headless Chromium (SwiftShader) at 1440×900, and a generated
+match playing at 390 px wide. There were no console errors and no horizontal
+scroll.

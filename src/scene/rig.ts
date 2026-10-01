@@ -45,6 +45,7 @@ export class Rig {
 }
 
 const local = new THREE.Matrix4();
+const body = new THREE.Matrix4();
 const scale = new THREE.Vector3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE);
 
 /** out = parent · translate(x, y, z) · rotateZ(angle) */
@@ -58,7 +59,14 @@ function joint(out: THREE.Matrix4, parent: THREE.Matrix4, x: number, y: number, 
  * `rotationY` about the vertical axis, in the given pose.
  */
 export function solveRig(rig: Rig, x: number, z: number, rotationY: number, pose: Pose): void {
-  rig.root.makeRotationY(rotationY).scale(scale).setPosition(x, 0, z);
+  // Turn to face, shift and lift, then tip the whole body over about the feet:
+  // roll (about forward, +x) leans towards the right (+z); tilt (about −z) leans forwards.
+  // Turning adds to the facing (towards the player's right), and rotation.y = −facing.
+  rig.root.makeRotationY(rotationY - pose.turn).setPosition(x, 0, z);
+  rig.root.multiply(local.makeTranslation(pose.advance * MODEL_SCALE, pose.rise * MODEL_SCALE, 0));
+  rig.root.multiply(body.makeRotationX(pose.roll));
+  rig.root.multiply(local.makeRotationZ(-pose.tilt));
+  rig.root.scale(scale);
   joint(rig.pelvis, rig.root, 0, HIP_HEIGHT + pose.bob, 0, 0);
   // A rotation of −lean about z tips the spine forwards (+x).
   joint(rig.torso, rig.pelvis, 0, 0, 0, -pose.lean);

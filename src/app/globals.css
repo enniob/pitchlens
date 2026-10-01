@@ -380,6 +380,26 @@ body {
   font-weight: 700;
 }
 
+/* Stoppages stand out a little; restarts and deflections recede. */
+.event--foul,
+.event--offside {
+  box-shadow: inset 3px 0 0 #f87171;
+}
+
+.event--penalty {
+  box-shadow: inset 3px 0 0 #f87171;
+  font-weight: 700;
+}
+
+.event--throw-in,
+.event--corner,
+.event--free-kick,
+.event--goal-kick,
+.event--kickoff,
+.event--deflection {
+  color: var(--muted);
+}
+
 /* Notices ---------------------------------------------------------------- */
 
 .notice {

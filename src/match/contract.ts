@@ -17,12 +17,18 @@
  */
 
 export const SCHEMA_VERSION = "1.0.0" as const;
-export type SchemaVersion = typeof SCHEMA_VERSION | "1.1.0";
+export type SchemaVersion = typeof SCHEMA_VERSION | "1.1.0" | "1.2.0";
 
 export const PITCH_LENGTH = 105;
 export const PITCH_WIDTH = 68;
 export const GOAL_WIDTH = 7.32;
 export const GOAL_HEIGHT = 2.44;
+/** Radius of the posts and crossbar. Post centres sit on the goal line at ±GOAL_WIDTH / 2; the bar's centre is at GOAL_HEIGHT. */
+export const POST_RADIUS = 0.07;
+/** Penalty area depth from the goal line and half-width across the pitch. */
+export const PENALTY_AREA_DEPTH = 16.5;
+export const PENALTY_AREA_HALF_WIDTH = 20.16;
+export const PENALTY_SPOT_DISTANCE = 11;
 
 export type TeamSide = "home" | "away";
 
@@ -89,7 +95,28 @@ export interface Snapshot {
   discontinuity?: boolean;
 }
 
-export type EventType = "kickoff" | "turnover" | "pass" | "shot" | "goal" | "shot-result" | "goal-kick";
+/**
+ * 1.0.0: kickoff, turnover, pass, shot, goal.
+ * 1.1.0 adds shot-result and goal-kick.
+ * 1.2.0 adds the restarts throw-in, corner, free-kick and penalty; foul and
+ * offside, which stop play; and deflection, a touch that changes the ball's
+ * path without anyone controlling it (a block, a parry, the woodwork).
+ */
+export type EventType =
+  | "kickoff"
+  | "turnover"
+  | "pass"
+  | "shot"
+  | "goal"
+  | "shot-result"
+  | "goal-kick"
+  | "throw-in"
+  | "corner"
+  | "free-kick"
+  | "penalty"
+  | "foul"
+  | "offside"
+  | "deflection";
 
 export interface MatchEvent {
   /** Unique within the fixture. */
@@ -104,7 +131,21 @@ export interface MatchEvent {
   playerId?: string;
   /** Pass recipient (required for passes). */
   recipientId?: string;
-  outcome: "won" | "complete" | "on-target" | "scored" | "taken" | "pending" | "intercepted" | "saved" | "missed";
+  outcome:
+    | "won"
+    | "complete"
+    | "on-target"
+    | "scored"
+    | "taken"
+    | "pending"
+    | "intercepted"
+    | "saved"
+    | "missed"
+    // 1.2.0
+    | "blocked"
+    | "deflected"
+    | "committed"
+    | "flagged";
   /** Time the action began (e.g. ball struck for a pass), if earlier than `t`. */
   startT?: number;
   start?: Vec3;
