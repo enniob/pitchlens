@@ -17,7 +17,7 @@ export interface PlaybackFrame {
 }
 
 /** Index of the last element with key ≤ t, or -1. Arrays must be sorted by key. */
-function lastAtOrBefore<T>(items: readonly T[], t: number, key: (item: T) => number): number {
+export function lastAtOrBefore<T>(items: readonly T[], t: number, key: (item: T) => number): number {
   let lo = 0;
   let hi = items.length - 1;
   let found = -1;

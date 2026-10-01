@@ -1,15 +1,17 @@
 /**
  * Composes pitch, players and ball; owns the renderer, lights, cameras, zoom/pan
  * input and resizing. It has no clock of its own: the caller passes a playback
- * frame to `update` and calls `render` once per animation frame.
+ * frame to `update` and calls `render` once per animation frame. Player poses
+ * are derived from the frame's time, never accumulated between frames.
  */
 import * as THREE from "three";
 import type { MatchFixture } from "@/match/contract";
+import { motionAt } from "@/playback/animation";
 import type { PlaybackFrame } from "@/playback/derive";
 import { BallModel } from "./Ball";
 import { HALF_LENGTH, HALF_WIDTH } from "./coords";
 import { createPitch } from "./Pitch";
-import { createPlayerAssets, PlayerModel } from "./Player";
+import { PlayerSquad } from "./Player";
 
 export type CameraView = "overhead" | "angled";
 
@@ -47,7 +49,7 @@ export class MatchScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 1000);
-  private readonly players = new Map<string, PlayerModel>();
+  private readonly players: PlayerSquad;
   private readonly ball = new BallModel();
   private readonly resizeObserver: ResizeObserver;
   private readonly listeners = new AbortController();
@@ -86,13 +88,8 @@ export class MatchScene {
 
     this.scene.add(createPitch(this.renderer.capabilities.getMaxAnisotropy()));
 
-    const assets = createPlayerAssets();
-    const teams = new Map(fixture.teams.map((t) => [t.id, t]));
-    for (const player of fixture.roster) {
-      const model = new PlayerModel(player, teams.get(player.teamId)!, assets);
-      this.players.set(player.id, model);
-      this.scene.add(model.object);
-    }
+    this.players = new PlayerSquad(fixture);
+    this.scene.add(this.players.object);
     this.scene.add(this.ball.object);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -102,7 +99,8 @@ export class MatchScene {
   }
 
   update(frame: PlaybackFrame): void {
-    for (const state of frame.players) this.players.get(state.playerId)?.setState(state);
+    // Poses come from the same recorded snapshots as the positions; the scene keeps no animation state.
+    this.players.update(frame.players, motionAt(this.options.fixture, frame.timeMs), frame.timeMs);
     this.ball.setPosition(frame.ball);
   }
 
@@ -147,8 +145,8 @@ export class MatchScene {
     geometries.forEach((g) => g.dispose());
     materials.forEach((m) => m.dispose());
     textures.forEach((t) => t.dispose());
+    this.players.dispose();
     this.scene.clear();
-    this.players.clear();
 
     this.renderer.dispose();
     this.renderer.forceContextLoss();
@@ -184,6 +182,8 @@ export class MatchScene {
       this.lookAt.lerp(this.desiredLookAt, 0.18);
     }
     this.camera.lookAt(this.lookAt);
+    // Follow the eased camera, not the target zoom, so the ball resizes smoothly with it.
+    this.ball.setZoom(this.baseDistance() / this.camera.position.distanceTo(this.lookAt));
   }
 
   private clampPan(): void {
