@@ -14,6 +14,13 @@
  * restarts after a dead-ball pause with a kickoff, throw-in, corner, goal kick,
  * free kick or penalty, depending on where the ball went and who touched it last.
  *
+ * Each team plays in a formation (see src/match/formations.ts) and may switch
+ * formation at scheduled times. A player's slot sets their neutral spot and,
+ * through a per-position profile, how they shift with the ball, push on in
+ * attack, tuck in and recover in defence, and whether they run off the
+ * defenders' shoulder. A change only moves those targets: nobody teleports, and
+ * the ball, possession and any kick in flight carry on untouched.
+ *
  * Snapshots are recorded every SNAPSHOT_INTERVAL_MS and additionally at every
  * contact step (kick, reception, tackle, deflection, save, bounce, line
  * crossing), so each event has a snapshot at exactly its timestamp. Playback
@@ -28,16 +35,35 @@ import {
   PITCH_LENGTH,
   PITCH_WIDTH,
   POST_RADIUS,
+  type AppliedFormationChange,
+  type FormationId,
   type MatchEvent,
   type MatchFixture,
   type Player,
   type PlayerState,
+  type ScheduledFormationChange,
+  type SlotAssignments,
   type Snapshot,
+  type TacticalPosition,
   type Team,
+  type TeamFormation,
+  type TeamSide,
   type Vec2,
   type Vec3,
 } from "@/match/contract";
 import { sampleFixture } from "@/match/fixture";
+import {
+  assignmentErrors,
+  DEFAULT_FORMATION,
+  defaultAssignments,
+  FORMATIONS,
+  formationSlot,
+  hashKey,
+  isFormationId,
+  remapAssignments,
+  slotSpot,
+  type FormationSlot,
+} from "@/match/formations";
 import {
   BALL_RADIUS,
   horizontalSpeed,
@@ -49,10 +75,35 @@ import {
   type BallState,
 } from "./ball";
 
+/** A formation change for one team at simulation time `t` (ms, a multiple of STEP_MS, inside the match). */
+export interface FormationChangeConfig {
+  t: number;
+  formation: FormationId;
+  /** Player ID → slot ID in the new formation. Defaults to moving each player to the nearest new slot. */
+  assignments?: SlotAssignments;
+}
+
+export interface TeamTacticsConfig {
+  /** Starting formation; defaults to DEFAULT_FORMATION. */
+  formation?: FormationId;
+  /** Player ID → slot ID; defaults to `defaultAssignments`. */
+  assignments?: SlotAssignments;
+  changes?: FormationChangeConfig[];
+}
+
+export type TacticsConfig = Partial<Record<TeamSide, TeamTacticsConfig>>;
+
 export interface SimulationOptions {
   seed: number;
   durationMs?: number;
+  tactics?: TacticsConfig;
 }
+
+/**
+ * Bumped whenever the simulator's output for a given seed and configuration
+ * changes. Part of every generated matchId.
+ */
+export const SIMULATOR_VERSION = "4";
 
 /** Fixed simulation timestep for player movement and ball physics. */
 export const STEP_MS = 20;
@@ -122,6 +173,8 @@ const SAVE_CHANCE = 0.65;
 const PARRY_CHANCE = 0.7;
 /** A player who has just deflected the ball cannot touch it again for this long. */
 const DEFLECT_RECOVERY_MS = 400;
+/** ...and neither can a player who has just kicked it, while they follow through (e.g. a shot parried straight back). */
+const KICK_RECOVERY_MS = 400;
 /** Chance that a passer notices a team-mate is offside and looks for someone else. */
 const OFFSIDE_AWARENESS = 0.75;
 /** Once a carrier is this close to goal, a defender steps into the line between them and the goal. */
@@ -160,10 +213,104 @@ function random(seed: number) {
   };
 }
 
-/** Base shape for a team attacking towards +x, in roster order (GK first). */
-const SHAPE: [number, number][] = [
-  [2.5, 34], [27, 56], [25, 42], [25, 26], [27, 12], [37, 34], [41, 23], [41, 45], [49, 58], [50, 34], [49, 10],
-];
+/**
+ * How each position moves off the ball, in the team's own frame (see
+ * formations.ts). A deliberately simple synthetic model, not a validated
+ * tactical one.
+ *   follow / slide: fraction of the ball's offset from the centre followed along / across the pitch
+ *   push:  metres moved upfield while the team has the ball
+ *   width: lateral spread multiplier while attacking; tuck: while defending
+ *   drop:  metres given up while defending
+ *   recover: while defending, stay at most this far upfield of the ball (negative: goal-side of it); null = stay up
+ *   runs:  time runs along the defenders' offside line while the team attacks
+ */
+interface MovementProfile {
+  follow: number;
+  slide: number;
+  push: number;
+  width: number;
+  tuck: number;
+  drop: number;
+  recover: number | null;
+  runs: boolean;
+}
+const profile = (follow: number, slide: number, push: number, width: number, tuck: number, drop: number, recover: number | null, runs = false): MovementProfile => ({
+  follow,
+  slide,
+  push,
+  width,
+  tuck,
+  drop,
+  recover,
+  runs,
+});
+const FULL_BACK = profile(0.5, 0.25, 18, 1.25, 0.8, 3, 0);
+const WIDE_MID = profile(0.55, 0.22, 13, 1.25, 0.75, 5, 10);
+const WINGER = profile(0.6, 0.2, 14, 1.2, 0.8, 4, 16, true);
+export const MOVEMENT_PROFILES: Record<TacticalPosition, MovementProfile> = {
+  GK: profile(0, 0, 0, 1, 1, 0, null),
+  CB: profile(0.5, 0.3, 8, 1.1, 0.85, 3, -1),
+  RB: FULL_BACK,
+  LB: FULL_BACK,
+  DM: profile(0.5, 0.35, 9, 1, 0.75, 5, 3),
+  CM: profile(0.55, 0.35, 14, 1.1, 0.8, 5, 8),
+  RM: WIDE_MID,
+  LM: WIDE_MID,
+  AM: profile(0.6, 0.35, 16, 1, 0.8, 7, 14),
+  RW: WINGER,
+  LW: WINGER,
+  ST: profile(0.6, 0.3, 12, 1, 1, 2, null, true),
+};
+
+/**
+ * Resolves the tactics configuration: default formations and assignments,
+ * validated custom ones, and every scheduled change with its full assignment.
+ * Changes are returned in processing order: by time, then the home team first.
+ * Throws on invalid configuration.
+ */
+export function resolveTactics(
+  config: TacticsConfig | undefined,
+  durationMs: number,
+  teams: readonly Team[] = sampleFixture.teams,
+  roster: readonly Player[] = sampleFixture.roster,
+): { initial: TeamFormation[]; scheduled: ScheduledFormationChange[] } {
+  const initial: TeamFormation[] = [];
+  const scheduled: ScheduledFormationChange[] = [];
+  const ordered = [...teams].sort((a, b) => (a.side === b.side ? 0 : a.side === "home" ? -1 : 1));
+  for (const team of ordered) {
+    const cfg = config?.[team.side] ?? {};
+    const squad = roster.filter((p) => p.teamId === team.id);
+    const check = (formation: unknown, assignments: SlotAssignments | undefined, where: string): SlotAssignments | undefined => {
+      if (!isFormationId(formation)) throw new Error(`${where}: unknown formation ${String(formation)}`);
+      if (assignments === undefined) return undefined;
+      const errors = assignmentErrors(formation, assignments, squad, roster);
+      if (errors.length > 0) throw new Error(`${where}: ${errors.join("; ")}`);
+      return Object.fromEntries(squad.map((p) => [p.id, assignments[p.id]!]));
+    };
+    const formation = cfg.formation ?? DEFAULT_FORMATION;
+    let current: TeamFormation = {
+      teamId: team.id,
+      formation,
+      assignments: check(formation, cfg.assignments, `${team.name} formation`) ?? defaultAssignments(formation, squad),
+    };
+    initial.push(current);
+    const changes = [...(cfg.changes ?? [])].sort((a, b) => a.t - b.t);
+    changes.forEach((c, i) => {
+      const where = `${team.name} change at ${c.t} ms`;
+      if (!Number.isInteger(c.t) || c.t <= 0 || c.t >= durationMs)
+        throw new Error(`${where}: time must be after kickoff and before the end of the match (0–${durationMs} ms, exclusive)`);
+      if (c.t % STEP_MS !== 0) throw new Error(`${where}: time must be a multiple of ${STEP_MS} ms`);
+      if (i > 0 && changes[i - 1]!.t === c.t) throw new Error(`${where}: a team can change formation only once at a time`);
+      const assignments =
+        check(c.formation, c.assignments, where) ?? remapAssignments(current.formation, current.assignments, c.formation, squad);
+      current = { teamId: team.id, formation: c.formation, assignments };
+      scheduled.push({ ...current, t: c.t });
+    });
+  }
+  // Stable sort keeps the home team's change first at equal times.
+  scheduled.sort((a, b) => a.t - b.t);
+  return { initial, scheduled };
+}
 
 /** Where the attackers stand for a corner, as [metres from the goal line, metres across from the goal's centre]. */
 const CORNER_SPOTS: [number, number][] = [[6, -2.5], [8, 3], [11, -0.5], [9.5, 6.5], [13, -6]];
@@ -174,6 +321,8 @@ interface Body {
   /** +1 when attacking towards increasing x. */
   sign: 1 | -1;
   keeper: boolean;
+  /** Current formation slot, and its neutral spot on the pitch. */
+  slot: FormationSlot;
   base: Vec2;
   state: PlayerState;
 }
@@ -270,7 +419,7 @@ type Hit =
   | { u: number; kind: "control"; by: Body; at: Vec3; chance: number; solid: boolean }
   | { u: number; kind: "body"; by: Body };
 
-export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions): MatchFixture {
+export function generateMatch({ seed, durationMs = 60_000, tactics: config }: SimulationOptions): MatchFixture {
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff)
     throw new Error("Seed must be an integer from 0 to 4294967295");
   if (
@@ -285,30 +434,36 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
   const teams = structuredClone(sampleFixture.teams);
   const roster = structuredClone(sampleFixture.roster);
   const opponentOf = (team: Team) => teams.find((t) => t.id !== team.id)!;
+  const { initial, scheduled } = resolveTactics(config, durationMs, teams, roster);
+  const configKey = hashKey(JSON.stringify({ initial, scheduled }));
+  /** Each team's formation as of the current step. */
+  const current = new Map(initial.map((f) => [f.teamId, f]));
 
-  const bodies: Body[] = [];
-  for (const team of teams) {
+  const bodies: Body[] = roster.map((info) => {
+    const team = teams.find((t) => t.id === info.teamId)!;
     const sign = team.attacksTowards === "increasing-x" ? 1 : -1;
-    roster
-      .filter((p) => p.teamId === team.id)
-      .forEach((info, i) => {
-        const [x, y] = SHAPE[i]!;
-        const base = { x: sign > 0 ? x : PITCH_LENGTH - x, y };
-        bodies.push({
-          info,
-          team,
-          sign,
-          keeper: info.role === "GK",
-          base,
-          state: { playerId: info.id, ...base, facing: sign > 0 ? 0 : Math.PI },
-        });
-      });
-  }
-  // Snapshots list players in roster order.
-  bodies.sort((a, b) => roster.indexOf(a.info) - roster.indexOf(b.info));
+    const f = current.get(team.id)!;
+    const s = formationSlot(f.formation, f.assignments[info.id]!)!;
+    const base = slotSpot(s, team.attacksTowards);
+    return {
+      info,
+      team,
+      sign,
+      keeper: info.role === "GK",
+      slot: s,
+      base,
+      state: { playerId: info.id, ...base, facing: sign > 0 ? 0 : Math.PI },
+    };
+  });
   const signOf = (team: Team): 1 | -1 => (team.attacksTowards === "increasing-x" ? 1 : -1);
   const keeperOf = (team: Team) => bodies.find((b) => b.team === team && b.keeper)!;
-  const strikerOf = (team: Team) => bodies.find((b) => b.team === team && b.info.number === 9)!;
+  /** The player in the team's first ST slot (or, with none, its most advanced slot): takes kickoffs and penalties. */
+  const strikerOf = (team: Team) => {
+    const own = bodies.filter((b) => b.team === team && !b.keeper);
+    for (const s of FORMATIONS[current.get(team.id)!.formation].slots)
+      if (s.position === "ST") return own.find((b) => b.slot === s)!;
+    return own.reduce((a, b) => (b.slot.depth > a.slot.depth ? b : a));
+  };
   const outfieldOf = (team: Team) => bodies.filter((b) => b.team === team && !b.keeper);
   /** x of the goal line a team attacks. */
   const goalLineOf = (team: Team) => (signOf(team) > 0 ? PITCH_LENGTH : 0);
@@ -421,6 +576,37 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     return set;
   };
 
+  /** Moves every opponent of `team` at least RESTART_DISTANCE away from `spot`. */
+  const clearFrom = (spot: Vec2, team: Team) => {
+    for (const b of bodies) {
+      if (b.team === team) continue;
+      const d = distance(b.state, spot);
+      if (d >= RESTART_DISTANCE) continue;
+      // Straight back towards their own goal when standing on the spot itself.
+      const [dx, dy] = d > 1e-6 ? [(b.state.x - spot.x) / d, (b.state.y - spot.y) / d] : [-b.sign, 0];
+      Object.assign(b.state, onPitch({ x: spot.x + dx * (RESTART_DISTANCE + 0.05), y: spot.y + dy * (RESTART_DISTANCE + 0.05) }));
+    }
+  };
+
+  /**
+   * Restart positions are placed directly (a dead-ball cut), so nothing has kept
+   * players apart: anyone standing on top of someone else steps away from them,
+   * the taker never moves. Visited in roster order, so this is deterministic.
+   */
+  const unstack = (taker: Body) => {
+    for (let pass = 0; pass < 3; pass++)
+      for (const b of bodies) {
+        if (b === taker) continue;
+        for (const o of bodies) {
+          if (o === b) continue;
+          const d = distance(b.state, o.state);
+          if (d >= PLAYER_GAP) continue;
+          const [dx, dy] = d > 1e-6 ? [(b.state.x - o.state.x) / d, (b.state.y - o.state.y) / d] : [-b.sign, 0];
+          Object.assign(b.state, onPitch({ x: o.state.x + dx * (PLAYER_GAP + 0.01), y: o.state.y + dy * (PLAYER_GAP + 0.01) }));
+        }
+      }
+  };
+
   /** Dead-ball cut to restart positions; never interpolated across by the viewer. */
   const setPiece = (team: Team, kind: "kickoff" | "goal-kick") => {
     for (const b of bodies) Object.assign(b.state, b.base, { facing: b.sign > 0 ? 0 : Math.PI });
@@ -428,10 +614,10 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     if (kind === "kickoff") {
       taker.state.x = CENTRE.x - taker.sign * DRIBBLE_OFFSET;
       taker.state.y = CENTRE.y;
-      // Non-kicking opponents must stay outside the centre circle.
-      for (const b of bodies)
-        if (b.team !== team && distance(b.state, CENTRE) < RESTART_DISTANCE) b.state.x = CENTRE.x - b.sign * 10;
+      // Non-kicking opponents must stay outside the centre circle (straight out from the centre, so in their own half).
+      clearFrom(CENTRE, team);
     }
+    unstack(taker);
     place(taker);
     nextAction = t + 1000;
   };
@@ -498,10 +684,19 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
   };
   const positions = () => bodies.map((b) => ({ x: b.state.x, y: b.state.y }));
 
-  const formationSpot = (b: Body, attacking: Team | null): Vec2 => ({
-    x: clamp(b.base.x + (ball.x - CENTRE.x) * 0.55 + (attacking === b.team ? b.sign * 14 : 0), 2, PITCH_LENGTH - 2),
-    y: clamp(b.base.y + (ball.y - CENTRE.y) * 0.25, 2, PITCH_WIDTH - 2),
-  });
+  /** Where `b` takes up position off the ball, from their slot, its movement profile, the ball and which team has it. */
+  const formationSpot = (b: Body, attacking: Team | null): Vec2 => {
+    const p = MOVEMENT_PROFILES[b.slot.position];
+    const phase = attacking === null ? 0 : attacking === b.team ? 1 : -1;
+    // The ball in the team's own frame: depth from its goal line, lateral to its left.
+    const ballDepth = b.sign > 0 ? ball.x : PITCH_LENGTH - ball.x;
+    const ballLateral = b.sign > 0 ? CENTRE.y - ball.y : ball.y - CENTRE.y;
+    let depth = b.slot.depth + (phase > 0 ? p.push : phase < 0 ? -p.drop : 0) + (ballDepth - CENTRE.x) * p.follow;
+    if (phase < 0 && p.recover !== null) depth = Math.max(4, Math.min(depth, ballDepth + p.recover));
+    const lateral = b.slot.lateral * (phase > 0 ? p.width : phase < 0 ? p.tuck : 1) + ballLateral * p.slide;
+    const spot = slotSpot({ depth, lateral }, b.team.attacksTowards);
+    return { x: clamp(spot.x, 2, PITCH_LENGTH - 2), y: clamp(spot.y, 2, PITCH_WIDTH - 2) };
+  };
   const keeperSpot = (b: Body): Vec2 => ({ x: b.base.x, y: clamp(ball.y, 30.5, 37.5) });
   const ballLead = (): Vec2 => ({
     x: clamp(ball.x + ball.vx * 0.25, 0.5, PITCH_LENGTH - 0.5),
@@ -589,7 +784,7 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
         move(b, coverPoint, MAX_PLAYER_SPEED, null);
       } else {
         const spot = formationSpot(b, attacking);
-        if (b.info.role === "FW" && attacking === b.team) {
+        if (MOVEMENT_PROFILES[b.slot.position].runs && attacking === b.team) {
           const run = Math.sin(t / 2600 + b.info.number * 1.7) * 3 - 1;
           spot.x = clamp(runLine + b.sign * run, 2, PITCH_LENGTH - 2);
         }
@@ -614,7 +809,7 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
       from,
       startT: t,
       start,
-      barred: new Map(),
+      barred: new Map([[from, t + KICK_RECOVERY_MS]]),
       loose: false,
       offside: exempt ? new Set() : offsidePlayers(from),
       turned: null,
@@ -1159,17 +1354,6 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     contain(net);
   };
 
-  /** Moves every opponent of `team` at least RESTART_DISTANCE away from `spot`. */
-  const clearFrom = (spot: Vec2, team: Team) => {
-    for (const b of bodies) {
-      if (b.team === team) continue;
-      const d = distance(b.state, spot);
-      if (d >= RESTART_DISTANCE) continue;
-      // Straight back towards their own goal when standing on the spot itself.
-      const [dx, dy] = d > 1e-6 ? [(b.state.x - spot.x) / d, (b.state.y - spot.y) / d] : [-b.sign, 0];
-      Object.assign(b.state, onPitch({ x: spot.x + dx * (RESTART_DISTANCE + 0.05), y: spot.y + dy * (RESTART_DISTANCE + 0.05) }));
-    }
-  };
 
   const takeRestart = (r: Restart) => {
     const attacking = r.team;
@@ -1260,6 +1444,7 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
         break;
       }
     }
+    unstack(owner!);
     setPlay = { taker: owner!, kind: r.kind, indirect };
     nextAction = t + 1000;
     emit({
@@ -1272,11 +1457,49 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     });
   };
 
+  // Formation changes --------------------------------------------------------
+
+  const applied: AppliedFormationChange[] = [];
+  let nextChange = 0;
+  /**
+   * Applies a scheduled change at the start of its step, before any restart or
+   * movement in that step. Only slots and neutral spots change: players then
+   * run to their new positions at normal speed. During a stoppage they drift
+   * towards the restart positions of the new formation, and a kickoff or goal
+   * kick taken at or after the change lines up in it.
+   */
+  const changeFormation = (c: ScheduledFormationChange) => {
+    const team = teams.find((x) => x.id === c.teamId)!;
+    const before = current.get(team.id)!;
+    for (const b of bodies) {
+      if (b.team !== team) continue;
+      b.slot = formationSlot(c.formation, c.assignments[b.info.id]!)!;
+      b.base = slotSpot(b.slot, team.attacksTowards);
+    }
+    current.set(team.id, { teamId: team.id, formation: c.formation, assignments: c.assignments });
+    emit({
+      type: "formation-change",
+      teamId: team.id,
+      outcome: "applied",
+      description: `${team.name} switch from ${before.formation} to ${c.formation}`,
+    });
+    applied.push({
+      eventId: events[events.length - 1]!.id,
+      teamId: team.id,
+      t,
+      from: before.formation,
+      to: c.formation,
+      previousAssignments: before.assignments,
+      assignments: c.assignments,
+    });
+  };
+
   // Main loop -----------------------------------------------------------------
 
   for (t = STEP_MS; t <= durationMs; t += STEP_MS) {
     contact = false;
     let cut = false;
+    while (scheduled[nextChange]?.t === t) changeFormation(scheduled[nextChange++]!);
     if (restart) {
       const r: Restart = restart;
       if (t >= r.until) {
@@ -1333,9 +1556,9 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
   }
 
   return {
-    schemaVersion: "1.2.0",
-    matchId: `sim-v3-${seed}-${durationMs}`,
-    title: `Generated match · seed ${seed}`,
+    schemaVersion: "1.3.0",
+    matchId: `sim-v${SIMULATOR_VERSION}-${seed}-${durationMs}-${configKey}`,
+    title: `Generated match · seed ${seed} · ${initial.map((f) => f.formation).join(" v ")}`,
     synthetic: true,
     durationMs,
     teams,
@@ -1343,5 +1566,7 @@ export function generateMatch({ seed, durationMs = 60_000 }: SimulationOptions):
     startingState,
     snapshots,
     events,
+    generator: { simulatorVersion: SIMULATOR_VERSION, seed, configKey },
+    tactics: { initial, scheduled, applied },
   };
 }

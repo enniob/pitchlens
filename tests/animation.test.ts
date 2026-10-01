@@ -32,7 +32,7 @@ import { DRIBBLE_OFFSET, generateMatch, MAX_PLAYER_SPEED } from "@/simulation/ge
 const generated = generateMatch({ seed: 42, durationMs: 60_000 });
 const fixtures = [
   ["scripted 1.0.0", sampleFixture],
-  ["generated 1.2.0", generated],
+  ["generated 1.3.0", generated],
 ] as const;
 
 const still = { speed: 0, distance: 0, action: null };
@@ -209,7 +209,20 @@ describe("ball size", () => {
 });
 
 describe("ball contacts recognised from snapshots match what the simulator did", () => {
-  const matches = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((seed) => generateMatch({ seed, durationMs: 120_000 }));
+  const matches = [
+    ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((seed) => generateMatch({ seed, durationMs: 120_000 })),
+    // Other formations, so contacts are checked whatever shape the teams play.
+    ...[12, 13, 14, 15].map((seed) =>
+      generateMatch({ seed, durationMs: 120_000, tactics: { home: { formation: "4-4-2" }, away: { formation: "4-2-3-1" } } }),
+    ),
+    ...[16, 17, 18, 19].map((seed) =>
+      generateMatch({
+        seed,
+        durationMs: 120_000,
+        tactics: { home: { formation: "4-2-3-1", changes: [{ t: 60_000, formation: "4-4-2" }] }, away: { formation: "4-4-2" } },
+      }),
+    ),
+  ];
   const all = matches.flatMap((f) => {
     const contacts = ballContacts(f);
     const at = (t: number, playerId: string | undefined) => contacts.filter((c) => c.t === t && c.playerId === playerId);

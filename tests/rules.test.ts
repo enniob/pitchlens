@@ -14,10 +14,19 @@ import {
 } from "@/match/contract";
 import { statisticsAt } from "@/playback/statistics";
 import { BALL_RADIUS } from "@/simulation/ball";
-import { generateMatch, PLAYER_GAP, RESTART_DISTANCE } from "@/simulation/generate";
+import { generateMatch, PLAYER_GAP, RESTART_DISTANCE, type TacticsConfig } from "@/simulation/generate";
 
 const SEEDS = Array.from({ length: 24 }, (_, i) => i);
-const matches = SEEDS.map((seed) => generateMatch({ seed, durationMs: 120_000 }));
+/** The same rules must hold whatever formation each team plays, and across a mid-match change. */
+const TACTICS: TacticsConfig[] = [
+  { home: { formation: "4-4-2" }, away: { formation: "4-2-3-1" } },
+  { home: { formation: "4-2-3-1", changes: [{ t: 45_000, formation: "4-3-3" }] }, away: { formation: "4-4-2" } },
+  { home: { formation: "4-3-3" }, away: { formation: "4-4-2", changes: [{ t: 30_000, formation: "4-2-3-1" }, { t: 90_000, formation: "4-3-3" }] } },
+];
+const matches = [
+  ...SEEDS.map((seed) => generateMatch({ seed, durationMs: 120_000 })),
+  ...Array.from({ length: 12 }, (_, i) => generateMatch({ seed: 24 + i, durationMs: 120_000, tactics: TACTICS[i % TACTICS.length] })),
+];
 const all = <T>(pick: (f: MatchFixture) => T[]) => matches.flatMap((f) => pick(f).map((x) => [f, x] as const));
 
 const snapshotAt = (f: MatchFixture, t: number) => f.snapshots.find((s) => s.t === t)!;
@@ -94,7 +103,8 @@ describe("fouls", () => {
       const restart = restartAfter(f, foul.t);
       if (!restart) continue;
       expect(restart.t - foul.t).toBe(2000);
-      expect(f.events.filter((e) => e.t > foul.t && e.t < restart.t)).toEqual([]);
+      // A scheduled formation change may fall in the stoppage; it does not restart play.
+      expect(f.events.filter((e) => e.t > foul.t && e.t < restart.t && e.type !== "formation-change")).toEqual([]);
       for (const x of f.snapshots.filter((x) => x.t > foul.t && x.t < restart.t)) expect(x.ball).toEqual(s.ball);
     }
   });
@@ -134,7 +144,7 @@ describe("fouls", () => {
     const penalties = all((f) => f.events.filter((e) => e.type === "penalty"));
     expect(penalties.length).toBeGreaterThan(0);
     for (const [f, pen] of penalties) {
-      const next = f.events.find((e) => e.t > pen.t && e.type !== "deflection");
+      const next = f.events.find((e) => e.t > pen.t && e.type !== "deflection" && e.type !== "formation-change");
       if (!next) continue;
       expect(next.type).toBe("shot");
       expect(next.playerId).toBe(pen.playerId);

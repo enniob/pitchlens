@@ -34,7 +34,21 @@ import {
 } from "@/simulation/generate";
 
 const SEEDS = [0, 1, 2, 3, 7, 42, 100, 999];
-const fixtures = SEEDS.map((seed) => [seed, generateMatch({ seed, durationMs: 120_000 })] as const);
+const fixtures = [
+  ...SEEDS.map((seed) => [seed, generateMatch({ seed, durationMs: 120_000 })] as const),
+  // The ball's physics do not depend on formation; these widen the sample of situations it meets.
+  ...[5, 6].map(
+    (seed) =>
+      [
+        seed,
+        generateMatch({
+          seed,
+          durationMs: 120_000,
+          tactics: { home: { formation: "4-4-2" }, away: { formation: "4-2-3-1", changes: [{ t: 60_000, formation: "4-4-2" }] } },
+        }),
+      ] as const,
+  ),
+];
 
 const snapshotAt = (f: MatchFixture, t: number) => f.snapshots.find((s) => s.t === t)!;
 const before = (f: MatchFixture, t: number) => f.snapshots[f.snapshots.findIndex((s) => s.t === t) - 1]!;
@@ -90,9 +104,9 @@ describe("deterministic replay", () => {
 });
 
 describe.each(fixtures)("ball physics in generated match, seed %s", (_seed, f) => {
-  it("is a valid schema 1.2.0 fixture on a fixed timestep", () => {
+  it("is a valid schema 1.3.0 fixture on a fixed timestep", () => {
     expect(validateFixture(f)).toEqual([]);
-    expect(f.schemaVersion).toBe("1.2.0");
+    expect(f.schemaVersion).toBe("1.3.0");
     const times = new Set(f.snapshots.map((s) => s.t));
     for (const s of f.snapshots) expect(s.t % STEP_MS).toBe(0);
     for (let t = 0; t <= f.durationMs; t += SNAPSHOT_INTERVAL_MS) expect(times.has(t)).toBe(true);

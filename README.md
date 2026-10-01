@@ -539,3 +539,240 @@ New and updated tests:
 production build in headless Chromium (SwiftShader) at 1440×900, and a generated
 match playing at 390 px wide. There were no console errors and no horizontal
 scroll.
+
+## Formations and formation changes (MVP 7)
+
+![4-4-2 (home) against 4-3-3 (away) at kickoff, with the formations panel](docs/screenshots/formations-442-v-433.jpg)
+
+![The away team after switching from 4-3-3 to 4-2-3-1 at 0:30](docs/screenshots/formations-switch-4231.jpg)
+
+Each team now plays in a formation, which can differ between the teams and can
+change at scheduled times during the match. The formation decides where each
+player stands and how they move off the ball for the whole match, not just at
+kickoff.
+
+### Presets and slots
+
+`src/match/formations.ts` defines **4-4-2**, **4-3-3** (the default) and
+**4-2-3-1**. Each has one goalkeeper slot and ten outfield slots. A slot has:
+
+- an ID that is unique within the formation, such as `LCB`, `RS` or `AM`
+- a tactical position: `GK`, `RB`, `CB`, `LB`, `DM`, `CM`, `RM`, `LM`, `AM`,
+  `RW`, `LW` or `ST`
+- a neutral spot, given relative to the attacking direction: `depth` is metres
+  from the team's own goal line, and `lateral` is metres to the left of the
+  centre line, as seen facing the goal the team attacks
+
+`slotSpot` converts a slot to pitch coordinates. The two attacking directions
+are a half turn of each other, so a left back is on their own left whichever
+way their team attacks. All neutral spots are in the team's own half, so
+kickoff positions are always legal.
+
+A slot only says where a player plays. Player IDs, names, shirt numbers and the
+roster `role` do not change.
+
+### Configuration
+
+```ts
+generateMatch({
+  seed: 42,
+  durationMs: 60_000,
+  tactics: {
+    home: { formation: "4-4-2" },
+    away: {
+      formation: "4-3-3",
+      assignments: { "nvr-1": "GK", "nvr-2": "RB" /* …every away player once */ },
+      changes: [{ t: 30_000, formation: "4-2-3-1" }],
+    },
+  },
+});
+```
+
+- `formation` defaults to 4-3-3.
+- `assignments` maps each player ID of the team to one slot ID. By default, the
+  roster goalkeeper goes in goal and each outfield slot gets its usual shirt
+  number (the 9 up front, the 2 at right back, and so on). Any slot left over
+  takes the remaining players in roster order.
+- Custom assignments are checked before simulating. The simulator rejects a
+  missing player, a player from the other team or not in the roster, an unknown
+  or duplicated slot, and anyone other than the roster goalkeeper in the `GK`
+  slot.
+- `changes` lists formation changes, each with an optional `assignments`. By
+  default, players move to the nearest free slot of the new formation (nearest
+  pairs first, ties to the earlier slot and then the earlier roster entry), so
+  the team reshapes with as little running as possible. The goalkeeper stays
+  in goal.
+
+In the UI, each team has a **Formation** selector and an optional **Change at
+(s)** time with the new formation. The time must be strictly between 0 and the
+selected duration, with at most one decimal. Times outside that range are
+rejected with a message, and nothing is generated.
+
+### Timing semantics
+
+- A change time is integer milliseconds of simulation time. It must be after
+  kickoff and before the end of the match (`0 < t < durationMs`) and a
+  multiple of the 20 ms simulation step. A team can change only once at any
+  given time. It can change several times at different times; each change
+  starts from the formation before it.
+- A change is applied once, at the start of the step at exactly its time,
+  before any restart or player movement in that step. Changes at the same time
+  are applied home team first, then away.
+- Each change emits a `formation-change` event (outcome `applied`) at that time,
+  plus a snapshot. It does not stop play. Positions are not cut, the ball,
+  possession and any pass or shot in flight carry on untouched, and the restart
+  clock does not change. Players then run to their new spots within the normal
+  speed limit.
+- **During a stoppage**, players walk towards their restart positions in the new
+  formation. A kickoff or goal kick taken at or after the change lines up in
+  the new formation. A change at the same time as a restart counts for that
+  restart. For throw-ins, corners, free kicks and penalties, players are placed
+  the same way as before. Players not involved in the restart stay where they
+  walked to.
+- Every kickoff and goal kick lines up in the team's *current* formation, never
+  the starting one. The kickoff and any penalty are taken by the player in the
+  current formation's first `ST` slot.
+
+### Role-aware movement
+
+Each position has a movement profile in `MOVEMENT_PROFILES`
+(`src/simulation/generate.ts`). Off the ball, a player's target is their
+slot's neutral spot, adjusted by the profile:
+
+| Profile setting | Effect |
+| --- | --- |
+| `follow`, `slide` | How much the player shifts with the ball along and across the pitch |
+| `push` | How far they move up while their team has the ball. Full backs push on furthest, centre backs least |
+| `width` | How far they spread while attacking. Wingers and full backs go wide |
+| `tuck` | How far they narrow while defending |
+| `drop`, `recover` | How far they drop while defending, and how far upfield of the ball they may stay. Centre backs stay goal-side of the ball; strikers stay up as an outlet |
+| `runs` | Whether they time runs along the defenders' offside line (strikers and wingers) |
+
+Because positions differ, players do not share the same offsets and do not all
+chase the ball. Pressing, cutting out passes, covering shots, chasing loose
+balls, goalkeeping, collisions, ball contacts and restarts work as before.
+These profiles are a simplified synthetic model. They have not been validated
+against real tactical data.
+
+### Rules integration
+
+The PR #7 rules are reused unchanged:
+
+- Offside is still judged from players' and the ball's actual positions at the
+  moment of the pass, never from slots or labels.
+- Throw-ins, corners and goal kicks are still exempt from offside.
+
+The rules tests now also run on 12 matches with mixed formations and
+mid-match changes. Two integration fixes came out of them:
+
+- **No stacked players at restarts.** Restart positions are placed directly.
+  Before, the centre-circle push at kickoff could stack two players on one
+  spot, as could a free-kick taker placed next to their goalkeeper. Opponents
+  now leave the circle straight out from the centre, and any player standing
+  on top of another steps 0.7 m away. The taker never moves.
+- **The kicker cannot play their own kick again for 400 ms.** Before, a shot
+  struck from point-blank range into the goalkeeper could bounce straight back
+  to the shooter in the next step. The animation's block and parry recognition
+  applies the same rule.
+
+### Data, identity and compatibility
+
+- Generated fixtures are schema **1.3.0**. This version adds the
+  `formation-change` event type, the `applied` outcome, and two optional
+  fixture fields:
+  - `generator`: `{ simulatorVersion, seed, configKey }`
+  - `tactics`:
+    - `initial`: each team's starting formation and assignments
+    - `scheduled`: the configured changes, with resolved assignments, in
+      processing order
+    - `applied`: each change with its team, time, previous and new formation,
+      previous and new assignments, and the ID of its event
+- Match IDs are `sim-v4-<seed>-<durationMs>-<configKey>`. `configKey` is a
+  short FNV-1a hash of the resolved configuration, and `4` is
+  `SIMULATOR_VERSION`. Two different configurations therefore never share an
+  ID. Writing out the defaults explicitly resolves to the same configuration,
+  and so to the same ID and the same match.
+- The same seed, configuration and simulator version produce identical output.
+- Schema 1.0.0 (the scripted demo), 1.1.0 and 1.2.0 fixtures still validate and
+  play. Without `tactics` there is no formation panel. A `formation-change`
+  event without `tactics` is rejected.
+- The validator checks the `tactics` metadata:
+  - exactly one valid starting formation and assignment per team
+  - applied changes in time order, inside the match, chaining from the
+    previous formation
+  - each change matched by a `formation-change` event with the same ID, time
+    and team
+
+### Playback
+
+A **Formations** panel shows each team's active formation at the playback time,
+with when it took effect and who is in each slot. `formationsAt(fixture, t)` in
+`src/playback/derive.ts` derives it from `initial` plus the applied changes up
+to `t`, and it is also part of each `PlaybackFrame`. Seeking back restores the
+earlier formation, restarting restores the starting one, and a change never
+shows before its time. Changes appear in the event feed with an accent bar. The
+statistics ignore them.
+
+### Limitations
+
+- There are only three presets. The UI offers one scheduled change per team; the
+  API allows any number.
+- There are no substitutions, keeper swaps or player-specific attributes: any
+  outfield player plays any outfield slot equally well.
+- The default reassignment after a change minimises running, not tactical sense.
+  For example, the defensive midfielder of a 4-3-3 becomes the attacking
+  midfielder of a 4-2-3-1. Pass custom `assignments` to choose otherwise.
+- Set-piece roles do not depend on position: the throw-in and corner taker is
+  the nearest outfield player, and the corner runners are the most advanced.
+- Event rates shift a little with the new movement. Corners, throw-ins and
+  penalties remain rarer than in real football (see MVP 6).
+
+### Validation
+
+`tests/formations.test.tsx` covers:
+
+- each preset has exactly 11 unique slots, one goalkeeper, and spots in its own
+  half
+- left and right are labelled consistently, and the two attacking directions
+  mirror correctly
+- default and remapped assignments put every rostered player of the right team
+  in exactly one slot, and invalid custom assignments are rejected
+- teams can start in different formations, each mirrored for its direction
+- the same seed and configuration reproduce identical output, a different
+  configuration changes the match ID, and explicit defaults give the same match
+- positions keep their depth order on average, and no two players share a spot
+- a change:
+  - applies once, at exactly its time, and is recorded in full
+  - leaves everything before it identical
+  - respects the speed limit, with no cut
+  - leaves the ball, possession and a pass in flight untouched
+- changes at the same time go home team first, several changes chain, and bad
+  times are rejected
+- a change during a stoppage is used by the following goal kick, without
+  changing when or by whom it is taken
+- across all nine formation pairings, with a mid-match change:
+  - kickoffs and goal kicks line up in the current formation
+  - kickoffs are legal
+  - the kickoff and penalties go to the `ST` slot
+  - free kicks, corners and throw-ins stay legal
+- playback shows the right formation at every time when seeking forward and
+  back and after a restart, never shows a future one early, and renders the
+  panel and feed entry
+- the scripted demo and 1.2.0 fixtures still work, and inconsistent formation
+  metadata is rejected
+- the UI turns its inputs into tactics configuration and rejects out-of-range
+  change times
+
+The offside, foul, penalty, wall, corner, throw-in, collision and woodwork tests
+in `tests/rules.test.ts` now also run on matches with mixed formations and
+changes. The animation and ball-physics samples also include such matches.
+
+`npm test`, `npm run typecheck` and `npm run build` pass. I checked the
+production build in headless Chromium:
+
+- 4-4-2 against 4-3-3 at kickoff
+- the away team switching to 4-2-3-1 at 0:30
+- seeking back before the change, which shows 4-3-3 again and removes the feed
+  entry
+- the error for a change time beyond the duration
+- the scripted demo, which has no formation panel

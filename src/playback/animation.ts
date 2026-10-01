@@ -110,6 +110,8 @@ const SAVE_AFTER_STRIKE_MS = 600;
 /** A free ball changing direction by more than this within a player's reach has come off them. */
 const DEFLECTION_ANGLE = 0.5;
 const DEFLECTION_REACH = 1.6;
+/** How long after striking the ball a kicker cannot touch it again. */
+const KICKER_CLEAR_MS = 400;
 
 const playerAt = (s: Snapshot, id: string) => s.players.find((p) => p.playerId === id);
 const moved = (a: Snapshot, b: Snapshot) => Math.hypot(b.ball.x - a.ball.x, b.ball.y - a.ball.y, b.ball.z - a.ball.z);
@@ -147,7 +149,7 @@ function recognise(fixture: MatchFixture): BallContact[] {
   const snaps = fixture.snapshots;
   const teamOf = new Map(fixture.roster.map((p) => [p.id, p.teamId]));
   const found: BallContact[] = [];
-  let lastStrike = { t: -Infinity, teamId: "" };
+  let lastStrike = { t: -Infinity, teamId: "", playerId: "" };
   const add = (s: Snapshot, playerId: string, kind: ContactKind, start?: number, from?: Snapshot) => {
     const [before, after] = CONTACT_WINDOW[kind];
     found.push({ t: s.t, playerId, kind, ...relative(s, playerId, from), start: start ?? s.t - before, end: s.t + after });
@@ -173,7 +175,7 @@ function recognise(fixture: MatchFixture): BallContact[] {
         } else {
           add(b, had, "kick");
         }
-        lastStrike = { t: b.t, teamId: teamOf.get(had) ?? "" };
+        lastStrike = { t: b.t, teamId: teamOf.get(had) ?? "", playerId: had };
       } else if (dead && b.ball.z < 0.5) {
         // Play stopped with the ball dead at the carrier's feet: they were fouled by the nearest opponent.
         add(b, had, "fall");
@@ -214,6 +216,8 @@ function recognise(fixture: MatchFixture): BallContact[] {
       let who: string | null = null;
       let best = DEFLECTION_REACH;
       for (const p of b.players) {
+        // The kicker is still following through and cannot be the one it came off (as in the simulator).
+        if (p.playerId === lastStrike.playerId && b.t - lastStrike.t < KICKER_CLEAR_MS) continue;
         const d = Math.hypot(p.x - b.ball.x, p.y - b.ball.y);
         if (d < best) [who, best] = [p.playerId, d];
       }

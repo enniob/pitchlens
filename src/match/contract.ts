@@ -17,7 +17,7 @@
  */
 
 export const SCHEMA_VERSION = "1.0.0" as const;
-export type SchemaVersion = typeof SCHEMA_VERSION | "1.1.0" | "1.2.0";
+export type SchemaVersion = typeof SCHEMA_VERSION | "1.1.0" | "1.2.0" | "1.3.0";
 
 export const PITCH_LENGTH = 105;
 export const PITCH_WIDTH = 68;
@@ -101,6 +101,8 @@ export interface Snapshot {
  * 1.2.0 adds the restarts throw-in, corner, free-kick and penalty; foul and
  * offside, which stop play; and deflection, a touch that changes the ball's
  * path without anyone controlling it (a block, a parry, the woodwork).
+ * 1.3.0 adds formation-change, a scheduled tactical change that does not stop
+ * play, and the optional `generator` and `tactics` fixture metadata.
  */
 export type EventType =
   | "kickoff"
@@ -116,7 +118,8 @@ export type EventType =
   | "penalty"
   | "foul"
   | "offside"
-  | "deflection";
+  | "deflection"
+  | "formation-change";
 
 export interface MatchEvent {
   /** Unique within the fixture. */
@@ -145,7 +148,9 @@ export interface MatchEvent {
     | "blocked"
     | "deflected"
     | "committed"
-    | "flagged";
+    | "flagged"
+    // 1.3.0
+    | "applied";
   /** Time the action began (e.g. ball struck for a pass), if earlier than `t`. */
   startT?: number;
   start?: Vec3;
@@ -173,4 +178,61 @@ export interface MatchFixture {
   snapshots: Snapshot[];
   /** Non-decreasing by `t`. */
   events: MatchEvent[];
+  /** Which simulator and configuration produced the fixture (1.3.0, generated fixtures only). */
+  generator?: GeneratorInfo;
+  /** Formations, slot assignments and formation changes (1.3.0). Absent from older and scripted fixtures. */
+  tactics?: MatchTactics;
+}
+
+// Formations (1.3.0) ------------------------------------------------------------
+
+export const FORMATION_IDS = ["4-4-2", "4-3-3", "4-2-3-1"] as const;
+export type FormationId = (typeof FORMATION_IDS)[number];
+
+/**
+ * Tactical position of a formation slot. Independent of the player's roster
+ * `role` and shirt number: any outfield player can fill any outfield slot.
+ */
+export type TacticalPosition = "GK" | "RB" | "CB" | "LB" | "DM" | "CM" | "RM" | "LM" | "AM" | "RW" | "LW" | "ST";
+
+/** Player ID → slot ID within the team's current formation; every player of the team exactly once. */
+export type SlotAssignments = Record<string, string>;
+
+export interface TeamFormation {
+  teamId: string;
+  formation: FormationId;
+  assignments: SlotAssignments;
+}
+
+/** A formation change requested before the match, at simulation time `t`. */
+export interface ScheduledFormationChange extends TeamFormation {
+  t: number;
+}
+
+/** A formation change as it was applied during the simulation. */
+export interface AppliedFormationChange {
+  /** The formation-change event that announced it. */
+  eventId: string;
+  teamId: string;
+  t: number;
+  from: FormationId;
+  to: FormationId;
+  previousAssignments: SlotAssignments;
+  assignments: SlotAssignments;
+}
+
+export interface MatchTactics {
+  /** Formations at t = 0, one per team. */
+  initial: TeamFormation[];
+  /** Changes as configured (with resolved assignments), in processing order. */
+  scheduled: ScheduledFormationChange[];
+  /** Changes as applied, in order; the formation at time t is `initial` plus every applied change with t' ≤ t. */
+  applied: AppliedFormationChange[];
+}
+
+export interface GeneratorInfo {
+  simulatorVersion: string;
+  seed: number;
+  /** Short hash of the resolved configuration (formations, assignments, changes). */
+  configKey: string;
 }
