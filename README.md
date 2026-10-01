@@ -4,6 +4,8 @@ PitchLens is a prototype for the MS and Premier League hackathon. **MVP 1** is a
 
 > **Everything shown is synthetic.** The teams (Harbor City FC and Northvale Rovers), the players, their movement and the events are made up for the demo. The app uses no real match data, footage or club branding, and it makes no network calls at runtime.
 
+![Overhead view just after the goal](docs/screenshots/desktop-goal.png)
+
 ## Getting started
 
 Requires Node.js 20.9 or newer.
