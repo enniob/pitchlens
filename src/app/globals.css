@@ -1,0 +1,380 @@
+:root {
+  --bg: #0b1220;
+  --panel: #111a2e;
+  --panel-2: #17223a;
+  --border: #26324d;
+  --text: #e5ecf6;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --goal: #facc15;
+  --radius: 10px;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  line-height: 1.4;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Page ------------------------------------------------------------------- */
+
+.page {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 12px 16px 24px;
+}
+
+.page__header {
+  margin-bottom: 10px;
+}
+
+.page__title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.page__subtitle {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.page__note {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* Viewer layout ---------------------------------------------------------- */
+
+.viewer {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.viewer__main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+@media (min-width: 960px) {
+  .viewer {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+  .viewer__side {
+    max-height: calc(100vh - 100px);
+    position: sticky;
+    top: 12px;
+  }
+}
+
+/* Scoreboard ------------------------------------------------------------- */
+
+.scoreboard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+}
+
+.scoreboard__teams {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.team {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.team__short {
+  display: none;
+  text-decoration: none;
+}
+
+.scoreboard__score {
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  padding: 0 10px;
+  background: var(--panel-2);
+  border-radius: 6px;
+}
+
+.scoreboard__clock {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.scoreboard__duration {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.9rem;
+}
+
+.kit-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  flex: none;
+}
+
+@media (max-width: 560px) {
+  .team__name {
+    display: none;
+  }
+  .team__short {
+    display: inline;
+  }
+}
+
+/* Stage ------------------------------------------------------------------ */
+
+.stage {
+  position: relative;
+  height: clamp(280px, 58vh, 820px);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #0f1a2c;
+  border: 1px solid var(--border);
+}
+
+@media (min-width: 960px) {
+  .stage {
+    height: calc(100vh - 230px);
+    min-height: 420px;
+  }
+}
+
+.stage__canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.stage__badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.92);
+  color: #1c1917;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.stage__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  background: rgba(11, 18, 32, 0.92);
+  color: var(--text);
+}
+
+.stage__overlay > div {
+  max-width: 520px;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+/* Controls --------------------------------------------------------------- */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+.controls__group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  min-height: 40px;
+  min-width: 44px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.btn:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #04263a;
+  min-width: 104px;
+}
+
+.btn--toggle[aria-pressed="true"] {
+  background: #0c4a6e;
+  border-color: var(--accent);
+}
+
+.btn--icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+/* Events ----------------------------------------------------------------- */
+
+.events {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  height: 100%;
+  overflow: auto;
+}
+
+.events__heading {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.events__empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.events__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.event {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  font-size: 0.9rem;
+}
+
+.event__time {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.event--goal {
+  background: rgba(250, 204, 21, 0.16);
+  border: 1px solid rgba(250, 204, 21, 0.6);
+  font-weight: 700;
+}
+
+/* Notices ---------------------------------------------------------------- */
+
+.notice {
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.notice--error {
+  border-color: #f87171;
+}
