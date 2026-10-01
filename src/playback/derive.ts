@@ -124,3 +124,28 @@ export function frameAt(fixture: MatchFixture, t: number): PlaybackFrame {
     events: eventsAt(fixture, time),
   };
 }
+
+/** Timestamp of the latest event strictly before t, or null. Equal-time events share one stop. */
+export function previousEventTime(fixture: MatchFixture, t: number): number | null {
+  const events = fixture.events;
+  // Last event with timestamp < t: the last one at or before the next-lower integer ms.
+  let lo = 0;
+  let hi = events.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (events[mid]!.t < t) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found < 0 ? null : events[found]!.t;
+}
+
+/** Timestamp of the earliest event strictly after t, or null. */
+export function nextEventTime(fixture: MatchFixture, t: number): number | null {
+  const i = lastAtOrBefore(fixture.events, t, (e) => e.t) + 1;
+  return i < fixture.events.length ? fixture.events[i]!.t : null;
+}
