@@ -194,7 +194,7 @@ describe("Timeline markup", () => {
 
   it("shows ticks only for events already reached, and no gold goal tick early", () => {
     const goal = sampleFixture.events.find((e) => e.type === "goal")!;
-    const ticks = (html: string) => html.match(/class="timeline__tick/g)?.length ?? 0;
+    const ticks = (html: string) => html.match(/class="timeline__tick(?!s)/g)?.length ?? 0;
     expect(ticks(render({ timeMs: 0 }))).toBe(sampleFixture.events.filter((e) => e.t <= 0).length);
     const before = render({ timeMs: goal.t - 1 });
     expect(before).not.toContain("timeline__tick--goal");
