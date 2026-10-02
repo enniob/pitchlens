@@ -25,6 +25,8 @@ describe("MatchViewer with invalid data", () => {
   it("renders the viewer for valid data", () => {
     const html = renderToStaticMarkup(<MatchViewer fixture={sampleFixture} />);
     expect(html).not.toContain("Match data could not be loaded");
-    expect(html).toContain("Recent events");
+    expect(html).toContain("Live feed");
+    expect(html).toContain('aria-label="Match timeline"');
+    expect(html).toContain("Synthetic match");
   });
 });

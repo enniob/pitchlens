@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Timeline } from "@/components/Timeline";
+import { timelineMoments } from "@/playback/moments";
 import { sampleFixture } from "@/match/fixture";
 import { frameAt, nextEventTime, previousEventTime } from "@/playback/derive";
 import { PlaybackEngine } from "@/playback/engine";
@@ -161,49 +162,52 @@ describe("goal scrubbing", () => {
 });
 
 describe("Timeline markup", () => {
-  const render = (over: Partial<Parameters<typeof Timeline>[0]> = {}) =>
-    renderToStaticMarkup(
+  const render = (over: Partial<Parameters<typeof Timeline>[0]> = {}) => {
+    const timeMs = over.timeMs ?? 2_000;
+    return renderToStaticMarkup(
       <Timeline
-        timeMs={2_000}
+        timeMs={timeMs}
         durationMs={sampleFixture.durationMs}
-        events={sampleFixture.events}
-        hasPrevious
-        hasNext
+        moments={timelineMoments(sampleFixture, timeMs)}
+        teams={sampleFixture.teams}
+        selectedId={null}
         onSeek={() => {}}
         onScrubStart={() => {}}
         onScrubEnd={() => {}}
-        onPreviousEvent={() => {}}
-        onNextEvent={() => {}}
+        onSelectMoment={() => {}}
         {...over}
       />,
     );
+  };
 
-  it("exposes a labelled native slider with readable value text and event buttons", () => {
+  it("exposes a labelled native slider with readable value text", () => {
     const html = render();
     expect(html).toContain('type="range"');
-    expect(html).toContain('aria-label="Seek"');
+    expect(html).toContain('aria-label="Match timeline"');
     expect(html).toContain("0:02.0 of");
-    expect(html).toContain("Prev event");
-    expect(html).toContain("Next event");
   });
 
-  it("disables navigation buttons at the ends", () => {
-    const html = render({ hasPrevious: false, hasNext: false });
-    expect(html.match(/disabled=""/g)).toHaveLength(2);
-  });
-
-  it("shows ticks only for events already reached, and no gold goal tick early", () => {
+  it("shows a labelled marker button only for key moments already reached, and no gold goal marker early", () => {
     const goal = sampleFixture.events.find((e) => e.type === "goal")!;
-    const ticks = (html: string) => html.match(/class="timeline__tick(?!s)/g)?.length ?? 0;
-    expect(ticks(render({ timeMs: 0 }))).toBe(sampleFixture.events.filter((e) => e.t <= 0).length);
+    const markers = (html: string) => html.match(/class="timeline__marker /g)?.length ?? 0;
+    expect(markers(render({ timeMs: 0 }))).toBe(0);
     const before = render({ timeMs: goal.t - 1 });
-    expect(before).not.toContain("timeline__tick--goal");
-    expect(ticks(before)).toBe(sampleFixture.events.filter((e) => e.t < goal.t).length);
-    expect(render({ timeMs: goal.t })).toContain("timeline__tick--goal");
+    expect(before).not.toContain("timeline__marker--goal");
+    expect(markers(before)).toBe(timelineMoments(sampleFixture, goal.t - 1).length);
+    const at = render({ timeMs: goal.t });
+    expect(at).toContain("timeline__marker--goal");
+    expect(at).toContain('aria-label="0:09 Goal, Harbor City FC"');
+  });
+
+  it("labels the selected marker visibly, so hovering is never needed", () => {
+    const goal = sampleFixture.events.find((e) => e.type === "goal")!;
+    const html = render({ timeMs: goal.t, selectedId: goal.id });
+    expect(html).toContain("timeline__label");
+    expect(html).toContain('aria-pressed="true"');
   });
 
   it("does not leak event descriptions", () => {
-    const html = render();
+    const html = render({ timeMs: sampleFixture.durationMs });
     for (const e of sampleFixture.events) expect(html).not.toContain(e.description);
   });
 });
