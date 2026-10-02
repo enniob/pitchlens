@@ -123,10 +123,12 @@ export interface MatchContext {
      * including how it ends (the scripted demo's is "turnover to goal").
      */
     label: string;
+    // The fixture's `generator` metadata (seed, simulator version, config key)
+    // is for debugging and reproducing a match and says nothing about the
+    // football, so it is left out too.
     schemaVersion: string;
     synthetic: true;
     durationMs: number;
-    generator?: { simulatorVersion: string; seed: number; configKey: string };
   };
   time: {
     /** The time asked for, after flooring to whole ms. */
@@ -309,7 +311,6 @@ export function extractMatchContext(fixture: MatchFixture, t: number, options: C
         schemaVersion: fixture.schemaVersion,
         synthetic: true,
         durationMs: fixture.durationMs,
-        ...(fixture.generator ? { generator: { ...fixture.generator } } : {}),
       },
       time: { selectedMs, positionsAtMs: anchor.t, lookbackMs, windowStartMs },
       score: scoreAt(fixture, selectedMs),

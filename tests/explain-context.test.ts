@@ -208,6 +208,15 @@ describe("actions in progress", () => {
 });
 
 describe("descriptive metadata", () => {
+  it("leaves out the generator metadata, which is for debugging and reproduction only", () => {
+    expect(offsideMatch.generator).toBeDefined();
+    const c = extractMatchContext(offsideMatch, 10_000);
+    expect(Object.keys(c.match).sort()).toEqual(["durationMs", "label", "matchId", "schemaVersion", "synthetic"]);
+    expect(json(c)).not.toMatch(/generator|simulatorVersion|configKey|"seed"/);
+    // The fixture itself keeps it.
+    expect(offsideMatch.generator).toMatchObject({ seed: 2 });
+  });
+
   it("does not copy the fixture title, which can describe how the sequence ends", () => {
     const c = extractMatchContext(sampleFixture, 0);
     expect(sampleFixture.title).toMatch(/goal/);
@@ -228,7 +237,6 @@ describe("fixtures without tactics metadata", () => {
   it("the scripted 1.0.0 demo: no formations or slots, and the gap is stated", () => {
     const c = extractMatchContext(sampleFixture, 9_400);
     expect(c.match).toMatchObject({ schemaVersion: "1.0.0", synthetic: true, matchId: sampleFixture.matchId });
-    expect(c.match.generator).toBeUndefined();
     expect(c.formations).toBeNull();
     expect(c.players).toHaveLength(22);
     expect(c.players.every((p) => p.slot === undefined)).toBe(true);
@@ -244,9 +252,8 @@ describe("fixtures without tactics metadata", () => {
     expectNoFutureData(legacy, c);
   });
 
-  it("generated fixtures carry their generator and no formation-data limitation", () => {
+  it("generated fixtures have no formation-data limitation", () => {
     const c = extractMatchContext(offsideMatch, 10_000);
-    expect(c.match.generator).toEqual(offsideMatch.generator);
     expect(limitationCodes(c)).not.toContain("no-formation-data");
     expect(limitationCodes(c)).toContain("synthetic-data");
   });
