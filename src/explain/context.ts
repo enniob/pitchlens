@@ -117,7 +117,12 @@ export interface MatchContext {
   contextVersion: typeof CONTEXT_VERSION;
   match: {
     matchId: string;
-    title: string;
+    /**
+     * Neutral label built from the team names. The fixture's own `title` is
+     * left out: it is free text that can describe the whole sequence,
+     * including how it ends (the scripted demo's is "turnover to goal").
+     */
+    label: string;
     schemaVersion: string;
     synthetic: true;
     durationMs: number;
@@ -258,6 +263,9 @@ export function extractMatchContext(fixture: MatchFixture, t: number, options: C
       return { teamId: f.teamId, formation: f.formation, since: f.since, ...(change ? { changeEventId: change.eventId } : {}) };
     }) ?? null;
 
+  const home = fixture.teams.find((team) => team.side === "home")!;
+  const away = fixture.teams.find((team) => team.side === "away")!;
+
   const build = (): MatchContext => {
     const limitations: Limitation[] = [
       {
@@ -297,7 +305,7 @@ export function extractMatchContext(fixture: MatchFixture, t: number, options: C
       contextVersion: CONTEXT_VERSION,
       match: {
         matchId: fixture.matchId,
-        title: fixture.title,
+        label: `${home.name} vs ${away.name} (synthetic)`,
         schemaVersion: fixture.schemaVersion,
         synthetic: true,
         durationMs: fixture.durationMs,

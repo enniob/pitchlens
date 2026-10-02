@@ -38,7 +38,7 @@ modified.
 | Field | Contents |
 | --- | --- |
 | `contextVersion` | `"1.0.0"` |
-| `match` | `matchId`, `title`, fixture `schemaVersion`, `synthetic: true`, `durationMs`, and `generator` (seed, simulator version, config key) for generated fixtures |
+| `match` | `matchId`, a neutral `label` built from the team names, fixture `schemaVersion`, `synthetic: true`, `durationMs`, and `generator` (seed, simulator version, config key) for generated fixtures |
 | `time` | `selectedMs`, `positionsAtMs`, `lookbackMs`, `windowStartMs` (see below) |
 | `score` | The score at the selected time: the starting score plus goals revealed by then |
 | `teams` | ID, side, names and attacking direction of both teams |
@@ -83,6 +83,10 @@ positions are rounded to 0.1 m.
   `t ≤ selectedMs` (`formationsAt`). A change at exactly the selected time is
   included. Scheduled changes (`tactics.scheduled`) are never included, and no
   slot or formation used only after the selected time appears.
+- **Descriptive metadata is not copied.** The fixture's `title` is free text
+  written for the whole sequence and can give away its ending (the scripted
+  demo's is "Synthetic sample: turnover to goal"), so the package has a
+  neutral `label` built from the team names instead.
 - **Score** counts goals with `t ≤ selectedMs`, including those before the
   lookback window.
 
@@ -128,7 +132,7 @@ The scripted demo, 250 ms after the shot and before the goal, with
 ```json
 {
   "contextVersion": "1.0.0",
-  "match": { "matchId": "synthetic-mvp1-sample-001", "title": "Synthetic sample: turnover to goal", "schemaVersion": "1.0.0", "synthetic": true, "durationMs": 24000 },
+  "match": { "matchId": "synthetic-mvp1-sample-001", "label": "Harbor City FC vs Northvale Rovers (synthetic)", "schemaVersion": "1.0.0", "synthetic": true, "durationMs": 24000 },
   "time": { "selectedMs": 9050, "positionsAtMs": 9000, "lookbackMs": 2000, "windowStartMs": 7050 },
   "score": { "home": 0, "away": 0 },
   "teams": [

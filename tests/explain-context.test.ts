@@ -207,6 +207,23 @@ describe("actions in progress", () => {
   });
 });
 
+describe("descriptive metadata", () => {
+  it("does not copy the fixture title, which can describe how the sequence ends", () => {
+    const c = extractMatchContext(sampleFixture, 0);
+    expect(sampleFixture.title).toMatch(/goal/);
+    expect(c.match.label).toBe("Harbor City FC vs Northvale Rovers (synthetic)");
+    expect(json(c)).not.toContain(sampleFixture.title);
+    expect(json(c)).not.toMatch(/goal|score[sd]/i);
+  });
+
+  it("is independent of the title, whatever it says", () => {
+    const spoiler: MatchFixture = { ...sampleFixture, title: "Late winner: Northvale snatch it 2-1" };
+    const c = extractMatchContext(spoiler, 0);
+    expect(c).toEqual(extractMatchContext(sampleFixture, 0));
+    expect(json(c)).not.toMatch(/winner|snatch|2-1/);
+  });
+});
+
 describe("fixtures without tactics metadata", () => {
   it("the scripted 1.0.0 demo: no formations or slots, and the gap is stated", () => {
     const c = extractMatchContext(sampleFixture, 9_400);
