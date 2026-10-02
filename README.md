@@ -45,13 +45,16 @@ npm run dev        # http://localhost:3000
 
 ### Using the viewer
 
-- **Play / Pause** and **Restart**. Pressing Play at the end starts the sequence again.
-- **Speeds:** 0.5×, 1×, 2× and 4×.
-- **Angled view** switches between the default overhead camera and a broadcast-style angle.
-- **Zoom:** use the − / + buttons, the mouse wheel, or a pinch. When zoomed in, drag to pan. **Fit** resets the view.
-- The **Recent events** panel shows an event only after playback reaches its timestamp. The score works the same way.
-- On portrait screens (phones) the camera turns 90° so the pitch runs from top to bottom.
-- If WebGL isn't available, a message replaces the 3D view. Playback, the clock, the score and the events panel still work.
+The viewer works like a match on TV (see [Broadcast mode](#broadcast-mode-mvp-8) below):
+
+- On first visit, **Kick off the demo** plays the scripted demo. **Set up your own match** opens the set-up drawer.
+- The **control bar** at the bottom has:
+  - restart, previous and next moment, play/pause, and speed (0.5×, 1×, 2× or 4×)
+  - the **timeline**, which gets an icon button for each key moment as it happens
+  - the **Broadcast** / **Top** camera switch, zoom − / + / fit, and the **Pro data** switch
+- Zoom also works with the mouse wheel or a pinch. When zoomed in, drag to pan.
+- The **score bug**, the **moment pop-ups**, the **live feed** and **Match centre** only show what has happened by the current playback time.
+- If WebGL isn't available, a message replaces the 3D view. Playback, the score, the feed and Match centre still work.
 
 ## Architecture
 
@@ -64,6 +67,8 @@ src/
   playback/               Playback logic. Has no rendering dependencies.
     derive.ts             Pure functions: positions, score and events at time t
     statistics.ts         Pure function: match statistics at time t
+    moments.ts            Pure functions: key moments, pop-ups and the live feed at time t
+    proData.ts            Pure functions: Pro data chips and extra statistics from fixture data
     animation.ts          Pure functions: player speed, distance travelled and ball contacts (kicks, throws, saves, tackles…) at time t
     engine.ts             PlaybackEngine: the single simulation clock
   simulation/             Seeded match producer. Has no rendering or playback dependencies.
@@ -81,8 +86,12 @@ src/
     Ball.ts               Ball and its height shadow; sized to the camera zoom
     MatchScene.ts         Puts the scene together: lights, cameras, zoom/pan, resize, dispose
   components/             React UI
-    MatchViewer.tsx       Runs the one requestAnimationFrame loop and connects engine → scene → UI
-    PlaybackControls.tsx, Scoreboard.tsx, EventFeed.tsx
+    SampleMatchViewer.tsx App shell: loaded match, set-up drawer, Pro data preference, first-visit card
+    MatchViewer.tsx       Runs the one requestAnimationFrame loop and connects engine → scene → broadcast overlays
+    ScoreBug.tsx, MomentBanner.tsx, LiveFeed.tsx, Timeline.tsx, PlaybackControls.tsx, MatchCentre.tsx,
+    MatchStats.tsx, Formations.tsx, SetupDrawer.tsx, TeamBadge.tsx, Icon.tsx
+    eventCopy.ts          Plain-language titles, icons and explanations for events
+    setup.ts              Set-up form model, per-field validation, tactics configuration
   app/                    Next.js App Router page and layout
 tests/                    Vitest suites
 ```
@@ -812,3 +821,159 @@ response schema, timestamp semantics, payload limits and examples.
 `tests/explain-context.test.ts` and `tests/explain-response.test.ts` cover
 goals, offsides, formation changes, seeking backwards, actions in flight,
 fixtures without tactics, invalid input, payload bounds and invalid responses.
+
+## Broadcast mode (MVP 8)
+
+![First visit: the demo is one click away](docs/screenshots/broadcast-desktop-welcome.jpg)
+
+![A goal pop-up over the full-screen pitch, with the live feed and score bug](docs/screenshots/broadcast-desktop-goal.jpg)
+
+The viewer has been redesigned to work like a football match on TV or in a
+console game, so a first-time fan can follow it without instructions:
+
+- **Full-screen pitch.** The 3D view fills the window. Everything else floats
+  over it. The camera starts in the **Broadcast** view (the existing angled
+  camera); **Top** is one tap away.
+- **Score bug.** Top left, as on TV: both teams with their short name and
+  shape (home circle, away square, so team identity never depends on colour
+  alone), the score and the clock. A ball dot marks the team in possession, and
+  both teams' current formations sit underneath.
+- **Moment pop-ups.** A **GOAL** graphic with the scorer and new score shows for
+  5 s. **TACTICAL CHANGE** with the old and new shape shows for 6 s. **FOUL**,
+  **OFFSIDE** and **PENALTY** show for 2.5 s.
+- **Live feed.** Up to three key moments from the last 12 seconds slide in at
+  the side and clear themselves. Each has a plain title (“Free kick”, “Save”)
+  and the simulator's description.
+- **Match centre.** Opened from the top right, it floats over the pitch
+  instead of shrinking it. It has three tabs:
+  - **Moments:** key moments or every touch, newest first. Selecting one
+    explains it in a sentence and offers *Replay from 3 s before*.
+  - **Stats:** the match statistics, with a short glossary.
+  - **Formations:** a mini pitch with shirt numbers, who plays where, and the
+    changes so far.
+- **Control bar.** One bar at the bottom, like a video player. Previous and
+  next jump between *key moments*: goals, shots, stoppages, restarts and
+  formation changes, not every pass. The timeline shows an icon button for each
+  moment reached so far. A selected moment is labelled on screen, so nothing
+  depends on hovering.
+- **Set up match.** A drawer for:
+  - match length
+  - each team's starting formation, with small diagrams
+  - an optional change during the match
+  - the seed, under *Advanced options*
+
+  The drawer always says what is being watched now. It shows *Not applied yet*
+  until a new match is generated. Problems are explained per field. The summary
+  names the field to fix, and focus moves to it.
+- **Phones.** In portrait, the pitch sits on top, with large controls and the
+  feed below; Match centre opens as a bottom sheet. In landscape, the layout is
+  a compact full-screen TV view.
+
+![Tactical change pop-up at 0:30](docs/screenshots/broadcast-desktop-tactical-change.jpg)
+
+![Match centre on the Formations tab](docs/screenshots/broadcast-desktop-match-centre-formations.jpg)
+
+### Pro data
+
+![Pro data on: every touch with its data chips, plus the Pro panel](docs/screenshots/broadcast-desktop-pro-data.jpg)
+
+The **Pro data** switch is for fans who want more:
+
+- **Feed:** every event from the last 20 seconds (up to five), passes and balls
+  won included, each with data chips.
+- **Score bug:** a panel with possession, passes completed out of attempted,
+  and shots with how many were on target.
+- **Stats tab:** extra rows for pass completion, average completed pass
+  length, shots on target and balls won.
+
+The choice is remembered for each browser in `localStorage`, guarded so the app
+works without it. It never changes the match.
+
+Every Pro figure is read or computed from fixture data in
+`src/playback/proData.ts`. No ratings or expected-goals numbers are invented.
+
+| Chip | Example | Source |
+| --- | --- | --- |
+| Pass length | `17.7 m` | pass `start` → `end` |
+| Travel time | `1.7 s travel` | `t − startT` |
+| Positions | `LW #11 → ST #9` | `playerId` / `recipientId` + formation active at the event |
+| Shot distance | `7.3 m from goal` | shot `start` to the centre of the goal attacked |
+| Ball height | `at 1.4 m high` | `end.z` of a goal or shot result |
+| Pitch zone | `attacking third` | event `start.x`, measured from the acting team's own goal |
+| Reshape size | `3 of 11 change position` | `tactics.applied` assignments vs the previous ones |
+| Event ID | `sim-8` | `event.id` |
+
+“Shots on target” counts goals scored by a player (not own goals) plus saves.
+
+### Unchanged by design
+
+- Playback, the simulator, rules, physics and the fixture contract are
+  untouched.
+- `src/playback/moments.ts` and `proData.ts` are pure functions of the fixture
+  and the time, like `derive.ts`. Pop-ups, feed cards, markers, stats and
+  formations never show anything after the current time. Seeking back restores
+  the earlier formation, and restart restores the starting one.
+- The scripted demo and fixtures from schema 1.0.0 to 1.3.0 still load.
+  Without formation data, the score bug omits the shapes and Match centre
+  explains why.
+- *Explain this moment* is still a labelled concept in Match centre. The
+  evidence extractor in `src/explain/` is not connected to the UI.
+
+### Accessibility
+
+- Team identity is shown by name and shape as well as colour.
+- Every control is a native button, switch, input or select with a name.
+  Icon-only buttons have `aria-label`s, and timeline markers say, for example,
+  “0:14 Goal, Northvale Rovers”.
+- Focus shows a visible 3 px ring. Touch targets are 44 px or larger, and the
+  play button is 54 px (64 px on phones).
+- The set-up drawer is a modal dialog: focus moves in, Tab stays inside, Esc
+  closes it, and focus returns to the button that opened it.
+- The live feed is a polite live region, and pop-ups use `role="status"`.
+- `prefers-reduced-motion` turns off all CSS animation and the camera easing.
+- The fonts (Barlow and Barlow Condensed) are self-hosted by `next/font` at
+  build time, so the app still makes no network calls at runtime.
+
+### Phones
+
+| Portrait | Pro data | Match centre |
+| --- | --- | --- |
+| ![Phone, goal](docs/screenshots/broadcast-phone-goal.jpg) | ![Phone, Pro data](docs/screenshots/broadcast-phone-pro-data.jpg) | ![Phone, Match centre](docs/screenshots/broadcast-phone-match-centre.jpg) |
+
+![Phone in landscape: the full-screen TV layout](docs/screenshots/broadcast-phone-landscape-goal.jpg)
+
+### Limitations
+
+- Player position labels (ST, LCB…) appear in Pro feed chips, the moment
+  details and the Formations tab, not on the 3D players.
+- The live feed lists recent moments only; the full history is in Match centre.
+- The flat 2D fallback for devices without WebGL is still only a proposal.
+  Without WebGL, the 3D area shows a message.
+- Keyboard shortcuts (such as Space for play) are not added yet. Every control
+  is reachable with Tab.
+
+### Validation
+
+- `tests/broadcast.test.tsx` covers:
+  - the no-future guarantee for markers, pop-ups, the feed and Pro chips,
+    probed every second of both the scripted demo and a generated match
+  - stepping between key moments only
+  - pop-up timing
+  - feed limits with and without Pro data
+  - pass length, travel time and position chips against the raw event data
+  - Pro totals consistent with `statisticsAt`
+  - the score bug's shapes at, and just before, a formation change
+  - Match centre tabs, Pro rows, the formation history and the scripted demo's
+    empty state
+  - set-up validation, the “Not applied yet” state, and regenerating an
+    identical match from a recovered set-up
+- The timeline, viewer and formation tests were updated for the new markup and
+  keep the same guarantees.
+- `npm test` (452 tests), `npm run typecheck` and `npm run build` pass.
+- The production build was driven in headless Chromium (SwiftShader WebGL) at
+  1440×900, 390×844 and 844×390:
+  - the demo, generating seed 46 (4-4-2 v 4-3-3, with NVR switching to 4-2-3-1
+    at 0:30), seeking, a selected moment, Pro data, Match centre, the Top view,
+    full time and a set-up error
+  - seeking back to 0:20 after the change shows 4-4-2 v 4-3-3 again
+  - no console errors and no horizontal scrolling at any size

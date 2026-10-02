@@ -1,7 +1,8 @@
-import type { Player, TacticalPosition, Team } from "@/match/contract";
+import type { AppliedFormationChange, Player, TacticalPosition, Team } from "@/match/contract";
 import { FORMATIONS } from "@/match/formations";
 import type { ActiveFormation } from "@/playback/derive";
 import { formatClock } from "./format";
+import { TeamBadge } from "./TeamBadge";
 
 const LINES: [string, readonly TacticalPosition[]][] = [
   ["Attack", ["RW", "ST", "LW"]],
@@ -14,31 +15,57 @@ interface FormationsProps {
   roster: Player[];
   /** Active formations at the playback time; null when the fixture has no formation data. */
   formations: ActiveFormation[] | null;
+  /** For the list of changes so far; omitted, the list is not shown. */
+  applied?: readonly AppliedFormationChange[];
+  timeMs?: number;
 }
 
-/** Each team's formation at the current playback time, with who fills which position. */
-export function Formations({ teams, roster, formations }: FormationsProps) {
+const short = (ms: number) => formatClock(ms).replace(/\.\d$/, "");
+
+/**
+ * Each team's formation at the current playback time: a mini pitch with shirt
+ * numbers (attacking upwards), who plays where, and the changes so far.
+ * Planned changes are never listed before they happen.
+ */
+export function Formations({ teams, roster, formations, applied, timeMs }: FormationsProps) {
   if (!formations) return null;
   const byId = new Map(roster.map((p) => [p.id, p]));
+  const sorted = [...teams].sort((a, b) => (a.side === "home" ? -1 : b.side === "home" ? 1 : 0));
+  const history = applied && timeMs !== undefined ? applied.filter((c) => c.t <= timeMs) : null;
   return (
     <section className="formations" aria-label="Formations">
-      <h2 className="formations__heading">Formations</h2>
-      {[...teams]
-        .sort((a, b) => (a.side === "home" ? -1 : b.side === "home" ? 1 : 0))
-        .map((team) => {
-          const active = formations.find((f) => f.teamId === team.id);
-          if (!active) return null;
-          const playerIn = new Map(Object.entries(active.assignments).map(([playerId, slotId]) => [slotId, byId.get(playerId)]));
-          const slots = FORMATIONS[active.formation].slots;
-          return (
-            <div key={team.id} className="formation" data-team={team.side}>
-              <div className="formation__title">
-                <span className="kit-dot" style={{ background: team.kit.primary }} aria-hidden="true" />
-                <abbr title={team.name}>{team.shortName}</abbr>
-                <strong className="formation__shape" data-testid={`formation-${team.side}`}>
-                  {active.formation}
-                </strong>
-                <span className="formation__since">{active.since > 0 ? `since ${formatClock(active.since)}` : "starting"}</span>
+      {sorted.map((team) => {
+        const active = formations.find((f) => f.teamId === team.id);
+        if (!active) return null;
+        const playerIn = new Map(Object.entries(active.assignments).map(([playerId, slotId]) => [slotId, byId.get(playerId)]));
+        const slots = FORMATIONS[active.formation].slots;
+        return (
+          <div key={team.id} className="formation" data-team={team.side}>
+            <div className="formation__title">
+              <TeamBadge team={team} />
+              <strong className="formation__shape" data-testid={`formation-${team.side}`}>
+                {active.formation}
+              </strong>
+              <span className="formation__since">{active.since > 0 ? `Since ${short(active.since)}` : "Starting shape"}</span>
+            </div>
+            <div className="formation__body">
+              <div className="mini" role="img" aria-label={`${team.name} in ${active.formation}, attacking up the page`}>
+                <span className="mini__half" aria-hidden="true" />
+                {slots.map((s) => (
+                  <span
+                    key={s.id}
+                    className={`mini__player mini__player--${team.side}`}
+                    style={{
+                      left: `${((34 - s.lateral) / 68) * 100}%`,
+                      top: `${100 - (s.depth / 52) * 94}%`,
+                      background: team.kit.primary,
+                      color: team.kit.number,
+                    }}
+                    aria-hidden="true"
+                  >
+                    {playerIn.get(s.id)?.number ?? ""}
+                  </span>
+                ))}
               </div>
               <ul className="formation__lines">
                 {LINES.map(([line, positions]) => {
@@ -56,9 +83,20 @@ export function Formations({ teams, roster, formations }: FormationsProps) {
                 })}
               </ul>
             </div>
-          );
-        })}
-      <p>Formation shapes are a simplified synthetic model.</p>
+          </div>
+        );
+      })}
+      {history && (
+        <p className="hint">
+          Changes so far:{" "}
+          {history.length === 0
+            ? "none yet"
+            : history
+                .map((c) => `${short(c.t)} ${teams.find((t) => t.id === c.teamId)?.shortName} ${c.from} → ${c.to}`)
+                .join("; ")}
+          . Planned changes stay hidden until they happen.
+        </p>
+      )}
     </section>
   );
 }
