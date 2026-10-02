@@ -69,6 +69,9 @@ src/
   simulation/             Seeded match producer. Has no rendering or playback dependencies.
     ball.ts               Deterministic ball physics: flight, bounce, roll
     generate.ts           Fixed-timestep simulator: rules, restarts, collisions and deflections; records snapshots and events
+  explain/                "Explain this moment" foundation. No rendering, React or network dependencies.
+    context.ts            Evidence package for one playback time, with no data from after it
+    response.ts           Explanation response contract and its runtime validator
   scene/                  Three.js only. Has no clock of its own.
     coords.ts             Conversion from pitch space to scene space
     Pitch.ts              Grass, markings and goals (static)
@@ -776,3 +779,36 @@ production build in headless Chromium:
   entry
 - the error for a change time beyond the duration
 - the scripted demo, which has no formation panel
+
+## Explain this moment: evidence and response contract
+
+The first backend step towards an "Explain this moment" feature. **Live AI
+integration is not implemented yet**: nothing calls a model or a network
+service, no credentials are needed, and the UI is unchanged.
+
+- `extractMatchContext(fixture, t, options?)` in `src/explain/context.ts`
+  builds a compact, deterministic, JSON-serialisable evidence package for one
+  playback time: match identity and the synthetic label, the score, teams and
+  players, active formations and slots (when the fixture has them), recent
+  events with their IDs, the latest positions, and coded limitations.
+- Nothing from after the selected time is included. Events count only once
+  revealed (`t ≤ selected time`), so a pass in flight or an offside not yet
+  called is absent, and a shot's result and destination are withheld until
+  its result is revealed. Positions come from the latest snapshot at or before
+  the time, never interpolated towards the next one. Scheduled formation
+  changes are never included.
+- The package is bounded: a 10 s lookback window, at most 20 events and 6
+  snapshots, and 24 KB of JSON by default, all configurable within fixed
+  limits. Invalid times and options throw a `RangeError`.
+- `validateExplanation(response, context)` in `src/explain/response.ts` checks
+  a structured response (headline, plain-language explanation, cited facts,
+  cited tactical interpretation, limitations, and an `insufficient-evidence`
+  status). Every citation must resolve to an event or snapshot in the context,
+  and facts may not assert intent or cause. The contract is provider-independent
+  and comes with a JSON Schema for structured output.
+
+See [docs/explain-this-moment.md](docs/explain-this-moment.md) for the API,
+response schema, timestamp semantics, payload limits and examples.
+`tests/explain-context.test.ts` and `tests/explain-response.test.ts` cover
+goals, offsides, formation changes, seeking backwards, actions in flight,
+fixtures without tactics, invalid input, payload bounds and invalid responses.
