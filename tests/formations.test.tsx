@@ -439,8 +439,9 @@ describe("playback of formations", () => {
     expect(render(T - 20)).toContain(">4-3-3<");
     expect(render(T - 20)).not.toContain("4-2-3-1");
     expect(render(T)).toContain(">4-2-3-1<");
-    expect(render(T)).toContain("since 0:20");
-    expect(renderToStaticMarkup(<MatchViewer fixture={f} />)).toContain("Formations");
+    expect(render(T)).toContain("Since 0:20");
+    // The score bug shows both shapes at the current time.
+    expect(renderToStaticMarkup(<MatchViewer fixture={f} />)).toContain("Shape <b>4-4-2</b> v <b>4-3-3</b>");
   });
 
   it("supports the scripted demo and older fixtures without formation data", () => {
@@ -448,8 +449,8 @@ describe("playback of formations", () => {
     expect(formationsAt(sampleFixture, 5_000)).toBeNull();
     expect(frameAt(sampleFixture, 5_000).formations).toBeNull();
     const html = renderToStaticMarkup(<MatchViewer fixture={sampleFixture} />);
-    expect(html).toContain("Recent events");
-    expect(html).not.toContain("Formations");
+    expect(html).toContain("Live feed");
+    expect(html).not.toContain("Shape <b>");
     // A 1.2.0 fixture as the previous simulator wrote it.
     const { tactics: _t, generator: _g, ...rest } = f;
     const old: MatchFixture = { ...rest, schemaVersion: "1.2.0", events: f.events.filter((e) => e.type !== "formation-change") };

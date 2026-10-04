@@ -62,13 +62,15 @@ export class MatchScene {
   private readonly desiredPosition = new THREE.Vector3();
   private readonly desiredLookAt = new THREE.Vector3();
   private snapCamera = true;
+  /** With reduced motion requested, camera moves snap instead of easing. */
+  private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   private disposed = false;
 
   constructor(private readonly options: MatchSceneOptions) {
     const { container, fixture } = options;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.setClearColor("#0b1220");
+    this.renderer.setClearColor("#070b0a");
     const canvas = this.renderer.domElement;
     canvas.style.display = "block";
     canvas.style.width = "100%";
@@ -77,7 +79,7 @@ export class MatchScene {
     canvas.setAttribute("role", "img");
     canvas.setAttribute(
       "aria-label",
-      "3D overhead view of a synthetic football sequence. Score and events are listed alongside.",
+      "3D view of a synthetic football match. The score, live feed and Match centre describe what happens.",
     );
     container.appendChild(canvas);
 
@@ -172,7 +174,7 @@ export class MatchScene {
     this.desiredLookAt.set(this.pan.x, 0, this.pan.y);
     const direction = (this.portrait ? PORTRAIT_VIEW_DIRECTIONS : VIEW_DIRECTIONS)[this.view];
     this.desiredPosition.copy(direction).multiplyScalar(distance).add(this.desiredLookAt);
-    if (this.snapCamera) {
+    if (this.snapCamera || this.reducedMotion.matches) {
       this.camera.position.copy(this.desiredPosition);
       this.lookAt.copy(this.desiredLookAt);
       this.snapCamera = false;

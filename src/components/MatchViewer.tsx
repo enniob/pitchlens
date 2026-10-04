@@ -1,25 +1,35 @@
 "use client";
 
 /**
- * Top-level viewer. Owns the one requestAnimationFrame loop: each frame it
- * advances the playback engine by real elapsed time, pushes the resulting
- * frame into the 3D scene, and syncs the React UI when displayed values change.
+ * Top-level viewer in "broadcast mode": the 3D pitch fills the stage, with a
+ * TV-style score bug, moment pop-ups, a short live feed, a floating control
+ * bar and a Match centre panel laid over it. Owns the one requestAnimationFrame
+ * loop: each frame it advances the playback engine by real elapsed time,
+ * pushes the resulting frame into the 3D scene, and syncs the React UI when
+ * displayed values change.
  *
- * Playback works without WebGL — only the 3D view is replaced by a message.
+ * Every overlay is derived from the fixture and the playback time alone, so
+ * seeking and restarting show exactly what had happened by then and nothing
+ * later. Playback works without WebGL — only the 3D view is replaced by a
+ * message.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MatchEvent, MatchFixture, Score } from "@/match/contract";
 import { validateFixture } from "@/match/validate";
-import { nextEventTime, previousEventTime, type ActiveFormation } from "@/playback/derive";
+import type { ActiveFormation } from "@/playback/derive";
 import { PlaybackEngine, type PlaybackStatus, type Speed } from "@/playback/engine";
-import type { CameraView, MatchScene } from "@/scene/MatchScene";
-import { EventFeed } from "./EventFeed";
-import { Timeline } from "./Timeline";
-import { PlaybackControls } from "./PlaybackControls";
-import { Scoreboard } from "./Scoreboard";
-import { MatchStats } from "./MatchStats";
-import { Formations } from "./Formations";
+import { activeBanner, liveFeed, nextMomentTime, previousMomentTime, timelineMoments } from "@/playback/moments";
+import { proStatisticsAt } from "@/playback/proData";
 import { statisticsAt } from "@/playback/statistics";
+import type { CameraView, MatchScene } from "@/scene/MatchScene";
+import { Icon } from "./Icon";
+import { LiveFeed } from "./LiveFeed";
+import { MatchCentre, type CentreTab } from "./MatchCentre";
+import { MomentBanner } from "./MomentBanner";
+import { PlaybackControls } from "./PlaybackControls";
+import { ScoreBug } from "./ScoreBug";
+import { TeamBadge } from "./TeamBadge";
+import { Timeline } from "./Timeline";
 
 /** Longest real-time step fed to the engine, so a backgrounded tab doesn't jump on return. */
 const MAX_FRAME_MS = 250;
@@ -35,6 +45,21 @@ interface UiState {
   score: Score;
   events: MatchEvent[];
   formations: ActiveFormation[] | null;
+  possessionTeamId: string | null;
+}
+
+export interface MatchViewerProps {
+  fixture: MatchFixture;
+  /** Show Pro data (every touch with data chips, extra numbers). */
+  pro?: boolean;
+  onTogglePro?: () => void;
+  /** Opens the "Set up match" drawer; the button is hidden without it. */
+  onOpenSetup?: () => void;
+  /** First-visit card over the pitch. */
+  showWelcome?: boolean;
+  onWelcomeDone?: () => void;
+  /** Start playing as soon as the match loads (after Generate or Scripted demo). */
+  autoPlay?: boolean;
 }
 
 function detectWebGL(): boolean {
@@ -51,14 +76,20 @@ function detectWebGL(): boolean {
 
 function readUi(engine: PlaybackEngine): UiState {
   const frame = engine.frame();
-  return { status: engine.status, score: frame.score, events: frame.events, formations: frame.formations };
+  return {
+    status: engine.status,
+    score: frame.score,
+    events: frame.events,
+    formations: frame.formations,
+    possessionTeamId: frame.possession?.teamId ?? null,
+  };
 }
 
 /** Only re-render React when something visible changes (clock is shown to 0.1 s). */
 function uiKey(ui: UiState): string {
   const s = ui.status;
   const shapes = ui.formations?.map((f) => `${f.formation}@${f.since}`).join(",") ?? "";
-  return `${Math.floor(s.timeMs / 100)}|${s.playing}|${s.speed}|${ui.events.length}|${ui.score.home}-${ui.score.away}|${shapes}`;
+  return `${Math.floor(s.timeMs / 100)}|${s.playing}|${s.speed}|${ui.events.length}|${ui.score.home}-${ui.score.away}|${shapes}|${ui.possessionTeamId}`;
 }
 
 function safeValidate(fixture: MatchFixture): string[] {
@@ -74,11 +105,11 @@ function safeValidate(fixture: MatchFixture): string[] {
  * Validates the fixture before anything reads from it; invalid data shows the
  * errors and never reaches the playback engine or the scene.
  */
-export function MatchViewer({ fixture }: { fixture: MatchFixture }) {
-  const errors = useMemo(() => safeValidate(fixture), [fixture]);
+export function MatchViewer(props: MatchViewerProps) {
+  const errors = useMemo(() => safeValidate(props.fixture), [props.fixture]);
   if (errors.length > 0) return <FixtureErrors errors={errors} />;
   // Keyed by fixture so a new fixture gets a fresh engine and scene.
-  return <PlaybackViewer key={fixture.matchId} fixture={fixture} />;
+  return <PlaybackViewer key={props.fixture.matchId} {...props} />;
 }
 
 function FixtureErrors({ errors }: { errors: string[] }) {
@@ -96,16 +127,35 @@ function FixtureErrors({ errors }: { errors: string[] }) {
 }
 
 /** Only ever rendered with a fixture that passed validation. */
-function PlaybackViewer({ fixture }: { fixture: MatchFixture }) {
+function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWelcome = false, onWelcomeDone, autoPlay = false }: MatchViewerProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<PlaybackEngine | null>(null);
-  engineRef.current ??= new PlaybackEngine(fixture);
+  if (!engineRef.current) {
+    engineRef.current = new PlaybackEngine(fixture);
+    if (autoPlay) engineRef.current.play();
+  }
   const sceneRef = useRef<MatchScene | null>(null);
   const [sceneState, setSceneState] = useState<SceneState>({ kind: "loading" });
-  const [view, setView] = useState<CameraView>("overhead");
+  // "Broadcast" is the existing angled camera; Top is the overhead view.
+  const [view, setView] = useState<CameraView>("angled");
+  const viewRef = useRef(view);
+  viewRef.current = view;
   const [ui, setUi] = useState<UiState>(() => readUi(engineRef.current!));
   const uiKeyRef = useRef(uiKey(ui));
-  const stats = useMemo(() => statisticsAt(fixture, ui.status.timeMs), [fixture, ui.status.timeMs]);
+  const [centreOpen, setCentreOpen] = useState(false);
+  const [tab, setTab] = useState<CentreTab>("moments");
+  const [keyOnly, setKeyOnly] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [synthOpen, setSynthOpen] = useState(false);
+
+  const t = ui.status.timeMs;
+  const stats = useMemo(() => statisticsAt(fixture, t), [fixture, t]);
+  const proStats = useMemo(() => (pro ? proStatisticsAt(fixture, t) : null), [fixture, t, pro]);
+  const moments = useMemo(() => timelineMoments(fixture, t), [fixture, t]);
+  const feed = useMemo(() => liveFeed(fixture, t, pro), [fixture, t, pro]);
+  const banner = useMemo(() => activeBanner(fixture, t), [fixture, t]);
+  // A selection is only shown once its moment has been reached.
+  const selected = selectedId && ui.events.some((e) => e.id === selectedId) ? selectedId : null;
 
   const syncUi = useCallback((force = false) => {
     const next = readUi(engineRef.current!);
@@ -154,6 +204,7 @@ function PlaybackViewer({ fixture }: { fixture: MatchFixture }) {
                 message: "The graphics context was lost. Reload the page to restore the 3D view.",
               }),
           });
+          sceneRef.current.setView(viewRef.current);
           sceneRef.current.update(engine.frame());
           setSceneState({ kind: "ready" });
         })
@@ -175,50 +226,65 @@ function PlaybackViewer({ fixture }: { fixture: MatchFixture }) {
     };
   }, [fixture, syncUi]);
 
-  const onTogglePlay = useCallback(() => {
-    engineRef.current!.togglePlay();
-    syncUi(true);
-  }, [syncUi]);
+  const act = useCallback(
+    (fn: (engine: PlaybackEngine) => void) => {
+      fn(engineRef.current!);
+      syncUi(true);
+    },
+    [syncUi],
+  );
+  const onTogglePlay = useCallback(() => act((e) => e.togglePlay()), [act]);
   const onRestart = useCallback(() => {
-    engineRef.current!.restart();
-    syncUi(true);
-  }, [syncUi]);
-  const wasPlayingRef = useRef<boolean | null>(null);
+    setSelectedId(null);
+    act((e) => e.restart());
+  }, [act]);
   const onSeek = useCallback(
     (timeMs: number) => {
-      engineRef.current!.seek(timeMs);
-      syncUi(true);
+      // Scrubbing leaves the selected moment behind.
+      setSelectedId(null);
+      act((e) => e.seek(timeMs));
     },
-    [syncUi],
+    [act],
   );
   // Dragging the slider holds playback so the clock doesn't fight the pointer.
+  const wasPlayingRef = useRef<boolean | null>(null);
   const onScrubStart = useCallback(() => {
-    const engine = engineRef.current!;
-    wasPlayingRef.current = engine.status.playing;
-    engine.pause();
-    syncUi(true);
-  }, [syncUi]);
+    act((e) => {
+      wasPlayingRef.current = e.status.playing;
+      e.pause();
+    });
+  }, [act]);
   const onScrubEnd = useCallback(() => {
-    const engine = engineRef.current!;
-    if (wasPlayingRef.current && !engine.status.ended) engine.play();
-    wasPlayingRef.current = null;
-    syncUi(true);
-  }, [syncUi]);
-  const onPreviousEvent = useCallback(() => {
-    engineRef.current!.seekToPreviousEvent();
-    syncUi(true);
-  }, [syncUi]);
-  const onNextEvent = useCallback(() => {
-    engineRef.current!.seekToNextEvent();
-    syncUi(true);
-  }, [syncUi]);
-  const onSpeed = useCallback(
-    (speed: Speed) => {
-      engineRef.current!.setSpeed(speed);
-      syncUi(true);
+    act((e) => {
+      if (wasPlayingRef.current && !e.status.ended) e.play();
+      wasPlayingRef.current = null;
+    });
+  }, [act]);
+  const jumpTo = useCallback(
+    (time: number | null) => {
+      if (time === null) return;
+      const event = fixture.events.find((e) => e.t === time);
+      setSelectedId(event?.id ?? null);
+      act((e) => {
+        e.pause();
+        e.seek(time);
+      });
     },
-    [syncUi],
+    [act, fixture],
   );
+  const onSelectMoment = useCallback(
+    (event: MatchEvent) => {
+      setSelectedId(event.id);
+      setTab("moments");
+      setCentreOpen(true);
+      act((e) => {
+        e.pause();
+        e.seek(event.t);
+      });
+    },
+    [act],
+  );
+  const onSpeed = useCallback((speed: Speed) => act((e) => e.setSpeed(speed)), [act]);
   const onView = useCallback((next: CameraView) => {
     setView(next);
     sceneRef.current?.setView(next);
@@ -230,65 +296,215 @@ function PlaybackViewer({ fixture }: { fixture: MatchFixture }) {
     else scene.zoomBy(direction === "in" ? 1.35 : 1 / 1.35);
   }, []);
 
+  const status: "ready" | "playing" | "paused" | "ended" = ui.status.ended
+    ? "ended"
+    : ui.status.playing
+      ? "playing"
+      : t === 0
+        ? "ready"
+        : "paused";
+  const showEnd = ui.status.ended && !centreOpen;
+
   return (
-    <div className="viewer">
-      <div className="viewer__main">
-        <Scoreboard teams={fixture.teams} score={ui.score} timeMs={ui.status.timeMs} durationMs={fixture.durationMs} />
-        <div className="stage">
-          {/* The scene appends its canvas here; React never renders children into it. */}
-          <div className="stage__canvas" ref={stageRef} />
-          <span className="stage__badge">Synthetic data</span>
-          {sceneState.kind === "loading" && (
-            <div className="stage__overlay" role="status">
-              <span className="spinner" aria-hidden="true" /> Loading 3D view…
-            </div>
-          )}
-          {sceneState.kind === "no-webgl" && (
-            <div className="stage__overlay" role="alert">
-              <div>
-                <strong>3D view unavailable.</strong> Your browser or device doesn’t support WebGL, or it is disabled.
-                Playback, the score and the event list below still work. Try a current version of Chrome, Edge,
-                Firefox or Safari with hardware acceleration enabled.
-              </div>
-            </div>
-          )}
-          {sceneState.kind === "error" && (
-            <div className="stage__overlay" role="alert">
-              <div>
-                <strong>3D view error.</strong> {sceneState.message} Playback, the score and the event list still
-                work.
-              </div>
-            </div>
-          )}
+    <div className="broadcast">
+      <div className="stage">
+        {/* The scene appends its canvas here; React never renders children into it. */}
+        <div className="stage__canvas" ref={stageRef} />
+
+        <div className="stage__top">
+          <ScoreBug
+            teams={fixture.teams}
+            score={ui.score}
+            timeMs={t}
+            status={status}
+            possessionTeamId={ui.possessionTeamId}
+            formations={ui.formations}
+            pro={pro && proStats ? { stats, extra: proStats } : null}
+          />
+          <div className="stage__actions">
+            <button type="button" className="synth" aria-expanded={synthOpen} aria-controls="synth-note" onClick={() => setSynthOpen(!synthOpen)}>
+              <Icon name="info" size={16} />
+              Synthetic match
+            </button>
+            <button
+              type="button"
+              className="btn btn--glass"
+              aria-expanded={centreOpen}
+              aria-label="Match centre: moments, stats and formations"
+              onClick={() => setCentreOpen(!centreOpen)}
+            >
+              <Icon name="list" />
+              <span className="btn__label">Match centre</span>
+            </button>
+            {onOpenSetup && (
+              <button type="button" className="btn btn--glass" aria-label="Set up match" onClick={onOpenSetup}>
+                <Icon name="setup" />
+                <span className="btn__label">Set up match</span>
+              </button>
+            )}
+          </div>
         </div>
-        <Timeline
-          timeMs={ui.status.timeMs}
-          durationMs={fixture.durationMs}
-          events={fixture.events}
-          hasPrevious={previousEventTime(fixture, ui.status.timeMs) !== null}
-          hasNext={nextEventTime(fixture, ui.status.timeMs) !== null}
-          onSeek={onSeek}
-          onScrubStart={onScrubStart}
-          onScrubEnd={onScrubEnd}
-          onPreviousEvent={onPreviousEvent}
-          onNextEvent={onNextEvent}
-        />
+        {synthOpen && (
+          <p className="synth-note" id="synth-note" role="note">
+            Everything here is made up: the teams, players and events come from a match simulator, not a real game. No real match data or club branding
+            is used.
+          </p>
+        )}
+
+        {banner && !showEnd && <MomentBanner key={banner.event.id} fixture={fixture} event={banner.event} kind={banner.kind} score={ui.score} />}
+
+        <LiveFeed fixture={fixture} events={feed} pro={pro} />
+
+        {centreOpen && (
+          <MatchCentre
+            fixture={fixture}
+            timeMs={t}
+            events={ui.events}
+            stats={stats}
+            proStats={proStats}
+            formations={ui.formations}
+            pro={pro}
+            tab={tab}
+            keyOnly={keyOnly}
+            selectedId={selected}
+            onTab={setTab}
+            onKeyOnly={setKeyOnly}
+            onSelect={setSelectedId}
+            onReplayFrom={(time) =>
+              act((e) => {
+                e.seek(time);
+                e.play();
+              })
+            }
+            onClose={() => setCentreOpen(false)}
+          />
+        )}
+
+        {sceneState.kind === "loading" && (
+          <div className="stage__message" role="status">
+            <span className="spinner" aria-hidden="true" /> Loading 3D view…
+          </div>
+        )}
+        {(sceneState.kind === "no-webgl" || sceneState.kind === "error") && (
+          <div className="stage__message stage__message--card" role="alert">
+            <div className="card">
+              <h2>{sceneState.kind === "no-webgl" ? "The 3D view isn't available on this device" : "The 3D view stopped working"}</h2>
+              <p>
+                {sceneState.kind === "no-webgl"
+                  ? "Your browser doesn't support WebGL, or it is turned off. Try a recent version of Chrome, Edge, Firefox or Safari with hardware acceleration on."
+                  : sceneState.message}
+              </p>
+              <p>The score, clock, timeline, live feed and Match centre still work.</p>
+            </div>
+          </div>
+        )}
+
+        {showWelcome && (
+          <div className="stage__scrim">
+            <div className="card card--welcome" role="dialog" aria-labelledby="welcome-title">
+              <p className="kicker">Demo match · synthetic</p>
+              <div className="versus">
+                <TeamBadge team={fixture.teams.find((x) => x.side === "home")!} />
+                <span>v</span>
+                <TeamBadge team={fixture.teams.find((x) => x.side === "away")!} />
+              </div>
+              <h2 id="welcome-title">Watch it like a match on TV</h2>
+              <p>
+                {fixture.teams.find((x) => x.side === "home")!.name} against {fixture.teams.find((x) => x.side === "away")!.name}. Big moments pop up as
+                they happen, and the timeline lets you jump back to any of them.
+              </p>
+              <p className="small">The teams, players and events are made up by a simulator. No real match data is used.</p>
+              <div className="card__actions">
+                <button
+                  type="button"
+                  className="btn btn--primary btn--large"
+                  onClick={() => {
+                    onWelcomeDone?.();
+                    act((e) => {
+                      e.restart();
+                      e.play();
+                    });
+                  }}
+                >
+                  <Icon name="play" />
+                  Kick off the demo
+                </button>
+                {onOpenSetup && (
+                  <button type="button" className="btn btn--large" onClick={onOpenSetup}>
+                    Set up your own match
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showEnd && !showWelcome && (
+          <div className="stage__scrim stage__scrim--light">
+            <div className="card card--center">
+              <p className="kicker">Full time</p>
+              <div className="versus">
+                <TeamBadge team={fixture.teams.find((x) => x.side === "home")!} />
+                <span className="versus__score">
+                  {ui.score.home} – {ui.score.away}
+                </span>
+                <TeamBadge team={fixture.teams.find((x) => x.side === "away")!} />
+              </div>
+              <div className="card__actions">
+                <button type="button" className="btn btn--primary" onClick={onTogglePlay}>
+                  <Icon name="restart" />
+                  Watch again
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setTab("moments");
+                    setKeyOnly(true);
+                    setCentreOpen(true);
+                  }}
+                >
+                  Key moments
+                </button>
+                {onOpenSetup && (
+                  <button type="button" className="btn" onClick={onOpenSetup}>
+                    New match
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <PlaybackControls
           status={ui.status}
           view={view}
           sceneAvailable={sceneState.kind === "ready"}
+          pro={pro}
+          hasPrevious={previousMomentTime(fixture, t) !== null}
+          hasNext={nextMomentTime(fixture, t) !== null}
           onTogglePlay={onTogglePlay}
           onRestart={onRestart}
+          onPreviousMoment={() => jumpTo(previousMomentTime(fixture, t))}
+          onNextMoment={() => jumpTo(nextMomentTime(fixture, t))}
           onSpeed={onSpeed}
           onView={onView}
           onZoom={onZoom}
-        />
+          onTogglePro={() => onTogglePro?.()}
+        >
+          <Timeline
+            timeMs={t}
+            durationMs={fixture.durationMs}
+            moments={moments}
+            teams={fixture.teams}
+            selectedId={selected}
+            onSeek={onSeek}
+            onScrubStart={onScrubStart}
+            onScrubEnd={onScrubEnd}
+            onSelectMoment={onSelectMoment}
+          />
+        </PlaybackControls>
       </div>
-      <aside className="viewer__side">
-        <Formations teams={fixture.teams} roster={fixture.roster} formations={ui.formations} />
-        <MatchStats teams={fixture.teams} stats={stats} />
-        <EventFeed events={ui.events} teams={fixture.teams} />
-      </aside>
     </div>
   );
 }
