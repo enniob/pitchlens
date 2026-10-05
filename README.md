@@ -55,6 +55,7 @@ The viewer works like a match on TV (see [Broadcast mode](#broadcast-mode-mvp-8)
 - Zoom also works with the mouse wheel or a pinch. When zoomed in, drag to pan.
 - The **score bug**, the **moment pop-ups**, the **live feed** and **Match centre** only show what has happened by the current playback time.
 - If WebGL isn't available, a message replaces the 3D view. Playback, the score, the feed and Match centre still work.
+- Offside calls with a recorded kick frame get a three-second review: the pitch freezes at the pass, a yellow line marks the offside boundary, and an orange ring highlights the flagged player. The line uses the ball or the second-last opponent, whichever is closer to goal. The match clock, score and feed stay at the whistle. **Continue** resumes immediately; otherwise playback resumes automatically at the same speed. Seeking skips the automatic review; replaying through the call shows it again. Calls without a recorded kick frame retain the normal offside banner.
 
 ## Architecture
 
