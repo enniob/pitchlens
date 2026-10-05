@@ -8,10 +8,10 @@
  * pushes the resulting frame into the 3D scene, and syncs the React UI when
  * displayed values change.
  *
- * Every overlay is derived from the fixture and the playback time alone, so
- * seeking and restarting show exactly what had happened by then and nothing
- * later. Playback works without WebGL — only the 3D view is replaced by a
- * message.
+ * Match overlays use the current playback time. After an offside whistle,
+ * a brief review shows the earlier kick frame while holding that clock.
+ * Seeking and restarting never show future events. Playback works without
+ * WebGL — only the 3D view is replaced by a message.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MatchEvent, MatchFixture, Score } from "@/match/contract";
@@ -21,6 +21,8 @@ import { PlaybackEngine, type PlaybackStatus, type Speed } from "@/playback/engi
 import { activeBanner, liveFeed, nextMomentTime, previousMomentTime, timelineMoments } from "@/playback/moments";
 import { proStatisticsAt } from "@/playback/proData";
 import { statisticsAt } from "@/playback/statistics";
+import { OffsideReviewPlayback, type OffsideReview } from "@/playback/offsideReview";
+import { formatClock } from "./format";
 import type { CameraView, MatchScene } from "@/scene/MatchScene";
 import { Icon } from "./Icon";
 import { LiveFeed } from "./LiveFeed";
@@ -135,6 +137,10 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
     if (autoPlay) engineRef.current.play();
   }
   const sceneRef = useRef<MatchScene | null>(null);
+  const reviewPlaybackRef = useRef<OffsideReviewPlayback | null>(null);
+  if (!reviewPlaybackRef.current) reviewPlaybackRef.current = new OffsideReviewPlayback(engineRef.current);
+  const [review, setReview] = useState<OffsideReview | null>(null);
+  const reviewUiRef = useRef<OffsideReview | null>(null);
   const [sceneState, setSceneState] = useState<SceneState>({ kind: "loading" });
   // "Broadcast" is the existing angled camera; Top is the overhead view.
   const [view, setView] = useState<CameraView>("angled");
@@ -158,6 +164,11 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
   const selected = selectedId && ui.events.some((e) => e.id === selectedId) ? selectedId : null;
 
   const syncUi = useCallback((force = false) => {
+    const currentReview = reviewPlaybackRef.current!.review;
+    if (currentReview !== reviewUiRef.current) {
+      reviewUiRef.current = currentReview;
+      setReview(currentReview);
+    }
     const next = readUi(engineRef.current!);
     const key = uiKey(next);
     if (force || key !== uiKeyRef.current) {
@@ -168,7 +179,6 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
 
   // Animation loop + scene lifecycle.
   useEffect(() => {
-    const engine = engineRef.current!;
     const stage = stageRef.current!;
     let cancelled = false;
     let raf = 0;
@@ -177,10 +187,12 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
     const loop = (now: number) => {
       const delta = Math.min(MAX_FRAME_MS, Math.max(0, now - last));
       last = now;
-      engine.advance(delta);
+      const playback = reviewPlaybackRef.current!;
+      playback.advance(delta);
       const scene = sceneRef.current;
       if (scene) {
-        scene.update(engine.frame());
+        scene.update(playback.frame());
+        scene.setOffsideReview(playback.review);
         scene.render();
       }
       syncUi();
@@ -205,7 +217,8 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
               }),
           });
           sceneRef.current.setView(viewRef.current);
-          sceneRef.current.update(engine.frame());
+          sceneRef.current.update(reviewPlaybackRef.current!.frame());
+          sceneRef.current.setOffsideReview(reviewPlaybackRef.current!.review);
           setSceneState({ kind: "ready" });
         })
         .catch((err: unknown) => {
@@ -228,12 +241,18 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
 
   const act = useCallback(
     (fn: (engine: PlaybackEngine) => void) => {
+      reviewPlaybackRef.current!.cancel();
       fn(engineRef.current!);
       syncUi(true);
     },
     [syncUi],
   );
-  const onTogglePlay = useCallback(() => act((e) => e.togglePlay()), [act]);
+  const onTogglePlay = useCallback(() => {
+    if (reviewPlaybackRef.current!.review) {
+      reviewPlaybackRef.current!.finish();
+      syncUi(true);
+    } else act((e) => e.togglePlay());
+  }, [act, syncUi]);
   const onRestart = useCallback(() => {
     setSelectedId(null);
     act((e) => e.restart());
@@ -284,7 +303,10 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
     },
     [act],
   );
-  const onSpeed = useCallback((speed: Speed) => act((e) => e.setSpeed(speed)), [act]);
+  const onSpeed = useCallback((speed: Speed) => {
+    engineRef.current!.setSpeed(speed);
+    syncUi(true);
+  }, [syncUi]);
   const onView = useCallback((next: CameraView) => {
     setView(next);
     sceneRef.current?.setView(next);
@@ -303,7 +325,7 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
       : t === 0
         ? "ready"
         : "paused";
-  const showEnd = ui.status.ended && !centreOpen;
+  const showEnd = ui.status.ended && !centreOpen && !review;
 
   return (
     <div className="broadcast">
@@ -351,7 +373,16 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
           </p>
         )}
 
-        {banner && !showEnd && <MomentBanner key={banner.event.id} fixture={fixture} event={banner.event} kind={banner.kind} score={ui.score} />}
+        {review && (
+          <div className="offside-review" role="status">
+            <strong>Offside review</strong>
+            <span>Position when the pass was played · {formatClock(review.frame.timeMs)}</span>
+            <span>Yellow: offside line · Orange: flagged player</span>
+            <span>{review.margin > 0 ? `${(review.margin * 100).toFixed(0)} cm beyond the line` : "Recorded offside call"}</span>
+            <button type="button" className="btn btn--primary" onClick={onTogglePlay}>Continue</button>
+          </div>
+        )}
+        {!review && banner && !showEnd && <MomentBanner key={banner.event.id} fixture={fixture} event={banner.event} kind={banner.kind} score={ui.score} />}
 
         <LiveFeed fixture={fixture} events={feed} pro={pro} />
 

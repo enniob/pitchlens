@@ -8,6 +8,7 @@ import * as THREE from "three";
 import type { MatchFixture } from "@/match/contract";
 import { motionAt } from "@/playback/animation";
 import type { PlaybackFrame } from "@/playback/derive";
+import type { OffsideReview } from "@/playback/offsideReview";
 import { BallModel } from "./Ball";
 import { HALF_LENGTH, HALF_WIDTH } from "./coords";
 import { createPitch } from "./Pitch";
@@ -51,6 +52,14 @@ export class MatchScene {
   private readonly camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 1000);
   private readonly players: PlayerSquad;
   private readonly ball = new BallModel();
+  private readonly reviewLine = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.025, HALF_WIDTH * 2),
+    new THREE.MeshBasicMaterial({ color: "#facc15", depthTest: false }),
+  );
+  private readonly reviewPlayer = new THREE.Mesh(
+    new THREE.RingGeometry(0.7, 0.9, 48),
+    new THREE.MeshBasicMaterial({ color: "#f97316", side: THREE.DoubleSide, depthTest: false }),
+  );
   private readonly resizeObserver: ResizeObserver;
   private readonly listeners = new AbortController();
   private readonly pointers = new Map<number, { x: number; y: number }>();
@@ -93,6 +102,10 @@ export class MatchScene {
     this.players = new PlayerSquad(fixture);
     this.scene.add(this.players.object);
     this.scene.add(this.ball.object);
+    this.reviewPlayer.rotation.x = -Math.PI / 2;
+    this.reviewLine.renderOrder = this.reviewPlayer.renderOrder = 10;
+    this.scene.add(this.reviewLine, this.reviewPlayer);
+    this.setOffsideReview(null);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -114,6 +127,13 @@ export class MatchScene {
 
   setView(view: CameraView): void {
     this.view = view;
+  }
+
+  setOffsideReview(review: OffsideReview | null): void {
+    this.reviewLine.visible = this.reviewPlayer.visible = review !== null;
+    if (!review) return;
+    this.reviewLine.position.set(review.lineX - HALF_LENGTH, 0.08, 0);
+    this.reviewPlayer.position.set(review.player.x - HALF_LENGTH, 0.09, review.player.y - HALF_WIDTH);
   }
 
   zoomBy(factor: number): void {

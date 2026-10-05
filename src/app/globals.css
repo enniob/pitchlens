@@ -2022,3 +2022,31 @@ abbr[title] {
     transition: none !important;
   }
 }
+.offside-review {
+  position: absolute;
+  left: 50%;
+  bottom: 125px;
+  transform: translateX(-50%);
+  z-index: 12;
+  display: grid;
+  gap: 8px;
+  width: min(420px, calc(100% - 32px));
+  padding: 16px;
+  border: 1px solid #facc15;
+  border-radius: 12px;
+  background: rgba(7, 11, 10, 0.94);
+  color: #fff;
+  font-size: 14px;
+}
+
+@media (max-width: 720px) {
+  .offside-review {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    transform: none;
+    order: 1;
+    width: auto;
+    margin: 10px;
+  }
+}
