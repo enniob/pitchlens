@@ -9,6 +9,7 @@
     "start": "next start",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:live": "vitest run --config vitest.live.config.mts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {

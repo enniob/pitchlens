@@ -41,6 +41,7 @@ npm run dev        # http://localhost:3000
 | `npm run build` | Production build |
 | `npm start` | Serve the production build (run `npm run build` first) |
 | `npm test` | Unit tests (Vitest): playback clock, seeking and event navigation, statistics, fixture validity, ball physics, simulator replay and event/contact alignment, match rules, contact recognition and animation poses |
+| `npm run test:live` | Opt-in live evaluation of the explanation service against a Microsoft Foundry deployment (paid; needs `PITCHLENS_LIVE_EVAL=1` and the `FOUNDRY_*` variables, see [docs/explain-service.md](docs/explain-service.md)) |
 | `npm run typecheck` | `tsc --noEmit` |
 
 ### Using the viewer
@@ -75,9 +76,20 @@ src/
   simulation/             Seeded match producer. Has no rendering or playback dependencies.
     ball.ts               Deterministic ball physics: flight, bounce, roll
     generate.ts           Fixed-timestep simulator: rules, restarts, collisions and deflections; records snapshots and events
-  explain/                "Explain this moment" foundation. No rendering, React or network dependencies.
+  explain/                "Explain this moment". No rendering, React or network dependencies.
     context.ts            Evidence package for one playback time, with no data from after it
     response.ts           Explanation response contract and its runtime validator
+    evidence.ts           Cutoff-bound evidence tools for the analyst model
+    grounding.ts          Deterministic wording checks against the cited evidence
+    prompts.ts            Analyst and verifier instructions and output schemas
+    matchRef.ts           Match references: how the browser names a match without sending it
+    api.ts                HTTP request/response contract for /api/explain
+  server/                 Server-only code for /api/explain
+    foundry.ts            Microsoft Foundry chat completions client (v1 API) and configuration
+    analyst.ts            Bounded analyst → checks → verifier workflow with one revision
+    resolveMatch.ts       Rebuilds a referenced match with the simulator
+    guard.ts              Rate, concurrency and cache controls
+    explainHandler.ts     The endpoint: validation, errors, logging
   scene/                  Three.js only. Has no clock of its own.
     coords.ts             Conversion from pitch space to scene space
     Pitch.ts              Grass, markings and goals (static)
@@ -93,8 +105,9 @@ src/
     MatchStats.tsx, Formations.tsx, SetupDrawer.tsx, TeamBadge.tsx, Icon.tsx
     eventCopy.ts          Plain-language titles, icons and explanations for events
     setup.ts              Set-up form model, per-field validation, tactics configuration
-  app/                    Next.js App Router page and layout
+  app/                    Next.js App Router page and layout, and the api/explain route
 tests/                    Vitest suites
+tests-live/               Opt-in live evaluation (npm run test:live)
 ```
 
 How data moves through one animation frame:
@@ -792,9 +805,9 @@ production build in headless Chromium:
 
 ## Explain this moment: evidence and response contract
 
-The first backend step towards an "Explain this moment" feature. **Live AI
-integration is not implemented yet**: nothing calls a model or a network
-service, no credentials are needed, and the UI is unchanged.
+The first backend step towards an "Explain this moment" feature: the
+evidence and response contract, with no model or network calls. The
+server-side model workflow that builds on it is described in the next section.
 
 - `extractMatchContext(fixture, t, options?)` in `src/explain/context.ts`
   builds a compact, deterministic, JSON-serialisable evidence package for one
@@ -822,6 +835,40 @@ response schema, timestamp semantics, payload limits and examples.
 `tests/explain-context.test.ts` and `tests/explain-response.test.ts` cover
 goals, offsides, formation changes, seeking backwards, actions in flight,
 fixtures without tactics, invalid input, payload bounds and invalid responses.
+
+## Explain this moment: analyst service
+
+`POST /api/explain` explains a paused moment with a model deployed on
+**Microsoft Foundry**, called through Foundry's OpenAI-compatible v1 chat
+completions API from the Next.js server. The viewer does not call it yet.
+
+- **Request:** a match reference, a time and an audience (`casual` or
+  `analyst`). The browser never sends match data. The scripted demo is named
+  by ID; a generated match by the recipe that produced it, which the server
+  reruns with the simulator and accepts only if it reproduces the same
+  `matchId`.
+- **Analyst:** gets the evidence package and may call two tools that return
+  earlier events and positions, never anything after the selected time. The
+  cutoff is enforced in code, and the model has no access to the fixture or
+  the simulator.
+- **Checks:** the response contract and citations, deterministic wording
+  checks (no later times, wrong scores, uncited players or events that are not
+  in the evidence), then a verifier model's review of the headline,
+  explanation and every claim. One revision is allowed; otherwise the answer is
+  the standard insufficient-evidence fallback. A model review is not proof.
+- **Limits:** model calls, tool calls, tokens and time are capped. Missing
+  configuration, timeouts, provider throttling and failures map to documented
+  error codes. Credentials stay on the server; requests are rate-limited,
+  cached and size-limited.
+- **Tracing:** one JSON log line per request with model and tool calls,
+  evidence IDs, timings and check outcomes, without prompts, model text or
+  secrets.
+
+Setup uses placeholders in `.env.example`; without them the endpoint answers
+`503 not-configured` and nothing else changes. See
+[docs/explain-service.md](docs/explain-service.md) for the contract, the
+Agent Framework evaluation, the limits and the abuse controls. `npm test` runs
+the mocked suites; `npm run test:live` runs the opt-in live evaluation.
 
 ## Broadcast mode (MVP 8)
 
