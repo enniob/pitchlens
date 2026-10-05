@@ -70,7 +70,10 @@ export interface ExplainTrace {
   totalMs: number;
   modelCalls: number;
   toolCalls: number;
+  /** Tokens as reported by the provider. */
   tokens: { prompt: number; completion: number };
+  /** Tokens counted against the budget: reported usage, or the full reservation for a call that reported none. */
+  chargedTokens: number;
   steps: TraceStep[];
 }
 

@@ -15,6 +15,8 @@
  *     evidence or, for the headline and explanation, in any supplied evidence
  *   - wording too long or too dense for the requested audience
  *
+ * Limitations get the time, score and player checks, but not the event ones.
+ *
  * They are heuristics: passing them does not prove the text is supported, and
  * the word lists are deliberately narrow so that ordinary football language
  * ("a shot on goal", "the corner of the box") is not rejected.
@@ -88,14 +90,16 @@ export function checkGrounding(response: ExplanationResponse, context: MatchCont
     return { events, players };
   };
 
-  check(issues, "headline", response.headline, everything, context, false);
-  check(issues, "explanation", response.explanation, everything, context, false);
-  response.facts.forEach((c, i) => check(issues, `facts[${i}]`, c.text, scopeOf(c), context, false));
-  response.interpretation.forEach((c, i) => check(issues, `interpretation[${i}]`, c.text, scopeOf(c), context, true));
+  check(issues, "headline", response.headline, everything, context, "all");
+  check(issues, "explanation", response.explanation, everything, context, "all");
+  response.facts.forEach((c, i) => check(issues, `facts[${i}]`, c.text, scopeOf(c), context, "all"));
+  response.interpretation.forEach((c, i) => check(issues, `interpretation[${i}]`, c.text, scopeOf(c), context, "interpretation"));
+  // Limitations say what is unknown ("whether the shot was saved"), so event wording is not checked there.
+  response.limitations.forEach((l, i) => check(issues, `limitations[${i}]`, l, everything, context, "none"));
   return issues;
 }
 
-function check(issues: string[], where: string, text: string, scope: Scope, context: MatchContext, interpretation: boolean): void {
+function check(issues: string[], where: string, text: string, scope: Scope, context: MatchContext, events: "all" | "interpretation" | "none"): void {
   const selected = context.time.selectedMs;
 
   for (const m of text.matchAll(TIME)) {
@@ -131,7 +135,7 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
   // A goal before the evidence window still counts in the score, but cannot be cited.
   const uncitableGoal = home + away > 0 && !context.events.some((e) => e.type === "goal");
   for (const w of EVENT_WORDS) {
-    if (interpretation && !w.inInterpretation) continue;
+    if (events === "none" || (events === "interpretation" && !w.inInterpretation)) continue;
     const m = text.match(w.pattern);
     if (!m || scope.events.some(w.supports)) continue;
     if (w.label === "a goal" && (uncitableGoal || (summary && home + away > 0))) continue;

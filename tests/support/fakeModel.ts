@@ -2,6 +2,7 @@
 import type { ChatRequest, ChatResult, ModelClient, ToolCall } from "@/server/foundry";
 import { sampleFixture } from "@/match/fixture";
 import type { ExplanationResponse } from "@/explain/response";
+import { reviewTargets } from "@/explain/prompts";
 
 export type Step = ChatResult | Error | ((request: ChatRequest) => ChatResult | Error | Promise<ChatResult | Error>);
 
@@ -37,11 +38,7 @@ export const toolCall = (name: string, args: unknown): ChatResult => ({
 
 /** A verifier answer approving every target of `draft`. */
 export const approve = (draft: ExplanationResponse): ChatResult =>
-  answer({
-    reviews: ["headline", "explanation", ...draft.facts.map((_, i) => `facts[${i}]`), ...draft.interpretation.map((_, i) => `interpretation[${i}]`)].map(
-      (target) => ({ target, verdict: "supported", reason: "" }),
-    ),
-  });
+  answer({ reviews: reviewTargets(draft).map((target) => ({ target, verdict: "supported", reason: "" })) });
 
 /** The documented valid explanation of the scripted demo's goal at 9 400 ms. */
 export const goalExplanation = (): ExplanationResponse => ({

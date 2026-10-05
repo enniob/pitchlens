@@ -854,8 +854,10 @@ completions API from the Next.js server. The viewer does not call it yet.
 - **Checks:** the response contract and citations, deterministic wording
   checks (no later times, wrong scores, uncited players or events that are not
   in the evidence), then a verifier model's review of the headline,
-  explanation and every claim. One revision is allowed; otherwise the answer is
-  the standard insufficient-evidence fallback. A model review is not proof.
+  explanation, every claim and every limitation. One revision is allowed;
+  otherwise the answer is the standard insufficient-evidence fallback. An
+  analyst's own insufficient-evidence answer is replaced by that fixed
+  response, so no unreviewed model text is shown. A model review is not proof.
 - **Limits:** model calls, tool calls, tokens and time are capped. Missing
   configuration, timeouts, provider throttling and failures map to documented
   error codes. Credentials stay on the server; requests are rate-limited,

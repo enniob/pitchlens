@@ -88,6 +88,16 @@ interface Evaluation {
 }
 
 const FALLBACK_REASON = "The explanation could not be checked against the match data, so none is shown.";
+const INSUFFICIENT_REASON = "The match data up to this moment is not enough to explain it.";
+
+/**
+ * A deliberately high estimate of a request's prompt tokens: one token per
+ * 3 bytes of the JSON sent (messages, tools and schema) plus a fixed overhead.
+ */
+export function estimatePromptTokens(request: Pick<ChatRequest, "messages" | "tools" | "schema">): number {
+  const bytes = new TextEncoder().encode(JSON.stringify([request.messages, request.tools ?? [], request.schema])).length;
+  return Math.ceil(bytes / 3) + 50 * request.messages.length + 100;
+}
 
 export async function explainMoment(input: ExplainInput): Promise<ExplainOutput> {
   const limits: WorkflowLimits = { ...WORKFLOW_LIMITS, ...input.limits };
@@ -102,11 +112,17 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
   };
   let modelCalls = 0;
   let toolCalls = 0;
+  /** Tokens as reported by the provider. */
   const tokens = { prompt: 0, completion: 0 };
+  /** Tokens counted against `totalTokens`: reported usage, or the full reservation when usage is missing. */
+  let charged = 0;
 
   const call = async (request: Omit<ChatRequest, "signal">): Promise<ChatResult> => {
     if (modelCalls >= limits.modelCalls) throw new BudgetExhausted("model call limit reached");
-    if (tokens.prompt + tokens.completion >= limits.totalTokens) throw new BudgetExhausted("token limit reached");
+    // Reserve the estimated prompt plus the whole completion allowance before calling.
+    const reserve = estimatePromptTokens(request) + request.maxCompletionTokens;
+    if (charged + reserve > limits.totalTokens)
+      throw new BudgetExhausted(`token limit reached (${charged} used, ${reserve} needed, ${limits.totalTokens} allowed)`);
     const remaining = deadline - now();
     if (remaining < 1_000) throw new ModelError("timeout", "The explanation took too long.");
     modelCalls++;
@@ -118,6 +134,8 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
       tokens.prompt += result.usage.prompt;
       tokens.completion += result.usage.completion;
     }
+    // Without reported usage, assume the worst case that was reserved.
+    charged += result.usage ? result.usage.prompt + result.usage.completion : reserve;
     trace({
       kind: "model",
       role: request.role,
@@ -126,6 +144,8 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
       toolCalls: result.toolCalls.length,
       tokens: result.usage,
     });
+    // A call that went over the budget is not used, so an over-budget review never yields "verified".
+    if (charged > limits.totalTokens) throw new BudgetExhausted(`token limit reached (${charged} used, ${limits.totalTokens} allowed)`);
     return result;
   };
 
@@ -182,7 +202,10 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
     const response = parsed.response;
     const grounding = checkGrounding(response, context, input.audience);
     if (grounding.length > 0) return { response, schema: true, grounding: false, modelReview: null, issues: grounding };
-    if (response.status === "insufficient-evidence") return { response, schema: true, grounding: true, modelReview: null, issues: [] };
+    // The analyst's own insufficient-evidence answer is not reviewed, so none of its wording is shown:
+    // it is replaced with the fixed response.
+    if (response.status === "insufficient-evidence")
+      return { response: insufficientEvidence(session.base, INSUFFICIENT_REASON), schema: true, grounding: true, modelReview: null, issues: [] };
 
     const review = await call({
       role: "verifier",
@@ -260,7 +283,7 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
   return {
     explanation,
     verification,
-    trace: { totalMs: Math.round(now() - started), modelCalls, toolCalls, tokens, steps },
+    trace: { totalMs: Math.round(now() - started), modelCalls, toolCalls, tokens, chargedTokens: charged, steps },
   };
 }
 

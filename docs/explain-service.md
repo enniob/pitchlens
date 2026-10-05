@@ -205,10 +205,10 @@ setting values or provider responses.
       (the base package plus everything the tools returned): contract, matching
       `matchId` and `timeMs`, citations that resolve, no intent or cause in facts.
    2. `checkGrounding` (`src/explain/grounding.ts`): deterministic checks of
-      the headline, explanation and every claim (below).
+      the headline, explanation, every claim and every limitation (below).
    3. For an explained moment, a **verifier** model call reviews the
-      headline, the explanation and every fact and interpretation against the
-      evidence and returns `supported` or `unsupported` with a reason for each.
+      headline, the explanation and every fact, interpretation and limitation
+      against the evidence and returns `supported` or `unsupported` with a reason for each.
       A review that misses a target or is malformed counts as unusable.
 4. **One revision.** If a check fails, the analyst gets the problems found
    and one chance to revise. The revision goes through the same checks.
@@ -216,8 +216,13 @@ setting values or provider responses.
    or the call or token budget runs out, the result is the
    `insufficient-evidence` fallback with `outcome: "fallback"`.
 
-An analyst that answers `insufficient-evidence` itself is accepted after the
-first two checks, without a model review (there is nothing to review).
+When the analyst itself answers `insufficient-evidence` and that answer passes
+the first two checks, the workflow does not show it. It is not reviewed by
+the verifier, so none of its model-written text is shown. It is replaced by
+the application's fixed insufficient-evidence response ("The match data up to
+this moment is not enough to explain it.") with
+`outcome: "insufficient-evidence"`. Every model-written string the browser can
+receive has therefore passed all three checks.
 
 ### Grounding checks
 
@@ -236,6 +241,8 @@ evidence:
   whole). A goal earlier than the evidence window is allowed when the score
   shows it. Ordinary phrases such as "a shot on goal", "the penalty area" and
   "the corner of the box" are not treated as events
+- limitations get the time, score and player checks, but not the event-word
+  check: they describe what is unknown ("whether the shot was saved")
 - audience limits: Casual Fan explanations are at most 600 characters, 4 facts
   and 2 interpretation claims; Analyst ones use the contract's limits (1 200, 8, 5)
 
@@ -270,10 +277,25 @@ are in `src/explain/prompts.ts`.
 | Tool calls | 6 | `toolCalls` |
 | Analyst turns per draft | 3, the last without tools | `analystTurns` |
 | Completion tokens per call | 2 000 analyst, 1 200 verifier | `analystCompletionTokens`, `verifierCompletionTokens` |
-| Tokens in total | 80 000 prompt + completion | `totalTokens` |
+| Tokens in total | 80 000 prompt + completion, enforced as below | `totalTokens` |
 | Revisions | 1 | fixed |
 | Tool lookback | 30 s before the selected time, 40 events per call | `TOOL_LOOKBACK_MS`, `TOOL_MAX_EVENTS` |
 | Route duration | 75 s | `maxDuration` in the route |
+
+The token budget is enforced around every call, the verifier's included:
+
+- **Before** a call, the workflow reserves an estimate of its prompt (one token
+  per 3 bytes of the JSON sent, plus overhead, deliberately high) plus its
+  whole completion allowance. If that does not fit in what is left, the call
+  is not made.
+- **After** a call, the provider's reported usage is charged. A call that
+  reports no usage is charged its full reservation.
+- If the charged total is then over the budget, that call's answer is
+  discarded. An over-budget review therefore cannot produce `verified`; the
+  result is the fallback.
+
+The trace reports both the provider's `tokens` and the `chargedTokens`
+counted against the budget.
 
 A moment explained at the first attempt takes 2 model calls (analyst and
 verifier), each sent the evidence package (10–14 KB of JSON with the default
@@ -328,7 +350,7 @@ Each request writes one JSON line to the server log (`console.info`):
 
 ```json
 {"event":"explain","requestId":"…","status":200,"matchId":"…","timeMs":9050,"audience":"casual","cached":false,"outcome":"verified",
- "trace":{"totalMs":5210,"modelCalls":2,"toolCalls":1,"tokens":{"prompt":9100,"completion":640},
+ "trace":{"totalMs":5210,"modelCalls":2,"toolCalls":1,"tokens":{"prompt":9100,"completion":640},"chargedTokens":9740,
   "steps":[{"kind":"model","role":"analyst","ms":2100,"finishReason":"tool_calls","toolCalls":1,"tokens":{"prompt":4200,"completion":40}},
            {"kind":"tool","name":"list_events","ok":true,"ms":3,"events":["e2-pass","e4-pass"],"snapshots":[]},
            {"kind":"model","role":"analyst","ms":1800,"finishReason":"stop","toolCalls":0,"tokens":{"prompt":4700,"completion":420}},
@@ -337,7 +359,7 @@ Each request writes one JSON line to the server log (`console.info`):
 ```
 
 The trace records each model call (role, duration, finish reason, token
-counts), each tool call (name, outcome, duration, the event IDs and snapshot
+counts), the tokens charged against the budget, each tool call (name, outcome, duration, the event IDs and snapshot
 times it returned) and each check's outcome. It never includes prompts, model
 text or reasoning, request bodies, credentials or the endpoint. The same
 `trace` is returned to the browser.
@@ -395,6 +417,8 @@ Mocked suites:
   uncited players, events that are not in the evidence, formations that look
   like scores, goals outside the window and audience limits
 - `tests/explain-workflow.test.ts`: verified, revised and fallback paths;
+  the analyst's own insufficient-evidence answer replaced by the fixed one;
+  reviewed limitations; token reservation, over-budget reviews and missing usage;
   verifier rejections and unusable reviews; tool use and refusals; the tool
   loop, call, token and time limits; timeouts, aborts and provider errors;
   only pre-cutoff evidence in prompts; nothing sensitive in the trace

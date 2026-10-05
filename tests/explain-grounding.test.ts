@@ -84,6 +84,13 @@ describe("grounding checks", () => {
     expect(issues(r, later)).toEqual([]);
   });
 
+  it("check limitations for times, scores and players, but not event wording", () => {
+    expect(issues(edit((r) => (r.limitations = ["Nothing is known after 20 s."])))[0]).toContain("limitations[0]");
+    expect(issues(edit((r) => (r.limitations = ["The score could become 2–0."])))[0]).toContain("2–0");
+    expect(issues(edit((r) => (r.limitations = ["#42 is not tracked."])))[0]).toContain("#42");
+    expect(issues(edit((r) => (r.limitations = ["Whether a later shot is saved is not known."])))).toEqual([]);
+  });
+
   it("apply the audience limits", () => {
     const long = edit((r) => (r.explanation = "Harbor City won the ball. ".repeat(30).trim()));
     expect(long.explanation.length).toBeGreaterThan(AUDIENCE_LIMITS.casual.explanation);

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { validateExplanation } from "@/explain/response";
+import { insufficientEvidence, validateExplanation } from "@/explain/response";
+import { STRICT_EXPLANATION_SCHEMA } from "@/explain/prompts";
 import { EvidenceSession } from "@/explain/evidence";
 import { sampleFixture } from "@/match/fixture";
 import { eventsAt } from "@/playback/derive";
 import { generateMatch } from "@/simulation/generate";
-import { explainMoment, WORKFLOW_LIMITS } from "@/server/analyst";
-import { ModelError, type ChatRequest } from "@/server/foundry";
+import { estimatePromptTokens, explainMoment, WORKFLOW_LIMITS } from "@/server/analyst";
+import { ModelError, type ChatRequest, type ChatResult } from "@/server/foundry";
 import { answer, approve, FakeModel, goalExplanation, toolCall } from "./support/fakeModel";
 
 const run = (model: FakeModel, timeMs = 9_400, extra: Partial<Parameters<typeof explainMoment>[0]> = {}) =>
@@ -17,7 +18,7 @@ const reject = (draftTargets: string[], target: string) => ({
   finishReason: "stop",
   usage: null,
 });
-const targets = ["headline", "explanation", "facts[0]", "facts[1]", "facts[2]", "interpretation[0]"];
+const targets = ["headline", "explanation", "facts[0]", "facts[1]", "facts[2]", "interpretation[0]", "limitations[0]"];
 
 describe("analyst workflow", () => {
   it("returns a verified explanation when the first draft passes every check", async () => {
@@ -26,7 +27,7 @@ describe("analyst workflow", () => {
     const out = await run(model);
     expect(out.explanation).toEqual(draft);
     expect(out.verification).toEqual({ outcome: "verified", revisions: 0, schema: "passed", grounding: "passed", modelReview: "passed", issues: [] });
-    expect(out.trace).toMatchObject({ modelCalls: 2, toolCalls: 0, tokens: { prompt: 2_000, completion: 400 } });
+    expect(out.trace).toMatchObject({ modelCalls: 2, toolCalls: 0, tokens: { prompt: 2_000, completion: 400 }, chargedTokens: 2_400 });
     expect(out.trace.steps.map((s) => s.kind)).toEqual(["model", "model", "check"]);
     expect(model.requests.map((r) => r.role)).toEqual(["analyst", "verifier"]);
     expect(model.requests[0]!.maxCompletionTokens).toBe(WORKFLOW_LIMITS.analystCompletionTokens);
@@ -130,22 +131,38 @@ describe("analyst workflow", () => {
     expect(out.verification.issues[0]).toContain("does not cover");
   });
 
-  it("accepts an analyst's own insufficient-evidence answer without a review", async () => {
+  it("replaces an analyst's own insufficient-evidence answer with the fixed response", async () => {
     const draft = {
       explanationVersion: "1.0.0",
       matchId: sampleFixture.matchId,
       timeMs: 1_000,
       status: "insufficient-evidence",
-      headline: "Too early to say",
-      explanation: "Nothing has happened yet.",
-      facts: [],
+      headline: "The ball travelled at 900 km/h",
+      explanation: "Nothing has happened yet, apart from the ball reaching 900 km/h.",
+      facts: [{ text: "The ball travelled at 900 km/h.", evidence: [{ kind: "snapshot", t: 1_000 }] }],
       interpretation: [],
-      limitations: ["No events before 1 s."],
+      limitations: ["The ball travelled at 900 km/h."],
     };
     const model = new FakeModel([answer(draft)]);
     const out = await run(model, 1_000);
     expect(out.verification).toMatchObject({ outcome: "insufficient-evidence", modelReview: "skipped" });
+    expect(out.explanation).toEqual(
+      insufficientEvidence(new EvidenceSession(sampleFixture, 1_000).base, "The match data up to this moment is not enough to explain it."),
+    );
+    expect(JSON.stringify(out.explanation)).not.toContain("900");
     expect(model.requests).toHaveLength(1);
+  });
+
+  it("has the verifier review the limitations of an explained draft too", async () => {
+    const draft = goalExplanation();
+    draft.limitations = ["The ball travelled at 900 km/h."];
+    const fixed = goalExplanation();
+    const model = new FakeModel([answer(draft), reject(targets, "limitations[0]"), answer(fixed), approve(fixed)]);
+    const out = await run(model);
+    expect(model.requests[1]!.messages[1]!.content).toContain("900 km/h");
+    expect(out.verification).toMatchObject({ outcome: "revised" });
+    expect(out.verification.issues).toEqual([expect.stringContaining("limitations[0] is not supported")]);
+    expect(out.explanation).toEqual(fixed);
   });
 
   it("bounds a model that keeps calling tools", async () => {
@@ -158,14 +175,58 @@ describe("analyst workflow", () => {
     expect(model.requests.map((r) => r.toolChoice)).toEqual(["auto", "auto", "none", "auto", "auto", "none"]);
   });
 
-  it("stops at the model call and token budgets", async () => {
+  it("stops at the model call budget", async () => {
     const draft = goalExplanation();
     const calls = await run(new FakeModel([answer(draft)]), 9_400, { limits: { modelCalls: 1 } });
     expect(calls.verification).toMatchObject({ outcome: "fallback" });
     expect(calls.verification.issues).toEqual([expect.stringContaining("model call limit")]);
+  });
 
-    const tokens = await run(new FakeModel([answer(draft, { prompt: 90_000, completion: 10 })]), 9_400);
-    expect(tokens.verification.issues).toEqual([expect.stringContaining("token limit")]);
+  it("reserves the estimated prompt and the completion allowance before each call", async () => {
+    const request = {
+      messages: [{ role: "user" as const, content: "x".repeat(3_000) }],
+      schema: { name: "explanation", schema: STRICT_EXPLANATION_SCHEMA },
+    };
+    expect(estimatePromptTokens(request)).toBeGreaterThan(1_000);
+
+    // Not even the first call fits: the model is never called.
+    const model = new FakeModel([answer(goalExplanation())]);
+    const out = await run(model, 9_400, { limits: { totalTokens: 3_000 } });
+    expect(model.requests).toHaveLength(0);
+    expect(out.verification).toMatchObject({ outcome: "fallback" });
+    expect(out.verification.issues).toEqual([expect.stringContaining("token limit")]);
+  });
+
+  it("does not accept a call whose reported usage goes over the budget, the final review included", async () => {
+    const draft = goalExplanation();
+    const overAnalyst = await run(new FakeModel([answer(draft, { prompt: 90_000, completion: 10 })]));
+    expect(overAnalyst.verification).toMatchObject({ outcome: "fallback" });
+    expect(overAnalyst.verification.issues).toEqual([expect.stringContaining("token limit")]);
+
+    // The verifier approves, but its reported usage exceeds what is left: not "verified".
+    const review = { ...approve(draft), usage: { prompt: 79_000, completion: 300 } };
+    const overReview = await run(new FakeModel([answer(draft), review]));
+    expect(overReview.verification).toMatchObject({ outcome: "fallback", modelReview: "skipped" });
+    expect(overReview.explanation.status).toBe("insufficient-evidence");
+    expect(overReview.trace.chargedTokens).toBeGreaterThan(WORKFLOW_LIMITS.totalTokens);
+  });
+
+  it("charges the whole reservation when the provider reports no usage", async () => {
+    const draft = goalExplanation();
+    const noUsage = (r: ChatResult): ChatResult => ({ ...r, usage: null });
+    const out = await run(new FakeModel([noUsage(answer(draft)), noUsage(approve(draft))]));
+    expect(out.verification.outcome).toBe("verified");
+    expect(out.trace.tokens).toEqual({ prompt: 0, completion: 0 });
+    expect(out.trace.chargedTokens).toBeGreaterThan(WORKFLOW_LIMITS.analystCompletionTokens + WORKFLOW_LIMITS.verifierCompletionTokens);
+
+    // With a budget that fits one worst-case call but not two, the unreported first call leaves no room for the review.
+    const tight = await run(new FakeModel([noUsage(answer(draft)), noUsage(approve(draft))]), 9_400, { limits: { totalTokens: out.trace.chargedTokens - 1 } });
+    expect(tight.verification).toMatchObject({ outcome: "fallback" });
+    expect(tight.verification.issues).toEqual([expect.stringContaining("token limit")]);
+
+    // Reported usage is charged as reported.
+    const reported = await run(new FakeModel([answer(draft), approve(draft)]));
+    expect(reported.trace.chargedTokens).toBe(reported.trace.tokens.prompt + reported.trace.tokens.completion);
   });
 
   it("passes provider failures on to the caller", async () => {
