@@ -11,7 +11,7 @@ import type { PlaybackFrame } from "@/playback/derive";
 import type { OffsideReview } from "@/playback/offsideReview";
 import { BallModel } from "./Ball";
 import { CornerFlags } from "./CornerFlags";
-import { pitchCameraDistance } from "./camera";
+import { followPan, pitchCameraDistance } from "./camera";
 import { completedPassAt } from "./evidence";
 import { HALF_LENGTH, HALF_WIDTH } from "./coords";
 import { createPitch } from "./Pitch";
@@ -38,6 +38,10 @@ const PORTRAIT_VIEW_DIRECTIONS: Record<CameraView, THREE.Vector3> = {
   angled: new THREE.Vector3(0.85, 0.75, 0).normalize(),
 };
 const PORTRAIT_BELOW_ASPECT = 0.85;
+/** Fraction of the visible half-extent the ball may roam before the zoomed camera follows it. */
+const FOLLOW_DEAD_ZONE = 0.55;
+/** After a manual drag, wait this long before following the ball again. */
+const FOLLOW_RESUME_MS = 2500;
 
 export interface MatchSceneOptions {
   container: HTMLElement;
@@ -91,6 +95,8 @@ export class MatchScene {
   private readonly lookAt = new THREE.Vector3();
   private readonly desiredPosition = new THREE.Vector3();
   private readonly desiredLookAt = new THREE.Vector3();
+  private readonly ballGround = new THREE.Vector2(0, 0);
+  private followPausedUntil = 0;
   private snapCamera = true;
   /** With reduced motion requested, camera moves snap instead of easing. */
   private readonly reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -157,6 +163,7 @@ export class MatchScene {
     // Poses come from the same recorded snapshots as the positions; the scene keeps no animation state.
     this.players.update(frame.players, motionAt(this.options.fixture, frame.timeMs), frame.timeMs);
     this.ball.setPosition(frame.ball);
+    this.ballGround.set(frame.ball.x - HALF_LENGTH, frame.ball.y - HALF_WIDTH);
     const carrier = frame.players.find((player) => player.playerId === frame.possession?.playerId);
     for (const ring of [this.carrierRing, this.carrierGlow]) {
       ring.visible = carrier !== undefined;
@@ -259,6 +266,7 @@ export class MatchScene {
 
   private updateCamera(): void {
     const distance = this.baseDistance() / this.zoom;
+    this.followBall(distance);
     this.desiredLookAt.set(this.pan.x, 0, this.pan.y);
     const direction = (this.portrait ? PORTRAIT_VIEW_DIRECTIONS : VIEW_DIRECTIONS)[this.view];
     this.desiredPosition.copy(direction).multiplyScalar(distance).add(this.desiredLookAt);
@@ -274,6 +282,20 @@ export class MatchScene {
     this.camera.lookAt(this.lookAt);
     // Follow the eased camera, not the target zoom, so the ball resizes smoothly with it.
     this.ball.setZoom(this.baseDistance() / this.camera.position.distanceTo(this.lookAt));
+  }
+
+  /** While zoomed in, pan so the ball never leaves the frame (paused briefly after a manual drag). */
+  private followBall(distance: number): void {
+    if (this.zoom <= MIN_ZOOM || performance.now() < this.followPausedUntil) return;
+    const direction = (this.portrait ? PORTRAIT_VIEW_DIRECTIONS : VIEW_DIRECTIONS)[this.view];
+    const tanVertical = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    // Visible ground half-extents at the look-at point; the screen-vertical axis is foreshortened by the tilt.
+    const across = distance * tanVertical * this.camera.aspect;
+    const along = (distance * tanVertical) / direction.y;
+    const [halfX, halfZ] = this.portrait ? [along, across] : [across, along];
+    const next = followPan(this.pan, { x: this.ballGround.x, z: this.ballGround.y }, halfX, halfZ, FOLLOW_DEAD_ZONE);
+    this.pan.set(next.x, next.y);
+    this.clampPan();
   }
 
   private clampPan(): void {
@@ -343,6 +365,7 @@ export class MatchScene {
         }
         this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (this.zoom <= MIN_ZOOM) return;
+        this.followPausedUntil = performance.now() + FOLLOW_RESUME_MS;
         // Drag to pan while zoomed in: convert pixels to metres at the look-at point.
         const distance = this.baseDistance() / this.zoom;
         const metresPerPixel =

@@ -20,3 +20,26 @@ export function pitchCameraDistance(direction: Vector3, aspect: number, fov: num
   }
   return distance;
 }
+
+/**
+ * Shift `pan` just enough to keep `target` inside the central dead zone of the
+ * view. `halfX`/`halfZ` are the visible ground half-extents around the pan
+ * centre; `deadZone` is the fraction of them the target may roam freely.
+ * Returns the pan unchanged while the target is already inside the zone.
+ */
+export function followPan(
+  pan: { x: number; y: number },
+  target: { x: number; z: number },
+  halfX: number,
+  halfZ: number,
+  deadZone = 0.5,
+): { x: number; y: number } {
+  const follow = (centre: number, value: number, half: number) => {
+    const limit = half * deadZone;
+    const offset = value - centre;
+    if (offset > limit) return centre + offset - limit;
+    if (offset < -limit) return centre + offset + limit;
+    return centre;
+  };
+  return { x: follow(pan.x, target.x, halfX), y: follow(pan.y, target.z, halfZ) };
+}

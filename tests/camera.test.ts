@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PerspectiveCamera, Vector3 } from "three";
-import { pitchCameraDistance } from "@/scene/camera";
+import { followPan, pitchCameraDistance } from "@/scene/camera";
 
 describe("full-pitch camera framing", () => {
   it.each([0.4, 0.84, 0.85, 1, 1.6, 2.4, 3.2])("keeps pitch corners and goal height in frame at aspect %s", (aspect) => {
@@ -23,5 +23,16 @@ describe("full-pitch camera framing", () => {
         }
       }
     }
+  });
+});
+
+describe("ball follow pan", () => {
+  it("holds still while the ball is inside the dead zone", () => {
+    expect(followPan({ x: 10, y: -5 }, { x: 14, z: -2 }, 20, 10, 0.5)).toEqual({ x: 10, y: -5 });
+  });
+
+  it("moves just enough to bring the ball back to the dead-zone edge", () => {
+    expect(followPan({ x: 0, y: 0 }, { x: 25, z: -12 }, 20, 10, 0.5)).toEqual({ x: 15, y: -7 });
+    expect(followPan({ x: 0, y: 0 }, { x: -30, z: 8 }, 20, 10, 0.5)).toEqual({ x: -20, y: 3 });
   });
 });
