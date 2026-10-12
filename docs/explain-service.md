@@ -582,7 +582,7 @@ PITCHLENS_LIVE_EVAL=1 FOUNDRY_ENDPOINT=https://<your-resource>.openai.azure.com 
   FOUNDRY_API_KEY=<your-api-key> FOUNDRY_DEPLOYMENT=<your-deployment> npm run test:live
 ```
 
-It **asserts** only the deterministic release blockers, which must hold
+It **asserts** the deterministic release blockers, which must hold
 whatever the model writes: the response validates against evidence the tools
 could have returned, no later event, time, score or formation appears, and
 `matchId` and `timeMs` match. It **reports** a Markdown table and summary:
@@ -594,10 +594,46 @@ between runs, so treat the summary as a sample, not a benchmark.
 
 ## Not implemented yet
 
-- The viewer does not call the endpoint; controls, loading and error states
-  belong to the integration work.
 - Rate limits and the answer cache are per instance and in memory.
 - Keyless (Entra ID) authentication, streaming and response caching across
   instances are not implemented.
 - Grounding checks are lexical. The verifier is a model. Neither proves an
   explanation is correct.
+
+## Deployment pacing and bounded retries
+
+`FOUNDRY_REQUESTS_PER_MINUTE` optionally spaces model requests according to the
+deployment's allocated request quota. Analyst and verifier clients share the
+same per-process scheduler when they use the same endpoint and deployment.
+The scheduler honors a provider's `retry-after-ms` or `retry-after` cooldown
+across subsequent workflows, and queued waits cancel with the workflow signal.
+Token quota and other server instances can still cause throttling; this is not
+a replacement for deployment quota management or a distributed gateway.
+
+Queue waits count inside the existing 25-second model-call and 60-second
+workflow deadlines. Very low quotas (for example one or two requests per
+minute on a shared analyst/verifier deployment) cannot reliably complete a
+reviewed workflow within those bounds. Contention can also exhaust a deadline;
+the in-process scheduler does not promise FIFO fairness. Configure adequate
+capacity or a separate verifier deployment rather than extending deadlines
+without measurement. An aborted queued request is reported as a timeout and
+its conservative reservation still counts against the workflow budget.
+
+A workflow retries a 429 at most once per logical call, only for cooldowns
+under five seconds that fit its remaining call and workflow deadlines. Each
+attempt counts toward the existing eight-call ceiling; a failed attempt is
+charged its conservative token reservation. Longer cooldowns are returned to
+the caller as actionable rate limits. Retries do not expand time or token
+budgets. Other provider errors are not automatically retried.
+
+This follows Microsoft's documented request pacing and retry headers:
+[Manage Azure OpenAI quota](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/quota).
+Configuration must reflect the resource's actual quota; these changes have
+offline regression coverage and do not establish a live deployment's capacity.
+
+Claim-level grounding now checks numeric timestamps against the claim's own
+event/snapshot citations. Elapsed durations require two cited endpoints; whole
+seconds may round by half a second. Explicit activity windows must match a
+supplied measurement and cite all of its supporting events. These checks catch
+the previously observed missing goal citation for a seven-second interval,
+but remain heuristics rather than proof of every natural-language claim.

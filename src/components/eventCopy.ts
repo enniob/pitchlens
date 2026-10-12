@@ -3,7 +3,7 @@
  * written for fans who may not know the laws of the game. Presentation only:
  * the event data itself is never changed.
  */
-import type { MatchEvent } from "@/match/contract";
+import type { MatchEvent, Player } from "@/match/contract";
 import type { IconName } from "./Icon";
 
 export type EventTone = "goal" | "tactic" | "stop" | "default";
@@ -56,8 +56,15 @@ export function eventCopy(e: MatchEvent): EventCopy {
   return copy ? { ...copy, tone } : { title: e.type, icon: "pass", explain: "", tone };
 }
 
-/** The simulator's description with broadcast-style prefixes removed ("GOAL! ", "Kickoff: "). */
-export function plainDescription(e: MatchEvent): string {
+/**
+ * Broadcast copy. A shot's stored description can encode its eventual result,
+ * even at the strike time; only the later goal/shot-result may announce that.
+ */
+export function plainDescription(e: MatchEvent, roster?: readonly Pick<Player, "id" | "name" | "number">[]): string {
+  if (e.type === "shot") {
+    const actor = roster?.find((p) => p.id === e.playerId);
+    return `${actor ? `Shot by ${actor.name} (#${actor.number})` : "A strike at goal"}. The result is shown separately.`;
+  }
   return e.description
     .replace(/^GOAL! /i, "")
     .replace(/^Kickoff: /, "")

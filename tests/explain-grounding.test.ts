@@ -15,12 +15,65 @@ const edit = (change: (r: ExplanationResponse) => void, base = goalExplanation()
 const issues = (r: ExplanationResponse, context = atGoal, audience: "casual" | "analyst" = "analyst") => checkGrounding(r, context, audience);
 
 describe("grounding checks", () => {
+  it("rejects invented left/right zone mappings while allowing measured channels", () => {
+    for (const label of ["right side", "left-sided", "right half-space"])
+      expect(issues(edit((r) => { r.explanation = `The move reached the ${label} of the penalty area.`; })))
+        .toContainEqual(expect.stringContaining("zone label not defined"));
+    expect(issues(edit((r) => { r.explanation = "The shot started in the central channel inside the penalty area."; }))).toEqual([]);
+  });
+  it("requires the shot endpoint even when a sequence claim cites its passes", () => {
+    const r = goalExplanation();
+    r.facts = [{ text: "Three passes before the shot.", evidence: ["e2-pass", "e3-pass", "e4-pass"].map((id) => ({ kind: "event" as const, id })) }];
+    expect(issues(r)).toContainEqual(expect.stringContaining("contains no shot"));
+    r.facts[0]!.evidence.push({ kind: "event", id: "e5-shot" });
+    expect(issues(r)).toEqual([]);
+  });
+  it("allows a rounded timestamp only when it matches cited revealed evidence", () => {
+    const context = extractMatchContext(sampleFixture, 9_450);
+    const r = goalExplanation();
+    r.facts = [{ text: "The goal was recorded at 9 s.", evidence: [{ kind: "event", id: "e6-goal" }] }];
+    expect(issues(r, context)).toEqual([]);
+    r.facts[0]!.text = "The goal was recorded at 10 s.";
+    expect(issues(r, context)).toContainEqual(expect.stringContaining("after the selected time"));
+    const earlier = extractMatchContext(sampleFixture, 8_800);
+    r.headline = "Castell shoots";
+    r.explanation = "Castell took a shot.";
+    r.interpretation = [];
+    r.facts = [{ text: "Castell shot at 9 s.", evidence: [{ kind: "event", id: "e5-shot" }] }];
+    expect(issues(r, earlier)).toEqual([]);
+    r.facts[0]!.evidence = [{ kind: "event", id: "e4-pass" }];
+    expect(issues(r, earlier)).toContainEqual(expect.stringContaining("after the selected time"));
+  });
+  it("accepts measured activity windows only with all supporting citations", () => {
+    const context = extractMatchContext(sampleFixture, 12_000);
+    const pattern = context.measurements.patterns.find((p) => p.kind === "activity-change")!;
+    expect(pattern).toBeDefined();
+    const r = goalExplanation();
+    r.facts = [];
+    r.interpretation = [{ text: pattern.summary, evidence: pattern.eventIds.map((id) => ({ kind: "event" as const, id })) }];
+    expect(issues(r, context)).toEqual([]);
+    r.interpretation[0]!.evidence = r.interpretation[0]!.evidence.slice(0, 1);
+    expect(issues(r, context)).toContainEqual(expect.stringContaining("duration 5 s"));
+  });
+  it("requires a claim's timestamps and elapsed durations to match its own citations", () => {
+    expect(issues(edit((r) => { r.facts[0]!.text = "The turnover happened at 2 s."; }))).toEqual([]);
+    expect(issues(edit((r) => { r.facts[0]!.text = "The turnover happened at 2.8 s."; }))).toContainEqual(expect.stringContaining("matches nothing it cites"));
+    const elapsed = edit((r) => { r.interpretation = [{ text: "The move took approximately 7 seconds.", evidence: [{ kind: "event", id: "e1-turnover" }, { kind: "event", id: "e4-pass" }] }]; });
+    expect(issues(elapsed)).toContainEqual(expect.stringContaining("two cited time endpoints"));
+    elapsed.interpretation[0]!.evidence.push({ kind: "event", id: "e6-goal" });
+    expect(issues(elapsed)).toEqual([]);
+    elapsed.interpretation[0]!.text = "The move took 5.7 seconds.";
+    expect(issues(elapsed)).toEqual([]);
+  });
   it("accept the documented example", () => {
     expect(issues(goalExplanation())).toEqual([]);
     expect(issues(goalExplanation(), atGoal, "casual")).toEqual([]);
   });
 
   it("reject a time after the selected moment", () => {
+    expect(issues(edit((r) => (r.explanation = "Play restarts at 0:12.")))).toContainEqual(expect.stringContaining("after the selected time"));
+    expect(issues(edit((r) => (r.explanation = "Play restarts in minute 3.")))).toContainEqual(expect.stringContaining("after the selected time"));
+    expect(issues(edit((r) => (r.explanation = "The shot was at 0:09.")))).toEqual([]);
     expect(issues(edit((r) => (r.explanation += " Play restarted at 19.5 s.")))).toEqual([expect.stringContaining("19.5 s")]);
     expect(issues(edit((r) => (r.facts[0]!.text = "Harbor City #6 won the ball at 12000 ms.")))[0]).toContain("12000 ms");
     expect(issues(edit((r) => (r.headline = "A goal in the 3rd minute")))[0]).toContain("minute");
@@ -67,7 +120,7 @@ describe("grounding checks", () => {
     expect(issues(edit((r) => (r.facts[0]!.text = "Harbor City #6 won the ball at 2.4 s before they scored.")))[0]).toContain("scored");
   });
 
-  it("allow a goal outside the evidence window when the score shows it", () => {
+  it("allow a goal outside the evidence window in the headline and explanation only", () => {
     const later = extractMatchContext(sampleFixture, 22_000);
     expect(later.events.some((e) => e.type === "goal")).toBe(false);
     const r: ExplanationResponse = {
@@ -77,11 +130,49 @@ describe("grounding checks", () => {
       status: "explained",
       headline: "Play restarts after Harbor City scored",
       explanation: "Harbor City lead 1–0 and Northvale have restarted.",
-      facts: [{ text: "Northvale kicked off after Harbor City scored.", evidence: [{ kind: "event", id: "e7-kickoff" }] }],
+      facts: [{ text: "Northvale kicked off.", evidence: [{ kind: "event", id: "e7-kickoff" }] }],
       interpretation: [],
       limitations: [],
     };
     expect(issues(r, later)).toEqual([]);
+    // A claim cannot lean on the score: the goal it mentions must be cited, and here it cannot be.
+    expect(issues(edit((x) => (x.facts[0]!.text = "Northvale kicked off after Harbor City scored."), structuredClone(r)), later)).toEqual([
+      expect.stringContaining('facts[0] says "scored"'),
+    ]);
+    const interpreted = edit((x) => (x.interpretation = [{ text: "Northvale restarted quickly after the opening goal.", evidence: [{ kind: "event", id: "e7-kickoff" }] }]), structuredClone(r));
+    expect(issues(interpreted, later)).toEqual([expect.stringContaining('interpretation[0] says "opening goal"')]);
+  });
+
+  it("require a claim about a goal to cite it even when the goal is in the evidence window", () => {
+    expect(issues(edit((r) => (r.interpretation[0]!.text = "Quick forward passing led to the opening goal.")))).toEqual([
+      expect.stringContaining('interpretation[0] says "opening goal"'),
+    ]);
+    expect(issues(edit((r) => {
+      r.interpretation[0]!.text = "Quick forward passing led to the opening goal.";
+      r.interpretation[0]!.evidence.push({ kind: "event", id: "e6-goal" });
+    }))).toEqual([]);
+  });
+
+  it("check observable event wording in interpretation as in facts", () => {
+    const claims: [string, string][] = [
+      ["The pass sequence ended with #9 flagged offside.", "offside"],
+      ["The press forced a foul in midfield.", "foul"],
+      ["Quick passing won a penalty.", "penalty"],
+      ["The move earned a corner.", "corner"],
+      ["The move began from a throw-in.", "throw-in"],
+      ["Quick passing forced a save from the keeper.", "save"],
+    ];
+    for (const [text, label] of claims)
+      expect(issues(edit((r) => (r.interpretation[0]!.text = text))), text).toEqual([expect.stringContaining(`contains no ${label}`)]);
+  });
+
+  it("keep tactical terms out of the event check in interpretation", () => {
+    for (const text of [
+      "Quick forward passing beat the offside trap.",
+      "Quick forward passing reached the penalty area before the defence reset.",
+      "Quick forward passing found space at the corner of the box.",
+    ])
+      expect(issues(edit((r) => (r.interpretation[0]!.text = text))), text).toEqual([]);
   });
 
   it("check limitations for times, scores and players, but not event wording", () => {

@@ -113,6 +113,8 @@ export function estimateCost(trace: ExplainTrace, prices: Prices): { amount: num
 export type LiveOutcome = VerificationSummary["outcome"] | "error" | "skipped";
 
 export interface LiveResult {
+  /** Redacted JSON of the final answer and verification, retained for manual review. */
+  answer?: string;
   scenario: string;
   audience: Audience;
   outcome: LiveOutcome;
@@ -129,10 +131,25 @@ export interface LiveResult {
 }
 
 /** Removes every occurrence of each secret (and anything that looks like a bearer or api-key header). */
-export function redact(text: string, secrets: (string | undefined)[]): string {
+export function redact(text: string, secrets: (string | undefined)[], limit = 200): string {
   let out = text;
   for (const s of secrets) if (s && s.length >= 4) out = out.split(s).join("[redacted]");
-  return out.replace(/(api-key|authorization)\s*[:=]\s*(bearer\s+)?\S+/gi, "$1: [redacted]").slice(0, 200);
+  return out.replace(/(api-key|authorization)\s*[:=]\s*(bearer\s+)?\S+/gi, "$1: [redacted]").slice(0, limit);
+}
+
+/** Release gates apply to every selected case, including provider failures. */
+export function releaseFailures(results: LiveResult[], expected: { scenario: { id: string }; audience: Audience }[]): string[] {
+  const failures: string[] = [];
+  for (const c of expected) {
+    const matches = results.filter((r) => r.scenario === c.scenario.id && r.audience === c.audience);
+    const label = `${c.scenario.id} (${c.audience})`;
+    if (matches.length !== 1) { failures.push(`${label}: missing or duplicate result`); continue; }
+    const r = matches[0]!;
+    if (r.outcome === "error" || r.outcome === "skipped" || r.outcome === "fallback") failures.push(`${label}: ${r.outcome}`);
+    else if (r.blockers.length || r.leaks.length || r.unsupported.length || !["usable", "honest-insufficient"].includes(r.quality ?? "")) failures.push(`${label}: safety or quality gate failed`);
+    if (r.outcome !== "error" && r.outcome !== "skipped" && !r.answer) failures.push(`${label}: answer was not retained`);
+  }
+  return failures;
 }
 
 export interface LiveSummary {
@@ -184,7 +201,7 @@ export interface LiveMeta {
   bounds: LiveBounds;
 }
 
-/** A Markdown report of a live run, safe to paste into a pull request. */
+/** A Markdown report including redacted synthetic-match answers for local review. */
 export function formatReport(meta: LiveMeta, results: LiveResult[], summary: LiveSummary): string {
   const money = (n: number) => n.toFixed(4);
   const lines = [
@@ -217,6 +234,9 @@ export function formatReport(meta: LiveMeta, results: LiveResult[], summary: Liv
     for (const r of flagged)
       for (const f of [...r.blockers.map((b) => `BLOCKER ${b}`), ...r.leaks.map((l) => `leak? ${l}`), ...r.unsupported.map((u) => `unsupported? ${u}`)])
         lines.push(`- ${r.scenario} (${r.audience}): ${f.replace(/\|/g, "\\|")}`);
+  }
+  for (const r of results.filter((r) => r.answer)) {
+    lines.push("", `### Retained answer: ${r.scenario} (${r.audience})`, "", ...r.answer!.split("\n").map((line) => `    ${line}`));
   }
   return lines.join("\n");
 }

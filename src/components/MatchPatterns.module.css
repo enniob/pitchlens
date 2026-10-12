@@ -1,0 +1,16 @@
+.panel { padding: 16px; border-bottom: 1px solid var(--line); }
+.heading { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.heading h3 { font-size: 14px; margin: 0; }
+.heading span, .note, .empty, .evidence { font-size: 11px; color: var(--muted, #67736d); }
+.note { margin: 7px 0 12px; line-height: 1.5; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.list > li { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--surface-1); }
+.list strong { font-size: 12px; }
+.list p { font-size: 12px; line-height: 1.6; margin: 6px 0; }
+.evidence { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.panel button { border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; background: var(--surface-2); color: var(--text); cursor: pointer; font: inherit; font-size: 11px; }
+.panel button:hover { background: var(--accent-wash); color: var(--accent-strong); }
+.panel button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.panel details { margin-top: 8px; font-size: 11px; }
+.panel summary { cursor: pointer; }
+.panel ol { padding-left: 20px; display: grid; gap: 5px; }

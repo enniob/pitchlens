@@ -173,10 +173,18 @@ export function assess({ scenario, audience, explanation, verification, envelope
   const events = new Map(evidence.events.map((e) => [e.id, e]));
 
   for (const { where, text, claim, fact } of texts) {
+    const cited = claim ? claim.evidence.flatMap((ref) => (ref.kind === "event" && events.has(ref.id) ? [events.get(ref.id)!] : [])) : evidence.events;
+    const snapshotTimes = claim ? claim.evidence.flatMap((ref) => (ref.kind === "snapshot" ? [ref.t] : [])) : evidence.snapshots.map((s) => s.t);
     for (const id of futureIds) if (text.includes(id)) blockers.push(`${where} names later event ${id}`);
     for (const m of text.matchAll(TIME)) {
       const ms = m[3]!.toLowerCase() === "ms" ? Number(m[1]) : Number(m[1]) * 1000;
-      if (ms > selected + 50) blockers.push(`${where} mentions ${m[0].trim()}, after the selected time`);
+      const precision = m[3]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** (m[2]?.length ?? 0);
+      const before = text.slice(Math.max(0, m.index! - 60), m.index).toLowerCase();
+      const after = text.slice(m.index! + m[0].length, m.index! + m[0].length + 15).toLowerCase();
+      const elapsed = !/\bat\s+$/.test(before) && (/(?:took|takes|lasted|lasting|within|over|in|for|after|last|previous|duration(?: of)?|elapsed(?: time)?|approximately|about|roughly)\s+(?:(?:approximately|about|roughly|only|just)\s+)?$/.test(before) || /^\s+(?:later|earlier|apart|elapsed|after|before)\b/.test(after));
+      const known = [...cited.flatMap((e) => e.startT === undefined ? [e.t] : [e.t, e.startT]), ...snapshotTimes];
+      const roundedKnownTime = !elapsed && ms <= selected + precision && known.some((t) => t <= selected && Math.abs(t - ms) <= precision);
+      if (ms > selected + 50 && !roundedKnownTime) blockers.push(`${where} mentions ${m[0].trim()}, after the selected time`);
     }
     for (const m of text.matchAll(SCORE)) {
       const is = sameScore(Number(m[1]), Number(m[2]));
@@ -196,8 +204,6 @@ export function assess({ scenario, audience, explanation, verification, envelope
 
     // Claim-level support: what the claim says must be in what it cites. Headline and explanation are
     // checked against everything reachable.
-    const cited = claim ? claim.evidence.flatMap((ref) => (ref.kind === "event" && events.has(ref.id) ? [events.get(ref.id)!] : [])) : evidence.events;
-    const snapshotTimes = claim ? claim.evidence.flatMap((ref) => (ref.kind === "snapshot" ? [ref.t] : [])) : [];
     for (const w of EVENT_WORDING) {
       const m = text.match(w.pattern);
       // A cited event's own description also supports its wording ("Shot on target by ...").
@@ -229,12 +235,21 @@ export function assess({ scenario, audience, explanation, verification, envelope
           unsupported.push(`${where} names ${surname}, who is not in its cited events`);
       }
       // A time stated in a fact should be the time of something it cites, to the precision it is written.
-      if (fact) {
+      {
         const times = [...cited.flatMap((e) => (e.startT !== undefined ? [e.t, e.startT] : [e.t])), ...snapshotTimes];
         for (const m of text.matchAll(TIME)) {
           const ms = m[3]!.toLowerCase() === "ms" ? Number(m[1]) : Number(m[1]) * 1000;
-          const tolerance = m[3]!.toLowerCase() === "ms" ? 50 : (m[2] ? 10 ** -m[2].length : 1) * 1000 + 50;
-          if (!times.some((t) => Math.abs(t - ms) <= tolerance)) unsupported.push(`${where} gives the time ${m[0].trim()}, which matches nothing it cites`);
+          const tolerance = m[3]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** (m[2]?.length ?? 0);
+          const before = text.slice(Math.max(0, m.index! - 60), m.index).toLowerCase();
+          const after = text.slice(m.index! + m[0].length, m.index! + m[0].length + 15).toLowerCase();
+          const elapsed = !/\bat\s+$/.test(before) && (/(?:took|takes|lasted|lasting|within|over|in|for|after|last|previous|duration(?: of)?|elapsed(?: time)?|approximately|about|roughly)\s+(?:(?:approximately|about|roughly|only|just)\s+)?$/.test(before) || /^\s+(?:later|earlier|apart|elapsed|after|before)\b/.test(after));
+          if (elapsed) {
+            const intervals = times.flatMap((start) => times.filter((end) => end !== start).map((end) => Math.abs(end - start)));
+            const ids = new Set(cited.map((e) => e.id));
+            const windowClaim = /(?:last|previous)\s+$/.test(before);
+            const window = windowClaim && evidence.measurements?.patterns.some((p) => p.kind === "activity-change" && p.eventIds.length && p.eventIds.every((id) => ids.has(id)) && p.values.windowMs === ms);
+            if (windowClaim ? !window : !intervals.some((value) => Math.abs(value - ms) <= tolerance)) unsupported.push(`${where} gives the duration ${m[0].trim()}, without cited endpoints supporting it`);
+          } else if (!times.some((t) => Math.abs(t - ms) <= tolerance)) unsupported.push(`${where} gives the time ${m[0].trim()}, which matches nothing it cites`);
         }
       }
     }

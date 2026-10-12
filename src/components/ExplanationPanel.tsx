@@ -8,10 +8,12 @@ import { citedEvidence, EvidenceCards, ExplanationDetails } from "./Evidence";
 import { formatClock } from "./format";
 import { LiveInsights } from "./LiveInsights";
 import { Icon } from "./Icon";
+import type { MatchFocus } from "@/playback/focus";
 import type { PlaybackPhase } from "./ScoreBug";
 
 interface Props {
   fixture: MatchFixture;
+  focus?: MatchFocus;
   timeMs: number;
   playback: PlaybackPhase;
   audience: Audience;
@@ -90,9 +92,10 @@ export function ExplanationPanel(props: Props) {
       <p className="explain__scope">{scopeText(props.playback, props.timeMs)}</p>
       <AudienceSwitch audience={props.audience} onAudience={props.onAudience} className="explain__audience" />
       {supported && <LiveInsights fixture={props.fixture} timeMs={props.timeMs} playback={props.playback} audience={props.audience}
-        saved={props.saved} onSaved={props.onSaved} onReplayFrom={props.onReplayFrom} />}
+        focus={props.focus} saved={props.saved} onSaved={props.onSaved} onReplayFrom={props.onReplayFrom} />}
       <section className="explain__ask" aria-labelledby="explain-ask-title">
         <h3 id="explain-ask-title" className="explain__section">Ask about any moment</h3>
+        {(props.focus?.teamId || props.focus?.playerId) && <p className="explain__scope">Explains the whole moment, including both teams.</p>}
         {/* Keyed by match and audience only: the request must survive the clock ticking. */}
         <ExplanationRequest key={`${props.fixture.matchId}:${props.audience}`} {...props} />
       </section>

@@ -216,14 +216,27 @@ describe("POST /api/explain", () => {
       [new ModelError("bad-provider-response", "not json"), 502, "upstream-error"],
     ];
     for (const [error, status, code] of cases) {
-      const { deps, logs } = setup([error]);
+      const { deps, logs, model } = setup(error.code === "rate-limited" ? [error, error] : [error]);
       const { response, json } = await call(deps, post(body()));
       expect(response.status, code).toBe(status);
       expect(json).toMatchObject({ ok: false, error: { code, retryable: true } });
       expect(JSON.stringify(json)).not.toContain(KEY);
       expect(logs[0]).toMatchObject({ error: code, status });
+      expect(model.requests).toHaveLength(error.code === "rate-limited" ? 2 : 1);
       if (code === "upstream-rate-limited") expect(response.headers.get("retry-after")).toBe("3");
     }
+  });
+
+  it("returns a reviewed answer after one transient provider throttle", async () => {
+    const draft = goalExplanation();
+    const { deps, model } = setup([new ModelError("rate-limited", "busy", 1), answer(draft), approve(draft)]);
+    const { response, json } = await call(deps, post(body()));
+    expect(response.status).toBe(200);
+    expect(json).toMatchObject({ ok: true, verification: { outcome: "verified" }, trace: { modelCalls: 3 } });
+    expect(model.requests).toHaveLength(3);
+    const cached = await call(deps, post(body()));
+    expect(cached.json).toMatchObject({ ok: true, cached: true });
+    expect(model.requests).toHaveLength(3);
   });
 
   it("hides unexpected errors", async () => {

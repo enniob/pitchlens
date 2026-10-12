@@ -1,5 +1,29 @@
 # PitchLens
 
+PitchLens turns synthetic football events into explainable match intelligence
+beside an interactive 3D replay. Follow a scripted sequence or generate a
+reproducible match, inspect the statistics and measured patterns, and replay the
+evidence behind an AI explanation. Casual Fan and Analyst modes share the same
+evidence; team and player preferences focus the moments shown to you.
+
+**Microsoft technology used:** a model deployment on Microsoft Foundry, called
+server-side through the Azure OpenAI-compatible v1 chat completions API. A bounded
+analyst and verifier workflow uses cutoff-bound evidence tools, deterministic
+checks, and one revision. Microsoft Agent Framework is evaluated in
+[the service documentation](docs/explain-service.md#why-not-microsoft-agent-framework);
+it is not an installed runtime dependency.
+
+**Everything shown is synthetic.** Teams, players, movement, and match events are
+fictional. Playback and deterministic measurements run locally. AI explanations
+make server-side network calls to the configured Foundry deployment; without
+credentials they show a configuration error while playback remains usable.
+Offline tests use mocked models. Live model quality needs its own evaluation.
+
+Start with [Getting started](#getting-started), [pattern definitions](docs/match-patterns.md),
+[AI setup and reliability](docs/explain-service.md), and
+[the submission guide](docs/submission.md), and [current verification scope](docs/readiness-2026-10-12.md). The milestone sections below record
+the implementation history and may describe earlier UI layouts.
+
 ## Playback statistics (MVP 4)
 
 The match statistics panel compares possession, completed passes, shots, saves,
@@ -18,9 +42,10 @@ statistics, not full-match or predictive metrics.
 `statisticsAt` in `src/playback/statistics.ts` derives totals without modifying
 the fixture or keeping counters, so playback speed does not affect results.
 
-PitchLens is a prototype for the MS and Premier League hackathon. **MVP 1** is a 3D match viewer that plays back a short, scripted football sequence on a 3D pitch. The default camera looks down from above.
-
-> **Everything shown is synthetic.** The teams (Harbor City FC and Northvale Rovers), the players, their movement and the events are made up for the demo. The app uses no real match data, footage or club branding, and it makes no network calls at runtime.
+PitchLens began as a scripted 3D viewer for the Microsoft and Premier League
+hackathon and now includes seeded simulation and live AI explanations. The
+historical MVP 1 default camera was overhead; the current viewer offers 3D and
+Top views.
 
 ![Overhead view just after the goal](docs/screenshots/mvp5-desktop-goal.jpg)
 
@@ -35,6 +60,10 @@ npm install
 npm run dev        # http://localhost:3000
 ```
 
+For live AI, copy `.env.example` to `.env.local`, set the three required
+`FOUNDRY_*` values on the server, and restart the development server. Never use
+`NEXT_PUBLIC_` variables for credentials. See [configuration](docs/explain-service.md).
+
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Development server with hot reload |
@@ -43,6 +72,7 @@ npm run dev        # http://localhost:3000
 | `npm test` | Unit tests (Vitest): playback clock, seeking and event navigation, statistics, fixture validity, ball physics, simulator replay and event/contact alignment, match rules, contact recognition and animation poses |
 | `npm run test:live` | Opt-in live evaluation of the explanation service against a Microsoft Foundry deployment (paid; needs `PITCHLENS_LIVE_EVAL=1` and the `FOUNDRY_*` variables, see [docs/explain-service.md](docs/explain-service.md)) |
 | `npm run typecheck` | `tsc --noEmit` |
+| `npm run check` | Offline tests, type checking, then production build; also run by GitHub Actions |
 
 ### Using the viewer
 
@@ -50,6 +80,18 @@ The viewer has two views, chosen in the bar at the top:
 
 - **Match**: the 3D pitch with the score over it, the control bar, a strip of the key moments reached so far, and the docked **Live insights** panel, where insight cards appear as key moments happen (see [docs/explain-service.md](docs/explain-service.md)).
 - **Recap**: unlocks at full time. Shows the defining moments (chosen by rules in `src/playback/recap.ts`), an AI summary of how the match unfolded, and the final statistics. **Replay moment** goes back to the match three seconds before it.
+
+- **Favorite team / Favorite player** above the dock focus automatic insights,
+  measured patterns, and recap highlights. Focused counts use only events
+  reached so far. A pass counts as a player's reception only when completed;
+  being the intended recipient of an intercepted pass does not count. Choose
+  **Show whole match** to clear the focus. Preferences reset with a new match.
+  Manual explanations and the recap summary cover the whole match at their
+  stated cutoff, with the same evidence for both audience modes.
+- **Tactics → Patterns so far** shows measured turnover-to-shot sequences,
+  repeated flank actions, and adjacent-window activity comparisons. Each card
+  gives its window and supporting events, with replay controls. See
+  [the definitions and coverage limits](docs/match-patterns.md).
 
 - On first visit, **Kick off the demo** plays the scripted demo. **Set up your own match** opens the set-up drawer, as does **New match** in the top bar.
 - Each team's set-up uses a tactics board: select a starting formation beside a pitch schematic with default shirt numbers and team kit colors. Teal marks the selection, matching the viewer theme. The diagram is a starting-shape illustration, not live tracking; scheduled changes still apply only when generating a new match.
@@ -191,7 +233,7 @@ scene.x = x − 52.5      scene.y = z      scene.z = y − 34      rotation.y = 
 
 | Check | Result |
 | --- | --- |
-| `npm test` | 291 tests pass. As well as the MVP 1–4 suites (fixture validity, clock, speeds, seeking, no early reveals, restart, statistics, validator and viewer error handling), MVP 5 adds ball trajectories, deterministic replay, pitch boundaries, event/contact alignment, statistics compatibility and animation poses, and MVP 6 adds the match rules, collisions, deflections and contact animations (see those sections) |
+| `npm test` | Offline suites cover playback, simulation, statistics, patterns, personalization, evidence boundaries, validation, and workflow failures. Model responses are mocked; run the current suite for current counts |
 | `npm run typecheck` | Passes |
 | `npm run build` | Passes. The `/` route is prerendered as static content |
 

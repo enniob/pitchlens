@@ -1,0 +1,6 @@
+.focus { padding: 1rem; border-bottom: 1px solid var(--line, #dce2e0); font-size: .75rem; background: var(--surface-1); color: var(--text); }
+.controls { display: flex; flex-wrap: wrap; gap: .75rem; }
+.controls label { display: flex; flex: 1 1 8rem; flex-direction: column; gap: .35rem; font-weight: 600; }
+.controls select { width: 100%; min-width: 0; padding: .5rem; border: 1px solid var(--line, #dce2e0); border-radius: .5rem; color: inherit; background: var(--surface-2); font: inherit; }
+.focus p { margin: .65rem 0 0; line-height: 1.5; }
+.stats { font-weight: 600; }

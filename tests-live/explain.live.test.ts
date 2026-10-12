@@ -12,9 +12,9 @@
  * Hard assertions cover only the deterministic release blockers, which must
  * hold whatever the model writes: contract and citations against evidence the
  * tools could have returned, no later event, time, score or formation, and
- * the right match and time. Everything else (outcomes, usable vs. flagged
- * answers, latency, calls, tokens, estimated cost) is reported, not asserted:
- * model output varies between runs. See docs/ai-evaluation.md.
+ * the right match and time. The default release gate also requires every
+ * selected case to complete with usable quality or honest insufficient
+ * evidence. Exploratory runs may explicitly disable that gate.
  */
 import { execSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
@@ -30,11 +30,14 @@ import {
   redact,
   selectCases,
   summarise,
+  releaseFailures,
   type LiveResult,
 } from "../tests/support/liveReport";
 import { EVAL_SCENARIOS } from "../tests/support/scenarios";
 
 const config = foundryConfigFromEnv(process.env);
+if (process.env.PITCHLENS_LIVE_EVAL === "1" && !config.ok)
+  throw new Error(`Live evaluation was explicitly enabled but configuration is missing or invalid: ${[...config.missing, ...config.invalid].join(", ")}`);
 const enabled = process.env.PITCHLENS_LIVE_EVAL === "1" && config.ok;
 // Settings are validated even when the run is skipped, so a typo is caught before anything is paid for.
 const bounds = liveBoundsFromEnv(process.env);
@@ -44,21 +47,28 @@ const secrets = [process.env.FOUNDRY_API_KEY, process.env.FOUNDRY_ENDPOINT, proc
 
 const results: LiveResult[] = [];
 let callsUsed = 0;
+let lastFinished = 0;
+const rawCooldown = process.env.PITCHLENS_LIVE_COOLDOWN_MS ?? "65000";
+const cooldownMs = Number(rawCooldown);
+if (!Number.isInteger(cooldownMs) || cooldownMs < 0 || cooldownMs > 120_000) throw new Error("Invalid PITCHLENS_LIVE_COOLDOWN_MS");
 
 describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
   for (const { scenario: s, audience } of cases)
-    it(`${s.id}: ${s.title} (${audience})`, { timeout: 90_000 }, async () => {
+    it(`${s.id}: ${s.title} (${audience})`, { timeout: 210_000 }, async () => {
       if (!config.ok) throw new Error("not configured");
       // Stop before a case that could take the run over its call budget.
       if (callsUsed + WORKFLOW_LIMITS.modelCalls > bounds.maxModelCalls) {
         results.push({ scenario: s.id, audience, outcome: "skipped", blockers: [], leaks: [], unsupported: [], latencyMs: 0, error: "call budget" });
         return;
       }
+      const wait = Math.max(0, lastFinished + cooldownMs - Date.now());
+      if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
       const started = Date.now();
       let out: Awaited<ReturnType<typeof explainMoment>>;
       try {
         out = await explainMoment({ fixture: s.fixture, timeMs: s.timeMs, audience, focus: s.focus, client: new FoundryClient(config.config) });
       } catch (e) {
+        lastFinished = Date.now();
         // A failed call may still have been billed; count the worst case against the budget.
         callsUsed += WORKFLOW_LIMITS.modelCalls;
         const reason = e instanceof ModelError ? e.code : redact(e instanceof Error ? e.message : String(e), secrets);
@@ -67,11 +77,13 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
         if (!(e instanceof ModelError)) throw e;
         return;
       }
+      lastFinished = Date.now();
       callsUsed += out.trace.modelCalls;
       const verdict = assess({ scenario: s, audience, explanation: out.explanation, verification: out.verification });
       results.push({
         scenario: s.id,
         audience,
+        answer: redact(JSON.stringify({ explanation: out.explanation, verification: out.verification }, null, 2), secrets, 100_000),
         outcome: out.verification.outcome,
         blockers: verdict.blockers,
         leaks: verdict.leaks,
@@ -101,15 +113,19 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
       commit = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
     } catch {}
     const summary = summarise(results, prices);
+    const failures = releaseFailures(results, cases);
     const report = formatReport(
       { commit, date: new Date().toISOString(), settings: { deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature }, bounds },
       results,
       summary,
-    );
+    ) + `\n\nRelease gate: ${process.env.PITCHLENS_LIVE_RELEASE_GATE === "0" ? "disabled (exploratory)" : failures.length ? "FAILED" : "passed"}. Coverage: ${results.filter((r) => r.outcome !== "error" && r.outcome !== "skipped").length}/${cases.length} selected cases answered.\n${failures.map((f) => `- ${f}`).join("\n")}`;
     console.info(`\nLIVE evaluation (real model calls; results vary between runs)\n\n${report}\n`);
     // Optional copy for a pull request; choose a path outside the repository or a git-ignored one.
     const path = process.env.PITCHLENS_LIVE_REPORT?.trim();
     if (path) writeFileSync(path, `${report}\n`, "utf8");
+    if (process.env.PITCHLENS_LIVE_RELEASE_GATE !== "0") {
+      expect(failures, failures.join("\n")).toEqual([]);
+    }
   });
 });
 

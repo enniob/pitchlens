@@ -4,6 +4,7 @@ import { sampleFixture } from "@/match/fixture";
 import type { Audience } from "@/explain/api";
 import { requestExplanation } from "@/explain/client";
 import { insightMomentsBetween } from "@/playback/moments";
+import { ALL_MATCH, eventMatchesFocus, normalizeFocus, type MatchFocus } from "@/playback/focus";
 import { eventCopy } from "./eventCopy";
 import { audienceName, ExplanationBody, FALLBACK_TITLE, type SavedExplanation } from "./ExplanationPanel";
 import { formatClock, shortClock } from "./format";
@@ -19,6 +20,7 @@ export const NATURAL_STEP_MS = 2_000;
 
 interface Props {
   fixture: MatchFixture;
+  focus?: MatchFocus;
   timeMs: number;
   playback: PlaybackPhase;
   audience: Audience;
@@ -48,7 +50,8 @@ const sameJob = (a: Job | null, b: Job) => a !== null && a.eventId === b.eventId
  * its time. A card only shows once playback has reached its moment, so a
  * backward seek hides it again (and abandons a request for it).
  */
-export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSaved, onReplayFrom }: Props) {
+export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSaved, onReplayFrom, focus = ALL_MATCH }: Props) {
+  const validFocus = normalizeFocus(fixture, focus);
   // Key moments that got, or were offered, an insight, oldest first.
   const [moments, setMoments] = useState<{ id: string; t: number }[]>([]);
   const [running, setRunning] = useState<Job | null>(null);
@@ -108,6 +111,22 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
       });
   }
 
+  // Preference changes abandon hidden work before another queued request can start.
+  useEffect(() => {
+    const relevant = (job: Job) => {
+      const event = fixture.events.find((e) => e.id === job.eventId);
+      return Boolean(event && eventMatchesFocus(event, validFocus));
+    };
+    if (queued.current && !relevant(queued.current)) setQueue(null);
+    if (runningRef.current && !relevant(runningRef.current)) {
+      controller.current?.abort();
+      controller.current = null;
+      runningRef.current = null;
+      setRunning(null);
+      startNext();
+    }
+  }, [validFocus.teamId, validFocus.playerId]);
+
   useEffect(() => {
     const from = prevTime.current;
     prevTime.current = timeMs;
@@ -130,12 +149,14 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
     setMoments((list) => [...list, ...reached.filter((e) => !list.some((m) => m.id === e.id)).map((e) => ({ id: e.id, t: e.t }))]);
     setOpenId(undefined);
     // Only the latest moment reached in one step is explained automatically.
-    const latest = reached.at(-1)!;
+    const latest = reached.filter((event) => eventMatchesFocus(event, validFocus)).at(-1);
+    if (!latest) return;
     start({ eventId: latest.id, atMs: latest.t, audience });
     // Runs once per clock change; the other values are read as they are at that moment.
   }, [timeMs]);
 
   const visible = moments
+    .filter((m) => { const event = fixture.events.find((e) => e.id === m.id); return event && eventMatchesFocus(event, validFocus); })
     .filter((m) => m.t <= timeMs || (replay?.eventId === m.id && timeMs >= replay.floor))
     .reverse();
   const openEventId = openId === null ? null : openId && visible.some((m) => m.id === openId) ? openId : visible[0]?.id;
@@ -144,7 +165,7 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
     <section className="insights" aria-labelledby="insights-title">
       <h3 id="insights-title" className="visually-hidden">Automatic insights</h3>
       {visible.length === 0 && (
-        <p className="explain__empty">Insights appear here as goals, shots, fouls near goal and tactical changes happen. They only use what has happened so far.</p>
+        <p className="explain__empty">{validFocus.teamId || validFocus.playerId ? "No insights for this favorite yet. Choose Show whole match to see other moments." : "Insights appear here as goals, shots, fouls near goal and tactical changes happen. They only use what has happened so far."}</p>
       )}
       <ol className="insights__list" aria-live="polite" aria-relevant="additions">
         {visible.map((m) => {

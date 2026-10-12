@@ -2,7 +2,7 @@
   "name": "pitchlens",
   "version": "0.1.0",
   "private": true,
-  "description": "PitchLens MVP 1: 3D overhead match viewer with deterministic synthetic playback.",
+  "description": "Explainable synthetic football intelligence with interactive 3D playback and Microsoft Foundry.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:live": "vitest run --config vitest.live.config.mts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "npm test && npm run typecheck && npm run build"
   },
   "engines": {
     "node": ">=20.9.0"

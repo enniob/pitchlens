@@ -17,6 +17,8 @@ const DATA_CONVENTIONS = [
   `Goals are centred at (0, ${PITCH_WIDTH / 2}) and (${PITCH_LENGTH}, ${PITCH_WIDTH / 2}). The penalty areas extend ${PENALTY_AREA_DEPTH} m from each goal line and ${PENALTY_AREA_HALF_WIDTH} m either side of the centre. Use teams.attacksTowards for direction.`,
   "Event types describe recorded observations: a goal event records a goal (the ball crossed the goal line), and a pass with outcome complete records a completed pass. Do not require additional tracking samples to establish what the recorded event explicitly says.",
   "A shot event's t is the strike time. Its end coordinates describe the recorded destination, not proof that the ball arrived there at the strike time. A later goal event's t records when the goal was revealed. Do not infer an earlier goal from a shot's end coordinates.",
+  "measurements contains deterministic counts and patterns from supplied events only. These are window counts, never whole-match totals unless the window starts at zero and coverage is complete-window. retained-events-only counts are partial; never describe absent events as zero match activity. Pattern values specify exact elapsed milliseconds, pitch zones and window boundaries. Cite every supporting eventId for a measured claim. If all supporting IDs cannot fit the eight-citation claim limit, omit that measured claim. A sequence records order, not causation; activity changes do not measure pressure, dominance or momentum. Do not describe patterns absent from the evidence.",
+  "measurements.shotLocations gives each supplied shot's start geometry: distanceToGoalM (metres to the centre of the goal that team attacks, rounded to 0.1 m), insidePenaltyArea and channel (central, top-outer-third or bottom-outer-third in fixed screen thirds). For shot distance, area or channel, copy these values and cite the shot event; do not compute shot geography from coordinates yourself. They describe where a shot started only, not chance quality, danger or likelihood of scoring. A shot without an entry has no measured location.",
 ].join("\n");
 
 const AUDIENCE_WORDING: Record<Audience, string> = {
@@ -24,21 +26,24 @@ const AUDIENCE_WORDING: Record<Audience, string> = {
     "Write for a casual fan watching the match. Use plain everyday words and no tactical jargon (no formation slots, half-spaces or pressing triggers). " +
     "Refer to players by name or shirt number and to times in whole or tenth seconds. Keep the explanation to two or three short sentences.",
   analyst:
-    "Write for a match analyst. Use precise tactical vocabulary where the evidence supports it: formation and slot, lines, width, distances in metres, " +
-    "who had the ball and where, and times in seconds to one decimal place. Keep observations and readings strictly separate.",
+    "Write for a match analyst. Prioritize exact event order, elapsed time, completed-pass counts and the measured windows provided. " +
+    "Use times in seconds to one decimal place. Include a tactical reading only when its own citations establish it. Keep observations and readings strictly separate.",
 };
 
 const MOMENT_FOCUS = [
   "- Name a player in a claim only if a cited event involves them or the claim cites a snapshot. Mention the score only as it stands at the selected time.",
   "- The headline and explanation must say nothing the facts and interpretation do not support.",
-  "- Focus on the most recent revealed event. Prefer one to three short facts. Describe the recorded action directly; omit unnecessary coordinate calculations, broad tactical claims and uncited scene-setting. For casual fans, omit pitch coordinates and area/distance claims unless essential to describe the event.",
+  "- Focus on the most recent revealed event. Prefer two facts: the latest action or revealed result, then one available measured pattern ending at that action. Cite the primary event in the first fact and every pattern.eventIds entry in the pattern fact, including the shot endpoint in any turnover-to-shot sequence. If a pattern is unavailable, explain only the recorded action and its known score/result status.",
+  "- Explain why this moment matters through the current score or a concrete measurement, such as a shot following a turnover and completed-pass sequence. Timing and sequence are useful significance without guessing how defenders reacted. Prefer two short explanation sentences drawn entirely from those facts.",
 ];
 
 const MATCH_FOCUS = [
   "- This is a full-time summary: the selected time is the end of the match, and the evidence lists the key events of the whole match.",
   "- Name a player in a claim only if a cited event involves them or the claim cites a snapshot. A score may be the final score or the score straight after a cited goal.",
   "- The headline and explanation must say nothing the facts and interpretation do not support.",
-  "- Tell how the match unfolded, in time order: the goals first, then the few other recorded moments that shaped the result. Prefer three to five short facts, each citing the event it describes. Do not narrate every event, and omit pitch coordinates for casual fans.",
+  "- Summarise the recorded goals, score and subsequent key events. Prefer two or three short facts, each citing every event it mentions. Explain the significance through the final score and the observed order of events. Do not infer a team's reaction to conceding, pursuit of an equaliser or quality of chances.",
+  "- When coverage is filtered or truncated, describe what the supplied events record; do not call a shot the only chance, say there were no further attempts, or characterize the whole match as having few chances. The absence of an event in a partial window is not evidence of its absence from the match.",
+  "- A filtered key-event package intentionally omits ordinary passes. That does not prevent an explained recap of recorded goals, shots, kickoffs and the supplied final score. If these key events are present, give a concise account of them with status explained; omit unavailable patterns and totals instead of declaring the entire summary insufficient. A final score establishes the result even when the later events contain no further goal. Do not infer other missing activity.",
 ];
 
 export function analystInstructions(audience: Audience, focus: Focus = "moment"): string {
@@ -58,12 +63,17 @@ export function analystInstructions(audience: Audience, focus: Focus = "moment")
     "Response rules:",
     `- Answer with one JSON object only, following the response schema, with explanationVersion "${EXPLANATION_VERSION}", and matchId and timeMs copied from the evidence (match.matchId, time.selectedMs).`,
     "- facts: observable statements only (what happened, where, when, who). No intent or cause words such as because, tried, wanted, decided or deliberately.",
-    "- interpretation: a tactical reading of those facts, phrased as a reading (\"this left...\", \"suggests...\").",
+    "- interpretation: use [] for an account based on event sequences and measured patterns. Put the observed sequence in facts. Include a tactical reading only if directly cited snapshots demonstrate a spatial relationship between named players. Do not add an interpretation merely to fill the field.",
     '- Every fact and interpretation cites evidence: {"kind":"event","id":<event id>} or {"kind":"snapshot","t":<snapshot t>}, using only IDs and times present in the evidence or tool results.',
+    "- Each claim must cite every action it mentions, even an action used only as a time endpoint. A statement about passes before a shot must cite those passes AND the shot. A statement about a shot becoming a goal must cite BOTH shot and goal. Do not rely on another fact's citations to support this fact.",
+    "- Use an explicit duration phrase: 'The sequence took 6.4 s', with the exact measured value rounded to the requested precision and both endpoints cited. A duration is not an event timestamp. Never copy the illustration's number unless the supplied measurement gives it.",
+    "- Omit optional coordinate calculations and geographical labels unless essential to the question. Do not invent 'high-value zone', 'dangerous entry', 'one-on-one', 'exploited space', 'before the defence could set', 'little time to reorganise' or 'chasing the game'. These require evidence or metrics the event sequence does not provide. Calling something a suggestion does not supply missing evidence.",
+    "- Do not describe a sequence as rapid, quick or slow without a supplied comparison baseline. State its measured duration instead. Left/right zone mappings are not defined: never label play right-sided, left-sided, on the right/left side or in a half-space in any response field. Use only a supplied channel or omit geography. Pending means no result has been revealed; lack of ball control is not the reason the result is unknown.",
+    "- Within each claim, include each citation only once. A sequence ending in a shot cites that shot once, even if the sentence mentions it twice.",
     ...(focus === "match" ? MATCH_FOCUS : MOMENT_FOCUS),
     "- The score in the evidence already includes all revealed goal events. Copy it as given; never add the latest goal to it again.",
     "- A clear account of an observed event is an explanation even when its cause is unknown. Interpretation may be an empty list; include it only when the cited evidence supports a tactical reading. Do not fill it with guesses.",
-    "- limitations: describe only limits of the match evidence, using the supplied limitations messages where applicable. For an explained response an empty list [] is valid; never insert an empty string, validation messages, schema instructions or comments about automated checks.",
+    "- limitations: include at most one concise evidence caveat that materially affects this account, or []. Omitted or filtered events are absent from this package; do not say they were never recorded. Never insert an empty string, validation messages, schema instructions or comments about automated checks. The synthetic-data label is already shown in the viewer; do not repeat every supplied limitation.",
     `- At most ${limits.facts} facts, ${limits.interpretation} interpretation claims and ${limits.explanation} characters of explanation.`,
     '- If the evidence cannot support an explanation, answer with status "insufficient-evidence", no interpretation, and a limitation saying what is missing.',
     "",
@@ -86,7 +96,7 @@ export function revisionMessage(issues: string[]): string {
   return [
     "Your previous answer was rejected by automated checks. Revise it once, keeping only what the evidence supports. Problems found:",
     ...issues.slice(0, 12).map((i) => `- ${i}`),
-    "These problems are editing instructions, not match evidence; do not quote them in the answer or its limitations. Remove disputed optional claims rather than replacing them with new guesses. Empty interpretation and limitations lists are valid for an explained response. Keep only the simplest directly observed account, and answer with the complete corrected JSON object only.",
+    "These problems are editing instructions, not match evidence; do not quote them in the answer or its limitations. Remove disputed optional claims rather than replacing them with new guesses. Empty interpretation and limitations lists are valid for an explained response. Preserve a supported measured sequence when available, with every supporting ID cited in that same fact. Retain the latest recorded action/result and explain its significance through the known score or measurement. Answer with the complete corrected JSON object only.",
   ].join("\n");
 }
 
@@ -98,8 +108,11 @@ export const VERIFIER_INSTRUCTIONS = [
   '- "supported": everything it states is shown by the evidence (for facts and interpretation: by the evidence the claim cites).',
   '- "unsupported": it states something the evidence does not show, contradicts the evidence, mentions anything after the selected time, or asserts intent, player attributes or cause as fact.',
   "- An interpretation may draw a reasonable tactical reading from its cited facts, but not invent events, positions or intent.",
+  "- Event sequences and elapsed time alone do not show defensive organization, chance quality, pressure, space exploitation or player intent. Claims such as 'high-value zone', 'chasing the game' or 'before the defence could set' require specific supporting data even when phrased as a suggestion.",
+  "- Every action mentioned in a fact needs its own citation in that fact, including a shot or goal used as a sequence endpoint. Confirm a measured-pattern claim cites all its supporting eventIds. An adjacent fact's references do not repair a missing citation.",
+  "- Accept normal rounding at the stated precision. Do not reject a directly recorded event for lacking additional tracking evidence. Avoid imposing unsupported geometric descriptions of your own when reviewing a claim; apply the pitch conventions above.",
   '- A limitation is "supported" when it only states what the data does not show or cannot tell; it is "unsupported" if it asserts anything about the match the evidence does not show.',
-  "Give a short reason for every unsupported target. Answer with one JSON object only, following the review schema.",
+  "For a supported target, set reason to an empty string. For an unsupported target, give one reason of at most 20 words. Review every listed target exactly once. Answer with one complete JSON object only, following the review schema; no markdown or explanatory text outside JSON.",
 ].join("\n");
 
 export function verifierMessage(context: MatchContext, draft: ExplanationResponse): string {

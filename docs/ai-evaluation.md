@@ -177,7 +177,7 @@ node --env-file=.env node_modules/vitest/vitest.mjs run --config vitest.live.con
 | `PITCHLENS_LIVE_REPORT` | none | Also write the Markdown report to this file |
 | `PITCHLENS_LIVE_REQUIRE_EXPLANATION` | off | Smoke gate: `demo-goal-recorded` must be a reviewed explanation |
 
-The run asserts only the deterministic release blockers. It reports, for each
+The run asserts deterministic release blockers and, by default, the release quality and coverage gate described below. It reports, for each
 case:
 
 - scenario and audience;
@@ -190,3 +190,34 @@ case:
 
 It then gives totals and lists every flagged answer for human review. The
 report names deployments and model settings, never the endpoint or key.
+
+### Pacing, retained answers and release gates
+
+Runs now default to a 65-second cooldown **after** each completed workflow.
+`PITCHLENS_LIVE_COOLDOWN_MS` accepts 0–120000; lowering it is appropriate only
+when the deployment quota supports the workload. The model client also applies
+the configured `FOUNDRY_REQUESTS_PER_MINUTE` limit and shared provider cooldowns.
+
+Every successful case retains the final answer and verification in the report,
+with credentials redacted. Provider failures remain recorded even when the
+test continues collecting other cases. The default release gate fails for any
+missing/duplicate case, provider error, budget skip, fallback, unsafe or flagged
+answer, incomplete explanation, or missing retained answer. Honest insufficient
+evidence passes only when the scenario explicitly accepts it. Thus a passing
+process exit code now requires useful coverage of every selected case.
+
+Set `PITCHLENS_LIVE_RELEASE_GATE=0` only for exploratory diagnostics; reports
+explicitly label that gate disabled. A small selected run establishes only its
+listed coverage, not full release readiness. Counts and token costs from failed
+workflows may still be incomplete, so inspect retained answers and provider
+metrics before claiming cost or factual correctness.
+
+For a bounded six-case smoke, select
+`PITCHLENS_LIVE_SCENARIOS=demo-shot-in-flight,demo-goal-recorded,demo-recap`,
+both audiences, `PITCHLENS_LIVE_MAX_CASES=6` and
+`PITCHLENS_LIVE_MAX_MODEL_CALLS=48`. Keep pacing enabled and save
+`PITCHLENS_LIVE_REPORT` to an ignored location. No paid live calls are part of
+the offline test suite.
+
+See [October 12 implementation and verification](readiness-2026-10-12.md) for
+the latest bounded live results, manual-review findings, and remaining coverage.
