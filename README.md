@@ -52,6 +52,7 @@ The viewer has two views, chosen in the bar at the top:
 - **Recap**: unlocks at full time. Shows the defining moments (chosen by rules in `src/playback/recap.ts`), an AI summary of how the match unfolded, and the final statistics. **Replay moment** goes back to the match three seconds before it.
 
 - On first visit, **Kick off the demo** plays the scripted demo. **Set up your own match** opens the set-up drawer, as does **New match** in the top bar.
+- Each team's set-up uses a tactics board: select a starting formation beside a pitch schematic with default shirt numbers and team kit colors. Teal marks the selection, matching the viewer theme. The diagram is a starting-shape illustration, not live tracking; scheduled changes still apply only when generating a new match.
 - The **control bar** under the pitch has:
   - restart, previous and next moment, play/pause, the clock, speed (0.5×, 1×, 2× or 4×) and full screen
   - the **timeline**, which gets a marker for each moment in the strip as it happens
