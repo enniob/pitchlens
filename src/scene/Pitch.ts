@@ -28,15 +28,15 @@ function paintGrass(): HTMLCanvasElement {
     for (let x = 0; x < canvas.width; x++) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
       const grain = ((seed >>> 24) / 255 - 0.5) * 16;
-      const variation = Math.sin(x / 93) * Math.cos(y / 71) * 3;
+      const variation = Math.sin(x / 193 + Math.cos(y / 137)) * Math.cos(y / 111) * 4;
       const stripe = Math.floor((x / PX_PER_M - APRON) / (PITCH_LENGTH / 18));
       const inPitch = x >= APRON * PX_PER_M && x <= (APRON + PITCH_LENGTH) * PX_PER_M
         && y >= APRON * PX_PER_M && y <= (APRON + PITCH_WIDTH) * PX_PER_M;
       const mow = inPitch ? (stripe % 2 === 0 ? 5 : -3) : -8;
       const i = (y * canvas.width + x) * 4;
       pixels.data[i] = 65 + grain + variation + mow;
-      pixels.data[i + 1] = 104 + grain + variation + mow;
-      pixels.data[i + 2] = 35 + grain * 0.5 + variation + mow;
+      pixels.data[i + 1] = 103 + grain + variation + mow;
+      pixels.data[i + 2] = 32 + grain * 0.5 + variation + mow;
       pixels.data[i + 3] = 255;
     }
   }
@@ -48,6 +48,33 @@ function paintGrass(): HTMLCanvasElement {
   for (let i = 0; i < stripes; i++) {
     ctx.fillStyle = i % 2 === 0 ? "rgba(195,207,119,0.04)" : "rgba(15,40,17,0.04)";
     ctx.fillRect((APRON + i * stripeW) * PX_PER_M, APRON * PX_PER_M, stripeW * PX_PER_M, PITCH_WIDTH * PX_PER_M);
+  }
+
+  // Small irregular blades catch the light at closer camera distances.
+  ctx.lineWidth = 0.7;
+  for (let i = 0; i < 85_000; i++) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const x = (seed / 4294967296) * canvas.width;
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const y = (seed / 4294967296) * canvas.height;
+    ctx.strokeStyle = i % 2 ? "rgba(192,201,123,0.12)" : "rgba(21,38,12,0.16)";
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + 1.5, y - 2.5);
+    ctx.stroke();
+  }
+
+  // Worn goal mouths, kept subtle and underneath the painted markings.
+  for (const x of [APRON, APRON + PITCH_LENGTH]) {
+    ctx.save();
+    ctx.translate(x * PX_PER_M, (APRON + PITCH_WIDTH / 2) * PX_PER_M);
+    ctx.scale(1, 1.8);
+    const wear = ctx.createRadialGradient(0, 0, 1, 0, 0, 3.8 * PX_PER_M);
+    wear.addColorStop(0, "rgba(157,132,76,0.20)");
+    wear.addColorStop(1, "rgba(157,132,76,0)");
+    ctx.fillStyle = wear;
+    ctx.fillRect(-80, -80, 160, 160);
+    ctx.restore();
   }
 
   // Markings, drawn in pitch metres.
@@ -176,8 +203,8 @@ export function createPitch(maxAnisotropy: number): THREE.Group {
 
   // Surround so the pitch doesn't float in the void at angled views.
   const surround = new THREE.Mesh(
-    new THREE.PlaneGeometry(PITCH_LENGTH + 60, PITCH_WIDTH + 60),
-    new THREE.MeshStandardMaterial({ color: "#263a22", roughness: 1 }),
+    new THREE.PlaneGeometry(600, 600),
+    new THREE.MeshStandardMaterial({ color: "#2c421b", roughness: 1 }),
   );
   surround.rotation.x = -Math.PI / 2;
   surround.position.y = -0.02;

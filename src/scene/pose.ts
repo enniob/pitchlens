@@ -34,8 +34,6 @@ export interface Pose {
   turn: number;
 }
 
-/** Ground covered by one full stride cycle (two steps), metres. */
-export const STRIDE_CYCLE = 2.8;
 const SPRINT_SPEED = 6.5;
 /** A goalkeeper dives when the ball is further than this from vertical above their feet, radians. */
 export const DIVE_ANGLE = 0.45;
@@ -95,21 +93,34 @@ function blend(pose: Pose, target: Partial<Pose>, w: number): void {
 /** Two values, the first for the given leg and the second for the other, in left/right order. */
 const legs = (leg: 0 | 1, own: number, other: number): [number, number] => (leg === 0 ? [own, other] : [other, own]);
 
-function kick(pose: Pose, k: number, leg: 0 | 1): void {
-  const w = smoothstep(-KICK_WINDUP_MS, -KICK_WINDUP_MS + 80, k) * (1 - smoothstep(KICK_RECOVER_MS - 160, KICK_RECOVER_MS, k));
+function kick(pose: Pose, a: PlayerAction, leg: 0 | 1): void {
+  const k = a.ms;
+  const recover = 1 - smoothstep(KICK_RECOVER_MS - 160, KICK_RECOVER_MS, k);
+  // Square up in the first 15% of the approach, before the backswing.
+  const align = smoothstep(-a.lead, -a.lead + a.lead * .15, k);
+  const w = align * recover;
+  if (w === 0) return;
   const support = leg === 0 ? 1 : 0;
-  const arm = sample(KICK_ARM, k);
-  pose.hip[leg] = mix(pose.hip[leg], sample(KICK_HIP, k), w);
-  pose.knee[leg] = mix(pose.knee[leg], sample(KICK_KNEE, k), w);
-  pose.hip[support] = mix(pose.hip[support], -0.15, w);
-  pose.knee[support] = mix(pose.knee[support], 0.3, w);
+  const power = clamp01(a.power);
+  const loft = clamp01(a.loft);
+  const swing = k < 0 ? mix(.45, 1, power) : mix(.65, 1, power);
+  const arm = sample(KICK_ARM, k) * mix(.4, 1, power);
+  // Keep the contact pose low; loft changes the follow-through after impact.
+  const lift = smoothstep(0, 110, k) * loft * .35;
+  const swingScale = mix(1, swing, smoothstep(0, 110, Math.abs(k)));
+  pose.hip[leg] = mix(pose.hip[leg], sample(KICK_HIP, k) * swingScale + lift, w);
+  pose.knee[leg] = mix(pose.knee[leg], sample(KICK_KNEE, k) * mix(.6, 1, power), w);
+  pose.hip[support] = mix(pose.hip[support], .12, w);
+  pose.knee[support] = mix(pose.knee[support], .24, w);
   // The arm opposite the kicking leg comes through with it for balance.
   pose.shoulder[support] = mix(pose.shoulder[support], arm, w);
   pose.shoulder[leg] = mix(pose.shoulder[leg], -0.7 * arm, w);
   pose.elbow[0] = mix(pose.elbow[0], 0.5, w);
   pose.elbow[1] = mix(pose.elbow[1], 0.5, w);
-  pose.lean = mix(pose.lean, sample(KICK_LEAN, k), w);
-  pose.bob = mix(pose.bob, -0.02, w);
+  pose.lean = mix(pose.lean, sample(KICK_LEAN, k) - loft * .12, w);
+  pose.roll = (leg === 1 ? -1 : 1) * .025 * w;
+  pose.turn = a.turn * w;
+  pose.bob = mix(pose.bob, -.01, w);
 }
 
 function throwIn(pose: Pose, a: PlayerAction): void {
@@ -247,11 +258,12 @@ function fall(pose: Pose, a: PlayerAction): void {
  * @param seed per-player offset so 22 players do not move in unison
  * @param kickLeg which leg strikes the ball (0 = left, 1 = right)
  */
-export function poseFor(motion: Pick<PlayerMotion, "speed" | "distance" | "action">, timeMs: number, seed: number, kickLeg: 0 | 1): Pose {
+export function poseFor(motion: Pick<PlayerMotion, "speed" | "stride" | "action">, timeMs: number, seed: number, kickLeg: 0 | 1): Pose {
   // Locomotion: legs in antiphase, arms opposite the legs, knee bent while the leg swings forward.
   const moving = smoothstep(0.15, 0.6, motion.speed);
   const effort = Math.sqrt(clamp01(motion.speed / SPRINT_SPEED)) * moving;
-  const phase = (motion.distance / STRIDE_CYCLE) * Math.PI * 2 + seed;
+  const run = smoothstep(2, 3.2, motion.speed);
+  const phase = motion.stride * Math.PI * 2 + seed;
   const sway = Math.sin(timeMs / 900 + seed) * 0.04 * (1 - moving);
   const pose: Pose = {
     hip: [0, 0],
@@ -259,7 +271,8 @@ export function poseFor(motion: Pick<PlayerMotion, "speed" | "distance" | "actio
     shoulder: [0, 0],
     elbow: [0, 0],
     lean: 0.04 + 0.22 * effort * effort,
-    bob: (Math.cos(phase * 2) * 0.035 - 0.03) * effort + Math.sin(timeMs / 650 + seed) * 0.008 * (1 - moving),
+    // Legs pass under the hips at mid-stance; flight occurs between stances.
+    bob: mix(Math.cos(phase * 2) * .012, -Math.cos(phase * 2) * .035 - .015, run) * effort + Math.sin(timeMs / 650 + seed) * 0.008 * (1 - moving),
     tilt: 0,
     roll: 0,
     rise: 0,
@@ -268,17 +281,23 @@ export function poseFor(motion: Pick<PlayerMotion, "speed" | "distance" | "actio
   };
   for (const side of [0, 1] as const) {
     const legPhase = phase + (side === 0 ? Math.PI : 0);
-    pose.hip[side] = 0.85 * effort * Math.sin(legPhase);
-    pose.knee[side] = 0.1 + 1.2 * effort * Math.max(0, Math.cos(legPhase));
-    pose.shoulder[side] = -0.75 * effort * Math.sin(legPhase) + sway;
-    pose.elbow[side] = 0.25 + 1.1 * effort;
+    const cycle = ((legPhase / (Math.PI * 2)) % 1 + 1) % 1;
+    // Walk: 60% planted stance and 40% recovery, giving a double-support
+    // interval. Only the recovery leg bends. Run: alternating flight strides.
+    const recovery = clamp01((cycle - .6) / .4);
+    const walkHip = cycle < .6 ? .48 * (1 - 2 * cycle / .6) : -.48 * Math.cos(recovery * Math.PI);
+    const walkKnee = .55 * Math.sin(recovery * Math.PI);
+    pose.hip[side] = effort === 0 ? 0 : mix(walkHip, .85 * Math.sin(legPhase), run) * effort;
+    pose.knee[side] = .1 + mix(walkKnee, 1.2 * Math.max(0, Math.cos(legPhase)), run) * effort;
+    pose.shoulder[side] = -mix(walkHip * .6, .75 * Math.sin(legPhase), run) * effort + sway;
+    pose.elbow[side] = .25 + mix(.15, 1.1, run) * effort;
   }
 
   const a = motion.action;
   if (!a) return pose;
   switch (a.kind) {
     case "kick":
-      kick(pose, a.ms, kickLeg);
+      kick(pose, a, kickLeg);
       break;
     case "throw":
       throwIn(pose, a);

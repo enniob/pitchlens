@@ -145,6 +145,9 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
     if (autoPlay) engineRef.current.play();
   }
   const sceneRef = useRef<MatchScene | null>(null);
+  const tacticsRef = useRef(pro);
+  tacticsRef.current = pro;
+  useEffect(() => { sceneRef.current?.setTactics(pro); }, [pro]);
   const reviewPlaybackRef = useRef<OffsideReviewPlayback | null>(null);
   if (!reviewPlaybackRef.current) reviewPlaybackRef.current = new OffsideReviewPlayback(engineRef.current);
   const [review, setReview] = useState<OffsideReview | null>(null);
@@ -252,6 +255,7 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
               }),
           });
           sceneRef.current.setView(viewRef.current);
+          sceneRef.current.setTactics(tacticsRef.current);
           sceneRef.current.update(reviewPlaybackRef.current!.frame());
           sceneRef.current.setOffsideReview(reviewPlaybackRef.current!.review);
           setSceneState({ kind: "ready" });

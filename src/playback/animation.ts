@@ -1,6 +1,6 @@
 /**
  * Animation inputs derived purely from recorded snapshots: how fast each player
- * is moving, how far they have travelled (which drives the stride cycle) and
+ * is moving, how many strides they have taken (which drives the gait) and
  * which ball contact, if any, they are in the middle of (which drives kicks,
  * throws, receptions, saves, tackles, blocks and falls).
  *
@@ -9,18 +9,33 @@
  * pose for the same time. Events are never read: every contact is recognised
  * from the snapshots themselves, from who has the ball and where it goes. The
  * only look-ahead is the short wind-up before a contact (at most
- * MAX_WINDUP_MS), which reads snapshots slightly ahead; it never touches the
- * score, feed, timeline or statistics.
+ * MAX_WINDUP_MS), plus the first snapshot after a kick (which sets how hard the
+ * backswing is); both read ball and player positions slightly ahead and never
+ * touch the score, feed, timeline or statistics.
  */
 import type { MatchFixture, Snapshot } from "@/match/contract";
 import { clampTime, lastAtOrBefore, positionsAt } from "./derive";
 
 /** The kick animation starts this long before the ball is struck. */
-export const KICK_WINDUP_MS = 220;
+export const KICK_WINDUP_MS = 300;
 /** ...and has fully blended back out this long after. */
-export const KICK_RECOVER_MS = 380;
+export const KICK_RECOVER_MS = 450;
 /** Half-width of the window player speed is averaged over, so the gait changes smoothly. */
 const SPEED_WINDOW_MS = 150;
+/** Ball speeds just after a kick mapped to `power` 0 and 1, m/s: a short pass and a hard shot. */
+const SOFT_KICK_SPEED = 9;
+const HARD_KICK_SPEED = 24;
+/** Ball climb rate just after a kick that counts as fully lofted, m/s. */
+const LOFTED_CLIMB = 8;
+
+/**
+ * Ground covered by one full stride cycle (two steps) at a given speed, metres.
+ * Cadence rises with speed as stride length does, roughly as in real players:
+ * about 0.9 cycles/s walking at 1.4 m/s, 1.3 jogging at 3.5 and 1.9 sprinting at 7.
+ */
+export function strideLength(speed: number): number {
+  return Math.max(0.5, speed / (0.6 + 0.19 * speed));
+}
 
 /**
  * kick: the ball leaves a player's foot. throw: it leaves their hands (a
@@ -61,6 +76,9 @@ export interface BallContact {
    * shot arrived on, as they square up to it; otherwise the recorded facing.
    */
   face: number;
+  /** Kicks only, else 0: how hard (0 = soft pass, 1 = hard shot) and how high (0 = along the ground, 1 = lofted). */
+  power: number;
+  loft: number;
   /** Absolute times the animation starts and ends. */
   start: number;
   end: number;
@@ -78,6 +96,9 @@ export interface PlayerAction {
   reach: number;
   /** Turn from the player's current recorded facing to the contact's `face`, radians (positive = towards their right). */
   turn: number;
+  /** See BallContact. */
+  power: number;
+  loft: number;
 }
 
 export interface PlayerMotion {
@@ -86,6 +107,8 @@ export interface PlayerMotion {
   speed: number;
   /** Metres travelled since t = 0 (dead-ball cuts add nothing). */
   distance: number;
+  /** Stride cycles completed since t = 0; each cycle covers strideLength(speed) metres. */
+  stride: number;
   /** The contact this player is animating, or null. */
   action: PlayerAction | null;
 }
@@ -94,6 +117,8 @@ interface MotionIndex {
   playerIds: string[];
   /** Cumulative distance per snapshot, row-major: [snapshot][player]. */
   travelled: Float64Array;
+  /** Cumulative stride cycles per snapshot, laid out like `travelled`. */
+  strides: Float64Array;
   contacts: BallContact[];
   /** Per player, contacts sorted by start time. */
   byPlayer: Map<string, BallContact[]>;
@@ -145,14 +170,32 @@ function relative(s: Snapshot, playerId: string, from?: Snapshot): Pick<BallCont
   };
 }
 
+/** How hard and how high a kick was, from the ball's flight between the contact snapshot and the next. */
+function kickStrength(at: Snapshot, next: Snapshot): Pick<BallContact, "power" | "loft"> {
+  const dt = (next.t - at.t) / 1000;
+  const speed = Math.hypot(next.ball.x - at.ball.x, next.ball.y - at.ball.y) / dt;
+  const climb = (next.ball.z - at.ball.z) / dt;
+  const unit = (v: number) => Math.min(1, Math.max(0, v));
+  return { power: unit((speed - SOFT_KICK_SPEED) / (HARD_KICK_SPEED - SOFT_KICK_SPEED)), loft: unit(climb / LOFTED_CLIMB) };
+}
+
 function recognise(fixture: MatchFixture): BallContact[] {
   const snaps = fixture.snapshots;
   const teamOf = new Map(fixture.roster.map((p) => [p.id, p.teamId]));
   const found: BallContact[] = [];
   let lastStrike = { t: -Infinity, teamId: "", playerId: "" };
-  const add = (s: Snapshot, playerId: string, kind: ContactKind, start?: number, from?: Snapshot) => {
+  const add = (s: Snapshot, playerId: string, kind: ContactKind, start?: number, from?: Snapshot, next?: Snapshot) => {
     const [before, after] = CONTACT_WINDOW[kind];
-    found.push({ t: s.t, playerId, kind, ...relative(s, playerId, from), start: start ?? s.t - before, end: s.t + after });
+    found.push({
+      t: s.t,
+      playerId,
+      kind,
+      ...relative(s, playerId, from),
+      ...(next ? kickStrength(s, next) : { power: 0, loft: 0 }),
+      ...(kind === "kick" && next ? { face: Math.atan2(next.ball.y - s.ball.y, next.ball.x - s.ball.x) } : {}),
+      start: start ?? s.t - before,
+      end: s.t + after,
+    });
   };
 
   for (let i = 1; i < snaps.length; i++) {
@@ -173,7 +216,7 @@ function recognise(fixture: MatchFixture): BallContact[] {
           while (k > 0 && snaps[k - 1]!.possession?.playerId === had && snaps[k - 1]!.ball.z > 1 && !snaps[k]!.discontinuity) k--;
           add(b, had, "throw", Math.min(snaps[k]!.t, b.t - CONTACT_WINDOW.throw[0]));
         } else {
-          add(b, had, "kick");
+          add(b, had, "kick", undefined, undefined, c);
         }
         lastStrike = { t: b.t, teamId: teamOf.get(had) ?? "", playerId: had };
       } else if (dead && b.ball.z < 0.5) {
@@ -236,16 +279,23 @@ function motionIndex(fixture: MatchFixture): MotionIndex {
   const column = new Map(playerIds.map((id, i) => [id, i]));
   const n = playerIds.length;
   const travelled = new Float64Array(snaps.length * n);
+  const strides = new Float64Array(snaps.length * n);
   for (let i = 1; i < snaps.length; i++) {
     const a = snaps[i - 1]!;
     const b = snaps[i]!;
     travelled.copyWithin(i * n, (i - 1) * n, i * n);
+    strides.copyWithin(i * n, (i - 1) * n, i * n);
     if (b.discontinuity) continue;
     const before = new Map(a.players.map((p) => [p.playerId, p]));
+    const dt = (b.t - a.t) / 1000;
     for (const p of b.players) {
       const prev = before.get(p.playerId);
       const col = column.get(p.playerId);
-      if (prev && col !== undefined) travelled[i * n + col]! += Math.hypot(p.x - prev.x, p.y - prev.y);
+      if (!prev || col === undefined) continue;
+      const d = Math.hypot(p.x - prev.x, p.y - prev.y);
+      travelled[i * n + col]! += d;
+      // Integrated step by step, so the gait phase stays continuous as the stride length changes with speed.
+      if (dt > 0) strides[i * n + col]! += d / strideLength(d / dt);
     }
   }
   const contacts = recognise(fixture);
@@ -256,7 +306,7 @@ function motionIndex(fixture: MatchFixture): MotionIndex {
     else byPlayer.set(c.playerId, [c]);
   }
   for (const list of byPlayer.values()) list.sort((a, b) => a.start - b.start || a.t - b.t);
-  index = { playerIds, travelled, contacts, byPlayer };
+  index = { playerIds, travelled, strides, contacts, byPlayer };
   indexCache.set(fixture, index);
   return index;
 }
@@ -271,15 +321,16 @@ export function kickContacts(fixture: MatchFixture): BallContact[] {
   return ballContacts(fixture).filter((c) => c.kind === "kick" || c.kind === "throw");
 }
 
-function travelledAt(fixture: MatchFixture, index: MotionIndex, t: number, col: number): number {
+/** A cumulative per-snapshot series (`travelled` or `strides`) interpolated to time t. */
+function cumulativeAt(fixture: MatchFixture, index: MotionIndex, series: Float64Array, t: number, col: number): number {
   const snaps = fixture.snapshots;
   const n = index.playerIds.length;
   const i = Math.max(0, lastAtOrBefore(snaps, t, (s) => s.t));
   const a = snaps[i]!;
   const b = snaps[i + 1];
-  const from = index.travelled[i * n + col]!;
+  const from = series[i * n + col]!;
   if (!b || b.discontinuity) return from;
-  return from + (index.travelled[(i + 1) * n + col]! - from) * ((t - a.t) / (b.t - a.t));
+  return from + (series[(i + 1) * n + col]! - from) * ((t - a.t) / (b.t - a.t));
 }
 
 /** The contact a player facing `facing` is animating at time t: the most recently started one that has not ended. */
@@ -289,7 +340,17 @@ function actionAt(list: BallContact[] | undefined, t: number, facing: number): P
     const c = list[i]!;
     if (t <= c.end) {
       const turn = angleDelta(facing, c.face);
-      return { kind: c.kind, ms: t - c.t, lead: c.t - c.start, side: c.side, height: c.height, reach: c.reach, turn };
+      return {
+        kind: c.kind,
+        ms: t - c.t,
+        lead: c.t - c.start,
+        side: c.side,
+        height: c.height,
+        reach: c.reach,
+        turn,
+        power: c.power,
+        loft: c.loft,
+      };
     }
     // Windows are short, so anything that started long ago has ended too.
     if (t - c.start > 10_000) break;
@@ -308,9 +369,12 @@ export function motionAt(fixture: MatchFixture, t: number): PlayerMotion[] {
     playerId,
     speed:
       to > from
-        ? ((travelledAt(fixture, index, to, col) - travelledAt(fixture, index, from, col)) / (to - from)) * 1000
+        ? ((cumulativeAt(fixture, index, index.travelled, to, col) - cumulativeAt(fixture, index, index.travelled, from, col)) /
+            (to - from)) *
+          1000
         : 0,
-    distance: travelledAt(fixture, index, time, col),
+    distance: cumulativeAt(fixture, index, index.travelled, time, col),
+    stride: cumulativeAt(fixture, index, index.strides, time, col),
     action: actionAt(index.byPlayer.get(playerId), time, facing.get(playerId) ?? 0),
   }));
 }

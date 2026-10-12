@@ -1,10 +1,9 @@
 /**
- * Procedural footballers: head and hair, shirt, shorts, arms, legs with socks
- * and boots, in the team's kit. No external model or texture assets are used —
- * every shape is built here from Three.js primitives.
+ * Blender-authored footballers with instanced body parts, recoloured per team.
+ * Procedural geometry renders immediately and remains if the GLB cannot load.
  *
  * To keep 22 animated players cheap on phones, each body part is one
- * InstancedMesh shared by all players (ten draw calls for every body on the
+ * InstancedMesh shared by all players (eleven draw calls for every body on the
  * pitch) with per-instance colours for kits and skin. Per frame the rig solves
  * one matrix per part from the recorded player state and its derived pose.
  *
@@ -17,6 +16,7 @@ import type { MatchFixture, Player, PlayerState, Team } from "@/match/contract";
 import type { PlayerMotion } from "@/playback/animation";
 import { facingToRotationY, toScene } from "./coords";
 import { poseFor } from "./pose";
+import { disposePlayerGeometry, loadPlayerGeometry, PLAYER_PARTS } from "./playerAsset";
 import {
   ANKLE_HEIGHT,
   FOREARM_LENGTH,
@@ -30,8 +30,8 @@ import {
   UPPER_ARM_LENGTH,
 } from "./rig";
 
-/** Badge size as a fraction of viewport height, so numbers stay readable at any zoom and screen size. */
-const BADGE_SIZE = 0.024;
+/** Camera-space badge size, tuned for the 22-degree lens and independent of zoom. */
+const BADGE_SIZE = 0.013;
 /** Badge anchor height; the badge is drawn above this point on screen so it never hides the body. */
 const BADGE_HEIGHT = 2.65;
 
@@ -100,11 +100,14 @@ export class PlayerSquad {
   private readonly shadow: THREE.InstancedMesh;
   // Paired parts hold two instances per player: left at 2i, right at 2i + 1.
   private readonly upperArm: THREE.InstancedMesh;
+  private readonly sleeve: THREE.InstancedMesh;
   private readonly forearm: THREE.InstancedMesh;
   private readonly thigh: THREE.InstancedMesh;
   private readonly shin: THREE.InstancedMesh;
   private readonly boot: THREE.InstancedMesh;
   private readonly ground = new THREE.Matrix4();
+  private readonly assetRequest = new AbortController();
+  private disposed = false;
 
   constructor(fixture: MatchFixture) {
     this.object.name = "players";
@@ -142,6 +145,7 @@ export class PlayerSquad {
     this.head = part(new THREE.SphereGeometry(HEAD_RADIUS, 12, 10), 1);
     this.hair = part(hairGeo, 1);
     this.upperArm = part(limb(0.06, UPPER_ARM_LENGTH), 2);
+    this.sleeve = part(limb(0.075, .16), 2);
     this.forearm = part(limb(0.047, FOREARM_LENGTH), 2);
     this.thigh = part(limb(0.09, THIGH_LENGTH), 2);
     this.shin = part(limb(0.068, SHIN_LENGTH), 2);
@@ -165,7 +169,8 @@ export class PlayerSquad {
       this.head.setColorAt(i, color.set(skin));
       this.hair.setColorAt(i, color.set(HAIR_COLORS[(look >>> 4) % HAIR_COLORS.length]!));
       for (const side of [0, 1]) {
-        this.upperArm.setColorAt(i * 2 + side, color.set(shirtColor));
+        this.sleeve.setColorAt(i * 2 + side, color.set(shirtColor));
+        this.upperArm.setColorAt(i * 2 + side, color.set(keeper ? shirtColor : skin));
         this.forearm.setColorAt(i * 2 + side, color.set(keeper ? shirtColor : skin));
         this.thigh.setColorAt(i * 2 + side, color.set(skin));
         this.shin.setColorAt(i * 2 + side, color.set(shirtColor));
@@ -199,6 +204,28 @@ export class PlayerSquad {
       this.order.push(member);
       this.object.add(badge, backNumber);
     });
+    this.object.userData.playerAsset = "loading";
+    void loadPlayerGeometry(this.assetRequest.signal).then((geometries) => {
+      if (this.disposed) {
+        disposePlayerGeometry(geometries);
+        return;
+      }
+      for (const name of PLAYER_PARTS) {
+        const mesh = this[name];
+        mesh.geometry.dispose();
+        mesh.geometry = geometries[name];
+      }
+      cloth.vertexColors = true;
+      cloth.needsUpdate = true;
+      this.object.userData.playerAsset = "blender";
+    }).catch(() => {
+      if (!this.disposed) this.object.userData.playerAsset = "fallback";
+    });
+  }
+
+  /** Broadcast keeps kits and silhouettes clear; the top view retains identifiers. */
+  setLabelsVisible(visible: boolean): void {
+    for (const member of this.order) member.badge.visible = visible;
   }
 
   /** Poses every player from recorded state plus motion derived from the same snapshots. */
@@ -222,6 +249,7 @@ export class PlayerSquad {
       this.shadow.setMatrixAt(i, this.ground.makeTranslation(rig.pelvis.elements[12]!, 0.02, rig.pelvis.elements[14]!));
       for (const side of [0, 1] as const) {
         this.upperArm.setMatrixAt(i * 2 + side, rig.upperArm[side]);
+        this.sleeve.setMatrixAt(i * 2 + side, rig.upperArm[side]);
         this.forearm.setMatrixAt(i * 2 + side, rig.forearm[side]);
         this.thigh.setMatrixAt(i * 2 + side, rig.thigh[side]);
         this.shin.setMatrixAt(i * 2 + side, rig.shin[side]);
@@ -233,12 +261,14 @@ export class PlayerSquad {
 
   /** Geometry, materials and textures are disposed by MatchScene's scene traversal; this frees instance buffers. */
   dispose(): void {
+    this.disposed = true;
+    this.assetRequest.abort();
     for (const mesh of this.instanced) mesh.dispose();
     this.members.clear();
     this.order.length = 0;
   }
 
   private get instanced(): THREE.InstancedMesh[] {
-    return [this.torso, this.shorts, this.head, this.hair, this.shadow, this.upperArm, this.forearm, this.thigh, this.shin, this.boot];
+    return [this.torso, this.shorts, this.head, this.hair, this.shadow, this.sleeve, this.upperArm, this.forearm, this.thigh, this.shin, this.boot];
   }
 }

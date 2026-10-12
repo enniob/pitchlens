@@ -11,6 +11,7 @@ import type { PlaybackFrame } from "@/playback/derive";
 import type { OffsideReview } from "@/playback/offsideReview";
 import { BallModel } from "./Ball";
 import { pitchCameraDistance } from "./camera";
+import { completedPassAt } from "./evidence";
 import { HALF_LENGTH, HALF_WIDTH } from "./coords";
 import { createPitch } from "./Pitch";
 import { PlayerSquad } from "./Player";
@@ -20,12 +21,12 @@ export type CameraView = "overhead" | "angled";
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 4;
 
-const FOV = 32;
+const FOV = 22;
 const VIEW_DIRECTIONS: Record<CameraView, THREE.Vector3> = {
   // Overhead with a slight tilt towards the bottom touchline.
   overhead: new THREE.Vector3(0, 1, 0.17).normalize(),
   // Broadcast-style elevated view from the bottom touchline.
-  angled: new THREE.Vector3(0, 0.85, 0.72).normalize(),
+  angled: new THREE.Vector3(0, 0.75, 0.85).normalize(),
 };
 /**
  * On portrait screens the camera is turned 90° so the pitch runs top-to-bottom
@@ -33,7 +34,7 @@ const VIEW_DIRECTIONS: Record<CameraView, THREE.Vector3> = {
  */
 const PORTRAIT_VIEW_DIRECTIONS: Record<CameraView, THREE.Vector3> = {
   overhead: new THREE.Vector3(0.17, 1, 0).normalize(),
-  angled: new THREE.Vector3(0.72, 0.85, 0).normalize(),
+  angled: new THREE.Vector3(0.85, 0.75, 0).normalize(),
 };
 const PORTRAIT_BELOW_ASPECT = 0.85;
 
@@ -49,6 +50,23 @@ export class MatchScene {
   private readonly camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 1000);
   private readonly players: PlayerSquad;
   private readonly ball = new BallModel();
+  private readonly carrierRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.82, 0.94, 64),
+    new THREE.MeshBasicMaterial({ color: "#48ffcf", transparent: true, opacity: 0.88, depthWrite: false }),
+  );
+  private readonly carrierGlow = new THREE.Mesh(
+    new THREE.RingGeometry(0.94, 1.28, 64),
+    new THREE.MeshBasicMaterial({ color: "#48ffcf", transparent: true, opacity: 0.12, depthWrite: false }),
+  );
+  private readonly passTrail = new THREE.Line(
+    new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(6), 3)),
+    new THREE.LineDashedMaterial({ color: "#83ffe0", dashSize: 0.6, gapSize: 0.4, transparent: true, opacity: 0.8 }),
+  );
+  private readonly passTip = new THREE.Mesh(
+    new THREE.ConeGeometry(0.24, 0.8, 3),
+    new THREE.MeshBasicMaterial({ color: "#83ffe0" }),
+  );
+  private readonly passDirection = new THREE.Vector3();
   private readonly reviewLine = new THREE.Mesh(
     new THREE.BoxGeometry(0.12, 0.025, HALF_WIDTH * 2),
     new THREE.MeshBasicMaterial({ color: "#facc15", depthTest: false }),
@@ -62,7 +80,11 @@ export class MatchScene {
   private readonly pointers = new Map<number, { x: number; y: number }>();
 
   private view: CameraView = "overhead";
-  private zoom = MIN_ZOOM;
+  private tactics = false;
+  // A modest broadcast crop puts the action closer, as in the reference.
+  // Zoom out / reset still reaches the complete pitch at MIN_ZOOM.
+  private zoom = 1.2;
+  private manualZoom = false;
   private readonly pan = new THREE.Vector2(0, 0);
   private readonly lookAt = new THREE.Vector3();
   private readonly desiredPosition = new THREE.Vector3();
@@ -79,7 +101,7 @@ export class MatchScene {
     this.renderer.setClearColor("#0b1622");
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.1;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     const canvas = this.renderer.domElement;
@@ -95,7 +117,7 @@ export class MatchScene {
     container.appendChild(canvas);
 
     this.scene.add(new THREE.HemisphereLight("#e4efff", "#45502b", 1.6));
-    const sun = new THREE.DirectionalLight("#fff4db", 2.6);
+    const sun = new THREE.DirectionalLight("#fff4db", 2.2);
     sun.position.set(-35, 65, -40);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -110,6 +132,13 @@ export class MatchScene {
     this.players = new PlayerSquad(fixture);
     this.scene.add(this.players.object);
     this.scene.add(this.ball.object);
+    for (const ring of [this.carrierRing, this.carrierGlow]) {
+      ring.rotation.x = -Math.PI / 2;
+      ring.visible = false;
+      this.scene.add(ring);
+    }
+    this.passTrail.visible = this.passTip.visible = false;
+    this.scene.add(this.passTrail, this.passTip);
     this.reviewPlayer.rotation.x = -Math.PI / 2;
     this.reviewLine.renderOrder = this.reviewPlayer.renderOrder = 10;
     this.scene.add(this.reviewLine, this.reviewPlayer);
@@ -125,6 +154,24 @@ export class MatchScene {
     // Poses come from the same recorded snapshots as the positions; the scene keeps no animation state.
     this.players.update(frame.players, motionAt(this.options.fixture, frame.timeMs), frame.timeMs);
     this.ball.setPosition(frame.ball);
+    const carrier = frame.players.find((player) => player.playerId === frame.possession?.playerId);
+    for (const ring of [this.carrierRing, this.carrierGlow]) {
+      ring.visible = carrier !== undefined;
+      if (carrier) ring.position.set(carrier.x - HALF_LENGTH, 0.035, carrier.y - HALF_WIDTH);
+    }
+    const pass = this.tactics ? completedPassAt(frame.events, frame.timeMs) : null;
+    this.passTrail.visible = this.passTip.visible = pass !== null;
+    if (pass?.start && pass.end) {
+      const positions = this.passTrail.geometry.getAttribute("position");
+      positions.setXYZ(0, pass.start.x - HALF_LENGTH, 0.08, pass.start.y - HALF_WIDTH);
+      positions.setXYZ(1, pass.end.x - HALF_LENGTH, 0.08, pass.end.y - HALF_WIDTH);
+      positions.needsUpdate = true;
+      this.passTrail.geometry.computeBoundingSphere();
+      this.passTrail.computeLineDistances();
+      this.passDirection.set(pass.end.x - pass.start.x, 0, pass.end.y - pass.start.y).normalize();
+      this.passTip.position.set(pass.end.x - HALF_LENGTH, 0.1, pass.end.y - HALF_WIDTH);
+      this.passTip.quaternion.setFromUnitVectors(THREE.Object3D.DEFAULT_UP, this.passDirection);
+    }
   }
 
   render(): void {
@@ -135,6 +182,13 @@ export class MatchScene {
 
   setView(view: CameraView): void {
     this.view = view;
+    if (!this.manualZoom) this.zoom = view === "angled" && !this.portrait ? 1.2 : MIN_ZOOM;
+    this.players.setLabelsVisible(this.tactics || view === "overhead");
+  }
+
+  setTactics(enabled: boolean): void {
+    this.tactics = enabled;
+    this.players.setLabelsVisible(enabled || this.view === "overhead");
   }
 
   setOffsideReview(review: OffsideReview | null): void {
@@ -145,11 +199,13 @@ export class MatchScene {
   }
 
   zoomBy(factor: number): void {
+    this.manualZoom = true;
     this.zoom = THREE.MathUtils.clamp(this.zoom * factor, MIN_ZOOM, MAX_ZOOM);
     this.clampPan();
   }
 
   resetZoom(): void {
+    this.manualZoom = true;
     this.zoom = MIN_ZOOM;
     this.pan.set(0, 0);
   }
@@ -225,6 +281,7 @@ export class MatchScene {
     if (w === 0 || h === 0) return;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    if (!this.manualZoom) this.zoom = this.view === "angled" && !this.portrait ? 1.2 : MIN_ZOOM;
     this.camera.updateProjectionMatrix();
     this.snapCamera = true;
   }

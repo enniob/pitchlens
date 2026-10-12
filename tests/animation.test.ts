@@ -9,13 +9,14 @@ import {
   kickContacts,
   MAX_WINDUP_MS,
   motionAt,
+  strideLength,
   type ContactKind,
   type PlayerAction,
 } from "@/playback/animation";
 import { ballRadiusAtZoom } from "@/scene/Ball";
 import { positionsAt } from "@/playback/derive";
 import { facingToRotationY, toScene } from "@/scene/coords";
-import { DIVE_ANGLE, poseFor, STRIDE_CYCLE } from "@/scene/pose";
+import { DIVE_ANGLE, poseFor } from "@/scene/pose";
 import {
   ANKLE_HEIGHT,
   FOREARM_LENGTH,
@@ -35,7 +36,7 @@ const fixtures = [
   ["generated 1.3.0", generated],
 ] as const;
 
-const still = { speed: 0, distance: 0, action: null };
+const still = { speed: 0, stride: 0, action: null };
 /** An action as motionAt would report it, `ms` from its contact. */
 const act = (kind: ContactKind, ms: number, extra: Partial<PlayerAction> = {}): PlayerAction => ({
   kind,
@@ -45,6 +46,8 @@ const act = (kind: ContactKind, ms: number, extra: Partial<PlayerAction> = {}): 
   height: 0.11,
   reach: 0.5,
   turn: 0,
+  power: 0,
+  loft: 0,
   ...extra,
 });
 const kickAt = (ms: number) => act("kick", ms);
@@ -53,6 +56,20 @@ const kickAt = (ms: number) => act("kick", ms);
 const worldPoint = (m: THREE.Matrix4, x: number, y: number, z: number) => new THREE.Vector3(x, y, z).applyMatrix4(m);
 const toe = (rig: Rig, leg: 0 | 1) => worldPoint(rig.foot[leg], TOE_REACH, -ANKLE_HEIGHT, 0);
 const snapshotAt = <S extends { t: number }>(f: { snapshots: S[] }, t: number) => f.snapshots.find((s) => s.t === t)!;
+
+describe("integrated stride cadence", () => {
+  it.each([1.5, 3.5, 6.5])("keeps a natural cadence at %s m/s", (speed) => {
+    const snap = sampleFixture.snapshots[0]!;
+    const fixture = { ...sampleFixture, durationMs: 2000, events: [],
+      snapshots: [0, 1000, 2000].map((t) => ({ ...snap, t, possession: null,
+        players: snap.players.map((p) => ({ ...p, x: p.x + speed * t / 1000 })) })) };
+    const expected = speed / strideLength(speed);
+    expect(motionAt(fixture, 1000)[0]!.stride).toBeCloseTo(expected);
+    expect(motionAt(fixture, 1500)[0]!.stride).toBeCloseTo(expected * 1.5);
+    expect(expected).toBeGreaterThan(.8);
+    expect(expected).toBeLessThan(2);
+  });
+});
 
 describe.each(fixtures)("player motion from snapshots: %s", (_name, f) => {
   it("is a pure function of time", () => {
@@ -77,7 +94,8 @@ describe.each(fixtures)("player motion from snapshots: %s", (_name, f) => {
         expect(m.speed).toBeLessThanOrEqual(f === generated ? MAX_PLAYER_SPEED + 1e-6 : 10);
         expect(m.distance).toBeGreaterThanOrEqual(last[i]!.distance);
         // The stride never jumps: 130 ms of travel is well under one cycle.
-        expect(m.distance - last[i]!.distance).toBeLessThan(STRIDE_CYCLE);
+        expect(m.stride).toBeGreaterThanOrEqual(last[i]!.stride);
+        expect(m.stride - last[i]!.stride).toBeLessThan(.4);
       });
       last = now;
     }
@@ -88,7 +106,10 @@ describe.each(fixtures)("player motion from snapshots: %s", (_name, f) => {
     if (!cut) return;
     const justBefore = motionAt(f, cut.t - 1);
     const at = motionAt(f, cut.t);
-    at.forEach((m, i) => expect(m.distance - justBefore[i]!.distance).toBeLessThan(0.02));
+    at.forEach((m, i) => {
+      expect(m.distance - justBefore[i]!.distance).toBeLessThan(0.02);
+      expect(m.stride - justBefore[i]!.stride).toBeLessThan(.01);
+    });
   });
 
   it("puts each kicker in a kick window around the strike", () => {
@@ -97,6 +118,14 @@ describe.each(fixtures)("player motion from snapshots: %s", (_name, f) => {
     for (const c of contacts) {
       const action = (dt: number) => motionAt(f, c.t + dt).find((m) => m.playerId === c.playerId)!.action;
       expect(action(0)).toMatchObject({ kind: "kick", ms: 0 });
+      const index = f.snapshots.findIndex((s) => s.t === c.t);
+      const contact = f.snapshots[index]!;
+      const next = f.snapshots[index + 1]!;
+      expect(c.face).toBeCloseTo(Math.atan2(next.ball.y - contact.ball.y, next.ball.x - contact.ball.x));
+      expect(c.power).toBeGreaterThanOrEqual(0);
+      expect(c.power).toBeLessThanOrEqual(1);
+      expect(c.loft).toBeGreaterThanOrEqual(0);
+      expect(c.loft).toBeLessThanOrEqual(1);
       expect(action(-KICK_WINDUP_MS)).toMatchObject({ kind: "kick", ms: -KICK_WINDUP_MS });
       expect(action(100)).toMatchObject({ kind: "kick", ms: 100 });
       // Afterwards the player is idle again, or already into their next contact.
@@ -119,6 +148,43 @@ describe.each(fixtures)("player motion from snapshots: %s", (_name, f) => {
 });
 
 describe("poses", () => {
+  it("uses accumulated stride rather than changing phase with speed", () => {
+    const walk = poseFor({ ...still, speed: 1.5, stride: .25 }, 0, 0, 1);
+    const run = poseFor({ ...still, speed: 6.5, stride: .25 }, 0, 0, 1);
+    expect(walk.hip[1]).toBeGreaterThan(0);
+    expect(run.hip[1]).toBeGreaterThan(walk.hip[1]);
+    expect(walk.elbow[1]).toBeLessThan(.5);
+    expect(run.elbow[1]).toBeGreaterThan(1);
+    const stance = poseFor({ ...still, speed: 6.5, stride: 0 }, 0, 0, 1);
+    expect(stance.bob).toBeLessThan(run.bob);
+    for (const boundary of [2, 3.2]) {
+      const before = poseFor({ ...still, speed: boundary - .001, stride: .125 }, 0, 0, 1);
+      const after = poseFor({ ...still, speed: boundary + .001, stride: .125 }, 0, 0, 1);
+      expect(Math.abs(before.knee[1] - after.knee[1])).toBeLessThan(.003);
+    }
+  });
+
+  it("walks with an extended stance leg and a bent recovery leg", () => {
+    const stance = poseFor({ ...still, speed: 1.5, stride: .2 }, 0, 0, 1);
+    const recovery = poseFor({ ...still, speed: 1.5, stride: .8 }, 0, 0, 1);
+    expect(stance.knee[1]).toBeCloseTo(.1);
+    expect(recovery.knee[1]).toBeGreaterThan(.3);
+    expect(recovery.knee[0]).toBeCloseTo(.1);
+  });
+
+  it("squares up before the backswing and gives soft passes a smaller swing than shots", () => {
+    const at = (ms: number, power = 0, loft = 0) => poseFor({ ...still, speed: 5.5,
+      action: act("kick", ms, { turn: 2.1, power, loft }) }, 0, 0, 1);
+    expect(at(-255).turn).toBeCloseTo(2.1);
+    expect(at(-90).turn).toBeCloseTo(2.1);
+    expect(at(-90, 1).hip[1]).toBeLessThan(at(-90, 0).hip[1]);
+    expect(at(110, 1).hip[1]).toBeGreaterThan(at(110, 0).hip[1]);
+    expect(at(110, 1, 1).hip[1]).toBeGreaterThan(at(110, 1, 0).hip[1]);
+    expect(at(0, 1, 1).lean).toBeLessThan(at(0, 1, 0).lean);
+    expect(at(0).hip[0]).toBeCloseTo(at(-90).hip[0]);
+    expect(at(0).roll).toBeLessThan(0);
+  });
+
   it("stands almost still when idle, with only a slow sway", () => {
     for (const t of [0, 400, 5_000]) {
       const pose = poseFor(still, t, 1.3, 1);
@@ -133,19 +199,19 @@ describe("poses", () => {
   });
 
   it("runs with legs in antiphase, arms opposite the legs and a longer stride at speed", () => {
-    const quarter = STRIDE_CYCLE / 4;
-    const sprint = poseFor({ speed: 6.5, distance: quarter, action: null }, 0, 0, 1);
+    const quarter = .25;
+    const sprint = poseFor({ speed: 6.5, stride: quarter, action: null }, 0, 0, 1);
     expect(sprint.hip[1]).toBeGreaterThan(0.6);
     expect(sprint.hip[0]).toBeCloseTo(-sprint.hip[1], 9);
     expect(Math.sign(sprint.shoulder[1])).toBe(-Math.sign(sprint.hip[1]));
     expect(sprint.lean).toBeGreaterThan(0.15);
-    const jog = poseFor({ speed: 2.5, distance: quarter, action: null }, 0, 0, 1);
+    const jog = poseFor({ speed: 2.5, stride: quarter, action: null }, 0, 0, 1);
     expect(jog.hip[1]).toBeGreaterThan(0.2);
     expect(jog.hip[1]).toBeLessThan(sprint.hip[1]);
     // One stride cycle of travel returns to the same pose; half a cycle swaps the legs.
-    const start = poseFor({ speed: 5, distance: 1, action: null }, 0, 0, 1);
-    const cycle = poseFor({ speed: 5, distance: 1 + STRIDE_CYCLE, action: null }, 0, 0, 1);
-    const half = poseFor({ speed: 5, distance: 1 + STRIDE_CYCLE / 2, action: null }, 0, 0, 1);
+    const start = poseFor({ speed: 5, stride: 1, action: null }, 0, 0, 1);
+    const cycle = poseFor({ speed: 5, stride: 2, action: null }, 0, 0, 1);
+    const half = poseFor({ speed: 5, stride: 1.5, action: null }, 0, 0, 1);
     expect(cycle.hip[1]).toBeCloseTo(start.hip[1], 9);
     expect(half.hip[1]).toBeCloseTo(start.hip[0], 9);
   });
@@ -153,7 +219,7 @@ describe("poses", () => {
   it.each([0, 1] as const)("swings leg %s back, then through the ball at contact", (leg) => {
     const rig = new Rig();
     const toeAt = (kickMs: number) => {
-      solveRig(rig, 0, 0, 0, poseFor({ speed: 0, distance: 0, action: kickAt(kickMs) }, 0, 0, leg));
+      solveRig(rig, 0, 0, 0, poseFor({ speed: 0, stride: 0, action: kickAt(kickMs) }, 0, 0, leg));
       return toe(rig, leg);
     };
     expect(toeAt(-90).x).toBeLessThan(0);
