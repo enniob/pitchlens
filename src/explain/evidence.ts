@@ -22,6 +22,7 @@
  * Pure: no network, credentials or rendering.
  */
 import type { EventType, MatchFixture } from "@/match/contract";
+import type { Focus } from "./api";
 import { extractMatchContext, type ContextEvent, type ContextSnapshot, type MatchContext } from "./context";
 
 /** How far before the selected time the tools can reach, in ms. */
@@ -48,6 +49,15 @@ const EVENT_TYPE_SET: Record<EventType, true> = {
   "formation-change": true,
 };
 export const EVENT_TYPES = Object.keys(EVENT_TYPE_SET) as EventType[];
+
+/**
+ * Events a full-time summary starts from: goals, shots, set pieces, stoppages
+ * and shape changes across the whole match. Ordinary passes are left out to
+ * keep the package small; the tools can still fetch them.
+ */
+export const SUMMARY_EVENT_TYPES: readonly EventType[] = [
+  "kickoff", "goal", "shot", "shot-result", "penalty", "corner", "free-kick", "foul", "offside", "formation-change",
+];
 
 export type ToolResult =
   | { ok: true; content: unknown; events: string[]; snapshots: number[] }
@@ -99,10 +109,20 @@ export class EvidenceSession {
   private readonly events = new Map<string, ContextEvent>();
   private readonly snapshots = new Map<number, ContextSnapshot>();
 
-  /** Throws a RangeError for a time outside the match and an Error for an invalid fixture, like extractMatchContext. */
-  constructor(fixture: MatchFixture, timeMs: number) {
+  readonly focus: Focus;
+
+  /**
+   * Throws a RangeError for a time outside the match and an Error for an
+   * invalid fixture, like extractMatchContext. A `match` focus starts from the
+   * key events of the whole match up to `timeMs` and lets the tools reach back
+   * to kickoff; callers only use it at full time.
+   */
+  constructor(fixture: MatchFixture, timeMs: number, focus: Focus = "moment") {
     this.fixture = fixture;
-    this.base = extractMatchContext(fixture, timeMs);
+    this.focus = focus;
+    this.base = focus === "match"
+      ? extractMatchContext(fixture, timeMs, { windowStartMs: 0, eventTypes: SUMMARY_EVENT_TYPES, maxEvents: 50, maxSnapshots: 4, maxBytes: 48_000 })
+      : extractMatchContext(fixture, timeMs);
     this.order = new Map(fixture.events.map((e, i) => [e.id, i]));
     for (const e of this.base.events) this.events.set(e.id, e);
     for (const s of this.base.snapshots) this.snapshots.set(s.t, s);
@@ -114,7 +134,7 @@ export class EvidenceSession {
 
   /** Earliest time the tools reach. */
   get floorMs(): number {
-    return Math.max(0, this.selectedMs - TOOL_LOOKBACK_MS);
+    return this.focus === "match" ? 0 : Math.max(0, this.selectedMs - TOOL_LOOKBACK_MS);
   }
 
   /** Runs a tool call. Bad arguments give `{ ok: false }` (shown to the model), never an exception. */
@@ -148,7 +168,7 @@ export class EvidenceSession {
     }
     // Same selected time as the base package, so shot results stay withheld exactly as there.
     const window = extractMatchContext(this.fixture, this.selectedMs, {
-      lookbackMs: this.selectedMs - from,
+      windowStartMs: from,
       maxEvents: 50,
       maxSnapshots: 1,
       maxBytes: 64_000,

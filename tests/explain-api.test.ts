@@ -102,6 +102,26 @@ describe("POST /api/explain", () => {
     expect(model.requests).toHaveLength(3);
   });
 
+  it("invalidates cached answers when reasoning effort changes", async () => {
+    const draft = goalExplanation();
+    const { deps, model } = setup([answer(draft), approve(draft), answer(draft), approve(draft)], { ...ENV });
+    await call(deps, post(body()));
+    deps.env.FOUNDRY_REASONING_EFFORT = "none";
+    const { json } = await call(deps, post(body()));
+    expect(json).toMatchObject({ ok: true, cached: false, verification: { outcome: "verified" } });
+    expect(model.requests).toHaveLength(4);
+  });
+
+  it("does not cache a failed explanation, so retry can recover", async () => {
+    const draft = goalExplanation();
+    const { deps, model } = setup([answer({}), answer({}), answer(draft), approve(draft)]);
+    const failed = await call(deps, post(body()));
+    expect(failed.json).toMatchObject({ ok: true, verification: { outcome: "fallback" } });
+    const retry = await call(deps, post(body()));
+    expect(retry.json).toMatchObject({ ok: true, cached: false, verification: { outcome: "verified" } });
+    expect(model.requests).toHaveLength(4);
+  });
+
   it("rejects bad requests before calling the model", async () => {
     const { deps, model } = setup();
     const cases: [Request, number, string][] = [

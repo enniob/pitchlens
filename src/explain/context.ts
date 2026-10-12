@@ -55,6 +55,13 @@ export interface ContextOptions {
   maxSnapshots?: number;
   /** Upper bound on the package's size as UTF-8 JSON. */
   maxBytes?: number;
+  /**
+   * Start of the window in ms, from 0 to the selected time. Overrides
+   * `lookbackMs`, so a full-time summary can see the whole match.
+   */
+  windowStartMs?: number;
+  /** Only these event types; others in the window are left out and noted as a limitation. */
+  eventTypes?: readonly EventType[];
 }
 
 export interface ContextPlayer {
@@ -106,7 +113,8 @@ export type LimitationCode =
   | "ball-not-controlled"
   | "events-before-window"
   | "events-truncated"
-  | "snapshots-truncated";
+  | "snapshots-truncated"
+  | "events-filtered";
 
 export interface Limitation {
   code: LimitationCode;
@@ -186,7 +194,10 @@ const isShotResult = (shot: MatchEvent, e: MatchEvent) =>
 export function extractMatchContext(fixture: MatchFixture, t: number, options: ContextOptions = {}): MatchContext {
   if (typeof t !== "number" || !Number.isFinite(t)) throw new RangeError(`Time must be a finite number of ms, got ${String(t)}`);
   if (t < 0 || t > fixture.durationMs) throw new RangeError(`Time ${t} is outside the match (0 to ${fixture.durationMs} ms)`);
-  const lookbackMs = option("lookbackMs", options.lookbackMs);
+  if (options.windowStartMs !== undefined &&
+      (!Number.isInteger(options.windowStartMs) || options.windowStartMs < 0 || options.windowStartMs > Math.floor(t)))
+    throw new RangeError(`windowStartMs must be an integer from 0 to the selected time, got ${String(options.windowStartMs)}`);
+  const lookbackMs = options.windowStartMs !== undefined ? Math.floor(t) - options.windowStartMs : option("lookbackMs", options.lookbackMs);
   const maxEvents = option("maxEvents", options.maxEvents);
   const maxSnapshots = option("maxSnapshots", options.maxSnapshots);
   const maxBytes = option("maxBytes", options.maxBytes);
@@ -215,7 +226,13 @@ export function extractMatchContext(fixture: MatchFixture, t: number, options: C
     } else if (e.end) out.end = vec(e.end);
     return out;
   };
-  let events = revealed.slice(beforeWindow).map((e, k) => toContextEvent(e, beforeWindow + k));
+  const types = options.eventTypes ? new Set(options.eventTypes) : null;
+  let filteredEvents = 0;
+  let events = revealed.slice(beforeWindow).map((e, k) => toContextEvent(e, beforeWindow + k)).filter((e) => {
+    const keep = !types || types.has(e.type);
+    if (!keep) filteredEvents++;
+    return keep;
+  });
   let truncatedEvents = Math.max(0, events.length - maxEvents);
   events = events.slice(truncatedEvents);
 
@@ -298,6 +315,8 @@ export function extractMatchContext(fixture: MatchFixture, t: number, options: C
         code: "events-before-window",
         message: `${beforeWindow} earlier event(s) before ${windowStartMs} ms are outside the lookback window; the score still counts them.`,
       });
+    if (filteredEvents > 0)
+      limitations.push({ code: "events-filtered", message: `${filteredEvents} event(s) of other types (such as ordinary passes) were left out; only key events are listed.` });
     if (truncatedEvents > 0)
       limitations.push({ code: "events-truncated", message: `${truncatedEvents} older event(s) in the window were left out to bound the payload.` });
     if (truncatedSnapshots > 0)

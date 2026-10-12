@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { insufficientEvidence, validateExplanation } from "@/explain/response";
-import { STRICT_EXPLANATION_SCHEMA } from "@/explain/prompts";
+import { STRICT_EXPLANATION_SCHEMA, reviewTargets } from "@/explain/prompts";
 import { EvidenceSession } from "@/explain/evidence";
 import { sampleFixture } from "@/match/fixture";
 import { eventsAt } from "@/playback/derive";
@@ -21,6 +21,16 @@ const reject = (draftTargets: string[], target: string) => ({
 const targets = ["headline", "explanation", "facts[0]", "facts[1]", "facts[2]", "interpretation[0]", "limitations[0]"];
 
 describe("analyst workflow", () => {
+  it("constrains verifier targets to every exact field in the current draft", async () => {
+    const draft = goalExplanation();
+    const model = new FakeModel([answer(draft), approve(draft)]);
+    await run(model);
+    const review = model.requests[1]!;
+    const schema = review.schema.schema as { properties: { reviews: { items: { properties: { target: { enum: string[] } } } } } };
+    expect(schema.properties.reviews.items.properties.target.enum).toEqual(reviewTargets(draft));
+    expect(review.messages[1]!.content).toContain(JSON.stringify(reviewTargets(draft)));
+    expect(schema.properties.reviews.items.properties.target.enum).not.toContain("limitations");
+  });
   it("returns a verified explanation when the first draft passes every check", async () => {
     const draft = goalExplanation();
     const model = new FakeModel([answer(draft), approve(draft)]);

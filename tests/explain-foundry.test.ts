@@ -53,6 +53,18 @@ describe("Foundry configuration", () => {
     const r = foundryConfigFromEnv({ ...ENV, FOUNDRY_VERIFIER_DEPLOYMENT: "verifier-deployment" });
     expect(r.ok && r.config.verifierDeployment).toBe("verifier-deployment");
   });
+
+  it("accepts explicit reasoning settings and rejects unknown values", () => {
+    expect(foundryConfigFromEnv({ ...ENV, FOUNDRY_REASONING_EFFORT: "none" })).toMatchObject({ ok: true, config: { reasoningEffort: "none" } });
+    expect(foundryConfigFromEnv({ ...ENV, FOUNDRY_REASONING_EFFORT: "unlimited" })).toMatchObject({ ok: false, invalid: ["FOUNDRY_REASONING_EFFORT"] });
+    expect(config().reasoningEffort).toBeUndefined();
+  });
+
+  it("validates optional temperature without treating zero as absent", () => {
+    expect(foundryConfigFromEnv({ ...ENV, FOUNDRY_TEMPERATURE: "0" })).toMatchObject({ ok: true, config: { temperature: 0 } });
+    for (const temperature of ["NaN", "-1", "3"])
+      expect(foundryConfigFromEnv({ ...ENV, FOUNDRY_TEMPERATURE: temperature })).toMatchObject({ ok: false, invalid: ["FOUNDRY_TEMPERATURE"] });
+  });
 });
 
 describe("strict structured-output schema", () => {
@@ -90,6 +102,19 @@ describe("Foundry client", () => {
     });
     expect(body.tools).toHaveLength(2);
     expect(JSON.stringify(body)).not.toContain(KEY);
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+
+  it.each(["analyst", "verifier"] as const)("sends the configured reasoning effort for %s", async (role) => {
+    let body: Record<string, unknown> = {};
+    const client = new FoundryClient(config({ reasoningEffort: "none", temperature: 0 }), async (_u, init) => {
+      body = JSON.parse(String(init!.body));
+      return reply({ choices: [{ message: { content: "{}" }, finish_reason: "stop" }] });
+    });
+    await client.complete(request({ role }));
+    expect(body.reasoning_effort).toBe("none");
+    expect(body.temperature).toBe(0);
+    expect(body.max_completion_tokens).toBe(500);
   });
 
   it("uses the verifier deployment and json_object mode when configured", async () => {

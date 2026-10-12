@@ -19,7 +19,7 @@
  * The verifier is another model reading the same evidence. Its approval
  * lowers the chance of unsupported text but proves nothing.
  */
-import type { Audience, ExplainTrace, TraceStep, VerificationSummary } from "@/explain/api";
+import type { Audience, ExplainTrace, Focus, TraceStep, VerificationSummary } from "@/explain/api";
 import type { MatchFixture } from "@/match/contract";
 import { EvidenceSession, EVIDENCE_TOOLS } from "@/explain/evidence";
 import { checkGrounding } from "@/explain/grounding";
@@ -29,7 +29,7 @@ import {
   parseReview,
   revisionMessage,
   STRICT_EXPLANATION_SCHEMA,
-  STRICT_REVIEW_SCHEMA,
+  reviewSchemaFor,
   VERIFIER_INSTRUCTIONS,
   verifierMessage,
 } from "@/explain/prompts";
@@ -61,6 +61,8 @@ export interface ExplainInput {
   fixture: MatchFixture;
   timeMs: number;
   audience: Audience;
+  /** Defaults to `moment`. A `match` summary is only requested at full time. */
+  focus?: Focus;
   client: ModelClient;
   /** Aborts the workflow, e.g. when the browser disconnects. */
   signal?: AbortSignal;
@@ -104,7 +106,8 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
   const now = input.now ?? (() => performance.now());
   const started = now();
   const deadline = started + limits.totalMs;
-  const session = new EvidenceSession(input.fixture, input.timeMs);
+  const focus = input.focus ?? "moment";
+  const session = new EvidenceSession(input.fixture, input.timeMs, focus);
 
   const steps: TraceStep[] = [];
   const trace = (step: TraceStep) => {
@@ -150,8 +153,8 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
   };
 
   const messages: ChatMessage[] = [
-    { role: "system", content: analystInstructions(input.audience) },
-    { role: "user", content: evidenceMessage(session.base) },
+    { role: "system", content: analystInstructions(input.audience, focus) },
+    { role: "user", content: evidenceMessage(session.base, focus) },
   ];
 
   /** One draft: analyst turns until it answers without tool calls. Null when it never does. */
@@ -200,7 +203,7 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
     const parsed = parseExplanation(text, context);
     if (!parsed.ok) return { response: null, schema: false, grounding: null, modelReview: null, issues: parsed.errors };
     const response = parsed.response;
-    const grounding = checkGrounding(response, context, input.audience);
+    const grounding = checkGrounding(response, context, input.audience, focus);
     if (grounding.length > 0) return { response, schema: true, grounding: false, modelReview: null, issues: grounding };
     // The analyst's own insufficient-evidence answer is not reviewed, so none of its wording is shown:
     // it is replaced with the fixed response.
@@ -213,7 +216,7 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
         { role: "system", content: VERIFIER_INSTRUCTIONS },
         { role: "user", content: verifierMessage(context, response) },
       ],
-      schema: { name: "review", schema: STRICT_REVIEW_SCHEMA },
+      schema: { name: "review", schema: reviewSchemaFor(response) },
       maxCompletionTokens: limits.verifierCompletionTokens,
     });
     const verdict = parseReview(review.content ?? "", response);

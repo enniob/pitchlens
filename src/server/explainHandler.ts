@@ -7,11 +7,13 @@
 import {
   AUDIENCES,
   EXPLAIN_API_VERSION,
+  FOCUSES,
   EXPLAIN_ERRORS,
   type Audience,
   type ExplainErrorCode,
   type ExplainFailure,
   type ExplainSuccess,
+  type Focus,
 } from "@/explain/api";
 import { parseMatchReference, type MatchReference } from "@/explain/matchRef";
 import { explainMoment, type WorkflowLimits } from "./analyst";
@@ -31,6 +33,7 @@ export interface ExplainLogRecord {
   matchId?: string;
   timeMs?: number;
   audience?: Audience;
+  focus?: Focus;
   cached?: boolean;
   outcome?: ExplainSuccess["verification"]["outcome"];
   error?: ExplainErrorCode;
@@ -141,7 +144,7 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
     record.requestId = requestId;
   }
   for (const key of Object.keys(body))
-    if (!["requestId", "match", "timeMs", "audience"].includes(key)) return fail("invalid-request", `Unexpected field ${key}.`);
+    if (!["requestId", "match", "timeMs", "audience", "focus"].includes(key)) return fail("invalid-request", `Unexpected field ${key}.`);
   const ref = parseMatchReference(body.match);
   if (!ref.ok) return fail("invalid-request", ref.error);
   const reference: MatchReference = ref.reference;
@@ -149,13 +152,20 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
     return fail("invalid-request", "timeMs must be a number of milliseconds, 0 or more.");
   if (!(AUDIENCES as readonly unknown[]).includes(body.audience)) return fail("invalid-request", `audience must be one of ${AUDIENCES.join(", ")}.`);
   const audience = body.audience as Audience;
+  if (body.focus !== undefined && !(FOCUSES as readonly unknown[]).includes(body.focus))
+    return fail("invalid-request", `focus must be one of ${FOCUSES.join(", ")}.`);
+  const focus: Focus = (body.focus as Focus | undefined) ?? "moment";
   const timeMs = Math.floor(body.timeMs);
-  Object.assign(record, { matchId: reference.matchId, timeMs, audience });
+  Object.assign(record, { matchId: reference.matchId, timeMs, audience, focus });
 
   const config = foundryConfigFromEnv(deps.env);
   if (!config.ok) return fail("not-configured", "Explanations are not set up on this server.");
 
-  const cacheKey = JSON.stringify([reference, timeMs, audience]);
+  const { baseUrl, deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature } = config.config;
+  // Model settings affect the answer. Never reuse a result from an older
+  // deployment or reasoning mode, and never put credentials in cache keys.
+  const cacheKey = JSON.stringify([reference, timeMs, audience, focus,
+    { baseUrl, deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature }, deps.limits ?? null]);
   const cached = deps.cache.get(cacheKey);
   if (cached) {
     Object.assign(record, { status: 200, cached: true, outcome: cached.verification.outcome });
@@ -174,11 +184,15 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
     if (!resolved.ok) return fail("unknown-match", resolved.error);
     if (timeMs > resolved.fixture.durationMs)
       return fail("invalid-request", `timeMs is after the end of the match (${resolved.fixture.durationMs} ms).`);
+    // Enforced here, not only in the viewer: a summary describes the whole match, so it is only given at full time.
+    if (focus === "match" && timeMs !== resolved.fixture.durationMs)
+      return fail("invalid-request", `A match summary is only available at full time (timeMs ${resolved.fixture.durationMs}).`);
 
     const result = await explainMoment({
       fixture: resolved.fixture,
       timeMs,
       audience,
+      focus,
       client: deps.createClient(config.config),
       signal: request.signal,
       limits: deps.limits,
@@ -189,11 +203,13 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
       matchId: resolved.fixture.matchId,
       timeMs: result.explanation.timeMs,
       audience,
+      focus,
       explanation: result.explanation,
       verification: result.verification,
       trace: result.trace,
     };
-    deps.cache.set(cacheKey, answer);
+    // A failed model answer should be retryable, not sticky for ten minutes.
+    if (answer.verification.outcome !== "fallback") deps.cache.set(cacheKey, answer);
     Object.assign(record, { status: 200, cached: false, outcome: result.verification.outcome, trace: result.trace });
     deps.log(record);
     return json({ ...answer, requestId, cached: false }, 200);

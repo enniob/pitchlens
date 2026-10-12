@@ -21,7 +21,8 @@
  * the word lists are deliberately narrow so that ordinary football language
  * ("a shot on goal", "the corner of the box") is not rejected.
  */
-import type { Audience } from "./api";
+import type { Score } from "@/match/contract";
+import type { Audience, Focus } from "./api";
 import type { ContextEvent, MatchContext } from "./context";
 import type { Claim, ExplanationResponse } from "./response";
 
@@ -65,8 +66,9 @@ interface Scope {
 }
 
 /** Issues with the response's wording; empty when every check passes. */
-export function checkGrounding(response: ExplanationResponse, context: MatchContext, audience: Audience): string[] {
+export function checkGrounding(response: ExplanationResponse, context: MatchContext, audience: Audience, focus: Focus = "moment"): string[] {
   const issues: string[] = [];
+  const scores = focus === "match" ? scoreProgression(context) : [context.score];
   const limits = AUDIENCE_LIMITS[audience];
   if (response.explanation.length > limits.explanation)
     issues.push(`explanation is longer than ${limits.explanation} characters for the ${audience} audience`);
@@ -90,16 +92,34 @@ export function checkGrounding(response: ExplanationResponse, context: MatchCont
     return { events, players };
   };
 
-  check(issues, "headline", response.headline, everything, context, "all");
-  check(issues, "explanation", response.explanation, everything, context, "all");
-  response.facts.forEach((c, i) => check(issues, `facts[${i}]`, c.text, scopeOf(c), context, "all"));
-  response.interpretation.forEach((c, i) => check(issues, `interpretation[${i}]`, c.text, scopeOf(c), context, "interpretation"));
+  check(issues, "headline", response.headline, everything, context, scores, "all");
+  check(issues, "explanation", response.explanation, everything, context, scores, "all");
+  response.facts.forEach((c, i) => check(issues, `facts[${i}]`, c.text, scopeOf(c), context, scores, "all"));
+  response.interpretation.forEach((c, i) => check(issues, `interpretation[${i}]`, c.text, scopeOf(c), context, scores, "interpretation"));
   // Limitations say what is unknown ("whether the shot was saved"), so event wording is not checked there.
-  response.limitations.forEach((l, i) => check(issues, `limitations[${i}]`, l, everything, context, "none"));
+  response.limitations.forEach((l, i) => check(issues, `limitations[${i}]`, l, everything, context, scores, "none"));
   return issues;
 }
 
-function check(issues: string[], where: string, text: string, scope: Scope, context: MatchContext, events: "all" | "interpretation" | "none"): void {
+/**
+ * Every score the match passed through, from 0–0 to the score at the selected
+ * time, rebuilt from the goal events in the evidence. A full-time summary may
+ * mention any of them ("made it 1–0"). If a goal is missing from the evidence
+ * the progression cannot be rebuilt, so only the current score is allowed.
+ */
+function scoreProgression(context: MatchContext): Score[] {
+  const side = new Map(context.teams.map((t) => [t.id, t.side]));
+  const scores: Score[] = [{ home: 0, away: 0 }];
+  for (const e of context.events) {
+    if (e.type !== "goal") continue;
+    const last = scores.at(-1)!;
+    scores.push(side.get(e.teamId) === "home" ? { home: last.home + 1, away: last.away } : { home: last.home, away: last.away + 1 });
+  }
+  const final = scores.at(-1)!;
+  return final.home === context.score.home && final.away === context.score.away ? scores : [context.score];
+}
+
+function check(issues: string[], where: string, text: string, scope: Scope, context: MatchContext, scores: Score[], events: "all" | "interpretation" | "none"): void {
   const selected = context.time.selectedMs;
 
   for (const m of text.matchAll(TIME)) {
@@ -113,7 +133,7 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
   const { home, away } = context.score;
   for (const m of text.matchAll(SCORE)) {
     const [a, b] = [Number(m[1]), Number(m[2])];
-    if (!((a === home && b === away) || (a === away && b === home)))
+    if (!scores.some((s) => (a === s.home && b === s.away) || (a === s.away && b === s.home)))
       issues.push(`${where} mentions the score ${m[0]}, but it is ${home}–${away} at the selected time`);
   }
 

@@ -20,6 +20,10 @@ export interface FoundryConfig {
   verifierDeployment: string;
   /** `json_schema` (strict structured output) or `json_object` for models without it. */
   structuredOutput: "json_schema" | "json_object";
+  /** Optional provider-supported reasoning setting; omitted unless configured. */
+  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
+  /** Optional sampling setting for deployments that support it. */
+  temperature?: number;
 }
 
 export type ConfigResult = { ok: true; config: FoundryConfig } | { ok: false; missing: string[]; invalid: string[] };
@@ -39,6 +43,10 @@ export function foundryConfigFromEnv(env: Record<string, string | undefined> = p
   const verifierDeployment = env.FOUNDRY_VERIFIER_DEPLOYMENT?.trim() || deployment;
   const structured = env.FOUNDRY_STRUCTURED_OUTPUT?.trim() || "json_schema";
   if (structured !== "json_schema" && structured !== "json_object") invalid.push("FOUNDRY_STRUCTURED_OUTPUT");
+  const reasoning = env.FOUNDRY_REASONING_EFFORT?.trim();
+  if (reasoning && !["none", "minimal", "low", "medium", "high"].includes(reasoning)) invalid.push("FOUNDRY_REASONING_EFFORT");
+  const temperature = env.FOUNDRY_TEMPERATURE?.trim();
+  if (temperature && (!Number.isFinite(Number(temperature)) || Number(temperature) < 0 || Number(temperature) > 2)) invalid.push("FOUNDRY_TEMPERATURE");
 
   let baseUrl = "";
   if (endpoint) {
@@ -54,7 +62,9 @@ export function foundryConfigFromEnv(env: Record<string, string | undefined> = p
   if (missing.length > 0 || invalid.length > 0) return { ok: false, missing, invalid };
   return {
     ok: true,
-    config: { baseUrl, apiKey, deployment, verifierDeployment, structuredOutput: structured as FoundryConfig["structuredOutput"] },
+    config: { baseUrl, apiKey, deployment, verifierDeployment, structuredOutput: structured as FoundryConfig["structuredOutput"],
+      ...(reasoning ? { reasoningEffort: reasoning as FoundryConfig["reasoningEffort"] } : {}),
+      ...(temperature ? { temperature: Number(temperature) } : {}) },
   };
 }
 
@@ -132,6 +142,8 @@ export class FoundryClient implements ModelClient {
           ? { type: "json_schema", json_schema: { name: request.schema.name, strict: true, schema: request.schema.schema } }
           : { type: "json_object" },
     };
+    if (this.config.reasoningEffort) body.reasoning_effort = this.config.reasoningEffort;
+    if (this.config.temperature !== undefined) body.temperature = this.config.temperature;
     if (request.tools && request.tools.length > 0) {
       body.tools = request.tools;
       body.tool_choice = request.toolChoice ?? "auto";

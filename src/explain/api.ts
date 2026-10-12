@@ -15,6 +15,14 @@ export const EXPLAIN_PATH = "/api/explain";
 export const AUDIENCES = ["casual", "analyst"] as const;
 export type Audience = (typeof AUDIENCES)[number];
 
+/**
+ * What is explained. `moment`: the selected time (the default). `match`: a
+ * summary of the whole match, only accepted at full time (timeMs equal to the
+ * match duration), so it can never describe play the viewer has not reached.
+ */
+export const FOCUSES = ["moment", "match"] as const;
+export type Focus = (typeof FOCUSES)[number];
+
 export interface ExplainRequest {
   /** Optional client correlation ID (8–64 of A–Z, a–z, 0–9, '_', '-'); echoed back. Not an idempotency key. */
   requestId?: string;
@@ -22,6 +30,8 @@ export interface ExplainRequest {
   /** Playback time in ms, 0 to the match duration; floored to whole ms. */
   timeMs: number;
   audience: Audience;
+  /** Defaults to `moment`. */
+  focus?: Focus;
 }
 
 /** How the explanation was checked. Automated checks reduce, but cannot rule out, unsupported text. */
@@ -84,6 +94,7 @@ export interface ExplainSuccess {
   matchId: string;
   timeMs: number;
   audience: Audience;
+  focus: Focus;
   explanation: ExplanationResponse;
   verification: VerificationSummary;
   trace: ExplainTrace;

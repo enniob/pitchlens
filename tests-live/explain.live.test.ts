@@ -60,6 +60,12 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
           for (const id of later) expect(cited, `cites future event ${id}`).not.toContain(`"${id}"`);
           expect(out.explanation.matchId).toBe(c.fixture.matchId);
           expect(out.explanation.timeMs).toBe(Math.floor(c.timeMs));
+          // Optional quality smoke gate: transport/safety success alone must
+          // not hide an unusable demo behind a valid fallback response.
+          if (process.env.PITCHLENS_LIVE_REQUIRE_EXPLANATION === "1" && c.name === "scripted goal") {
+            expect(out.explanation.status, JSON.stringify(out.verification)).toBe("explained");
+            expect(out.verification.modelReview).toBe("passed");
+          }
         } catch (e) {
           if (!results.some((r) => r.name === c.name && r.audience === audience))
             results.push({ name: c.name, audience, outcome: "error", ms: Date.now() - started, error: e instanceof Error ? e.message : String(e) });
