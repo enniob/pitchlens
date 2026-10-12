@@ -5,6 +5,7 @@ import type { Audience, ExplainSuccess } from "@/explain/api";
 import { requestExplanation } from "@/explain/client";
 import { matchReferenceOf } from "@/explain/matchRef";
 import { citedEvidence, EvidenceCards, ExplanationDetails } from "./Evidence";
+import { LOCKED_HINT, useExplanationAccess } from "./ExplanationAccessGate";
 import { formatClock } from "./format";
 import { LiveInsights } from "./LiveInsights";
 import { Icon } from "./Icon";
@@ -80,6 +81,7 @@ function scopeText(playback: PlaybackPhase, timeMs: number) {
 /** "Live insights": the docked panel beside the pitch, automatic insights first, then asking about any moment. */
 export function ExplanationPanel(props: Props) {
   const supported = matchReferenceOf(props.fixture, sampleFixture.matchId) !== null;
+  const allowed = useExplanationAccess();
   return (
     <section className="explain" aria-labelledby="explain-title">
       <div className="explain__head">
@@ -91,6 +93,7 @@ export function ExplanationPanel(props: Props) {
       </div>
       <p className="explain__scope">{scopeText(props.playback, props.timeMs)}</p>
       <AudienceSwitch audience={props.audience} onAudience={props.onAudience} className="explain__audience" />
+      {!allowed && supported && <p className="explain__note" role="status">{LOCKED_HINT}</p>}
       {supported && <LiveInsights fixture={props.fixture} timeMs={props.timeMs} playback={props.playback} audience={props.audience}
         focus={props.focus} saved={props.saved} onSaved={props.onSaved} onReplayFrom={props.onReplayFrom} />}
       <section className="explain__ask" aria-labelledby="explain-ask-title">
@@ -113,6 +116,7 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
   const pending = useRef<AbortController | null>(null);
   useEffect(() => () => { pending.current?.abort(); }, []);
   const supported = matchReferenceOf(fixture, sampleFixture.matchId) !== null;
+  const allowed = useExplanationAccess();
   // Automatic insights live in the feed above; this part only shows what was asked for here.
   const asked = saved.filter((s) => !s.eventId);
 
@@ -133,6 +137,10 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
   useEffect(() => {
     if (pendingAt !== null && timeMs < pendingAt) cancel();
   }, [timeMs, pendingAt]);
+  // Locking or expiry abandons the request; saved answers stay.
+  useEffect(() => {
+    if (!allowed) cancel();
+  }, [allowed]);
 
   function cancel() {
     pending.current?.abort();
@@ -141,7 +149,7 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
   }
 
   async function explain() {
-    if (pending.current) return;
+    if (pending.current || !allowed) return;
     const atMs = timeMs;
     onPause();
     const controller = new AbortController();
@@ -185,7 +193,7 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
   const history = explanationsUpTo(asked, timeMs).filter((s) => s.id !== visible?.id);
 
   return <>
-    <button className="btn btn--ghost btn--block explain__go" type="button" disabled={loading || !supported} onClick={explain}>
+    <button className="btn btn--ghost btn--block explain__go" type="button" disabled={loading || !supported || !allowed} onClick={explain}>
       {loading ? <span className="spinner spinner--small" aria-hidden="true" /> : <Icon name={playback === "playing" ? "pause" : "spark"} size={18} />}
       {label}
     </button>
@@ -239,6 +247,7 @@ export function ExplanationBody({ fixture, result, audience, onReplay, onRetry }
     /** Shown on an unverified answer when the surrounding view has no retry of its own. */
     onRetry?: () => void }) {
   const { explanation } = result;
+  const allowed = useExplanationAccess();
   const outcome = result.verification?.outcome;
   const fallback = outcome === "fallback";
   const evidence = fallback ? [] : citedEvidence(fixture, explanation);
@@ -249,7 +258,7 @@ export function ExplanationBody({ fixture, result, audience, onReplay, onRetry }
         Every explanation is checked against what has happened in the match so far. This one included
         claims the match data could not back up, so it is not shown. Trying again gives a fresh answer.
       </p>
-      {onRetry && <button type="button" className="btn btn--ghost btn--small" onClick={onRetry}>Try again</button>}
+      {onRetry && <button type="button" className="btn btn--ghost btn--small" disabled={!allowed} onClick={onRetry}>Try again</button>}
     </> : <>
       <h3 className="explain__headline">{explanation.headline}</h3>
       <p className="explain__body">{explanation.explanation}</p>

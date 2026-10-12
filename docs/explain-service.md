@@ -13,7 +13,9 @@ moments** tab) docked beside the pitch. No Azure resources are created by this c
 
 1. Fill in the server-only Foundry settings in `.env` or `.env.local` and run
    `npm run dev`. Use the resource root endpoint, without `/api/projects/...`.
-2. Open `http://localhost:3000` and play. The **Live insights** panel is
+2. Configure the access code and signing secret described under [Setup](#setup),
+   then open `http://localhost:3000` and unlock AI explanations with that code.
+   Play. The **Live insights** panel is
    docked beside the pitch. When play reaches a key moment, an insight card
    for it appears there on its own (see [Live insights](#live-insights)).
 3. Select a moment in the strip under the controls to pause at its timestamp,
@@ -81,10 +83,11 @@ same evidence rules. Browser-side validation repeats the response contract and
 checks citations against evidence reachable at the selected time; server-side
 validation remains authoritative for what the model was actually shown.
 
-For local viewer testing, leave the optional `PITCHLENS_EXPLAIN_ACCESS_TOKEN`
-unset. The viewer never embeds or asks for a server access token. A deployment
-using this optional bearer-token gate needs an authenticated server-side entry
-point before enabling viewer access. Foundry credentials always stay server-side.
+The viewer exchanges a judge access code for a signed, HttpOnly, 30-minute
+session cookie. It never receives a Foundry key or the optional machine bearer
+token. Without access, playback and deterministic patterns remain available;
+manual, automatic and recap AI requests stay locked. An explicit
+`PITCHLENS_ACCESS_MODE=local` bypass is available outside production only.
 
 `tests/explain-client.test.ts` and `tests/explanation-panel.test.tsx` use mocked
 HTTP responses to cover requests, audience changes, safe errors, retries,
@@ -304,7 +307,10 @@ never present it as proof (see "Verification").
 | Code | HTTP | Retryable | When |
 | --- | --- | --- | --- |
 | `invalid-request` | 400 | no | Bad JSON, unknown or missing field, bad reference, time, audience or request ID |
-| `unauthorized` | 401 | no | An access token is configured and missing or wrong |
+| `unauthorized` | 401 | no | A valid judge session or machine bearer token is required |
+| `explanations-disabled` | 503 | no | Operator kill switch is enabled |
+| `budget-exhausted` | 503 | yes | Daily instance token allowance cannot admit another workflow |
+| `session-quota-exhausted` | 429 | no | Session workflow allowance is exhausted |
 | `forbidden-origin` | 403 | no | `Origin` is neither this site nor an allowed origin |
 | `unknown-match` | 404 | no | The reference does not rebuild to the claimed match |
 | `payload-too-large` | 413 | no | Body over 4 KB |
@@ -465,24 +471,29 @@ progress.
   response bodies.
 - A request that names a match the server cannot rebuild, or is malformed,
   is rejected before any model call.
-- **Rate limits** (`src/server/guard.ts`): 6 requests per client per minute,
-  60 per instance per minute and 4 workflows at once. The client is identified
-  by the first `X-Forwarded-For` address, which a client can forge unless the
-  hosting platform overwrites it, so the per-instance limit also applies.
+- **Rate limits** (`src/server/guard.ts`): 6 uncached requests per authenticated
+  identity per minute, 60 per instance and 4 workflows at once. One workflow
+  per session is allowed. Forwarded headers never define identity. A separate
+  ingress guard admits bounded body reads before parsing (60 per identity,
+  240 per instance per minute, 16 at once), with a five-second deadline.
 - **Cache:** finished answers are kept for 10 minutes (200 entries) by match
   reference, time and audience, so a repeated request costs no model calls and
-  does not count against the limits.
+  does not spend model tokens or workflow allowance. It still requires access
+  and passes the ingress limits.
 - **Origin:** a request with an `Origin` header from another site is refused
   unless listed in `PITCHLENS_ALLOWED_ORIGINS`.
-- **Access token:** with `PITCHLENS_EXPLAIN_ACCESS_TOKEN` set, requests must
-  send `Authorization: Bearer <token>`. Use it for private previews. A token
-  shipped to browsers is not a secret, so a public deployment needs real user
-  authentication or gateway controls instead.
+- **Access:** defaults closed. Browser users exchange the configured judge code
+  for a signed cookie. An optional `PITCHLENS_EXPLAIN_ACCESS_TOKEN` allows machine
+  clients using `Authorization: Bearer <token>`; keep it out of browser code.
+- **Allowances:** reserve up to 80,000 tokens before each workflow. Defaults are
+  1,000,000 tokens per UTC day per instance and 30 workflows per session.
+  `PITCHLENS_EXPLANATIONS_DISABLED=1` blocks all explanations immediately on
+  subsequent requests, including cache hits; it does not cancel active calls.
 - The limits are in memory and per server instance. **Before exposing the
   endpoint publicly**, also put it behind the hosting platform's rate limiting
   or a gateway (for example Azure API Management or Front Door rules), set a
-  spending cap or quota on the Foundry deployment, and monitor the per-request
-  log.
+  deployment quotas and billing alerts, and monitor the per-request log.
+  See [security controls and hosting limits](security-controls.md).
 
 ## Tracing
 
@@ -512,11 +523,14 @@ Copy `.env.example` to `.env.local` (git-ignored) and fill in your own values:
 FOUNDRY_ENDPOINT=https://<your-resource>.openai.azure.com
 FOUNDRY_API_KEY=<your-api-key>
 FOUNDRY_DEPLOYMENT=<your-analyst-deployment>
+PITCHLENS_JUDGE_ACCESS_CODE=<random-access-code>
+PITCHLENS_SESSION_SECRET=<separate-random-signing-secret>
 # Optional
 FOUNDRY_VERIFIER_DEPLOYMENT=<your-verifier-deployment>
 FOUNDRY_STRUCTURED_OUTPUT=json_schema
 PITCHLENS_ALLOWED_ORIGINS=https://<your-preview-host>
-PITCHLENS_EXPLAIN_ACCESS_TOKEN=<random-token>
+# Machine clients only:
+# PITCHLENS_EXPLAIN_ACCESS_TOKEN=<random-token>
 ```
 
 | Variable | Required | Meaning |
@@ -527,7 +541,13 @@ PITCHLENS_EXPLAIN_ACCESS_TOKEN=<random-token>
 | `FOUNDRY_VERIFIER_DEPLOYMENT` | no | Deployment for the verifier; defaults to the analyst's. A different model gives a more independent review |
 | `FOUNDRY_STRUCTURED_OUTPUT` | no | `json_schema` (default, strict) or `json_object` for models without strict structured output. The validator enforces the contract either way |
 | `PITCHLENS_ALLOWED_ORIGINS` | no | Comma-separated extra origins allowed to call the endpoint |
-| `PITCHLENS_EXPLAIN_ACCESS_TOKEN` | no | When set, requests need `Authorization: Bearer <token>` |
+| `PITCHLENS_JUDGE_ACCESS_CODE` | browser access | Random code, 16–256 characters, exchanged at `/api/session` |
+| `PITCHLENS_SESSION_SECRET` | browser access | Independent random signing secret, at least 32 characters |
+| `PITCHLENS_ACCESS_MODE` | no | `local` explicitly bypasses access checks outside production only |
+| `PITCHLENS_EXPLAIN_ACCESS_TOKEN` | no | Optional machine bearer credential, independent of judge access |
+| `PITCHLENS_DAILY_TOKEN_BUDGET` | no | Positive integer token allowance per UTC day per instance; default 1,000,000 |
+| `PITCHLENS_SESSION_EXPLANATIONS` | no | Positive integer workflow allowance per session; default 30 |
+| `PITCHLENS_EXPLANATIONS_DISABLED` | no | `1` blocks explanation requests before reading bodies or serving cache |
 
 Without the three required variables the endpoint answers `503
 not-configured`, and everything else (viewer, simulator, tests) works as before.

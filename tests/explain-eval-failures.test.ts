@@ -117,7 +117,7 @@ describe("failure handling on the evaluation scenarios", () => {
 });
 
 const KEY = "eval-secret-key-0123456789";
-const ENV = { FOUNDRY_ENDPOINT: "https://eval.openai.azure.com", FOUNDRY_API_KEY: KEY, FOUNDRY_DEPLOYMENT: "eval-analyst" };
+const ENV = { NODE_ENV: "test", PITCHLENS_ACCESS_MODE: "local", FOUNDRY_ENDPOINT: "https://eval.openai.azure.com", FOUNDRY_API_KEY: KEY, FOUNDRY_DEPLOYMENT: "eval-analyst" };
 
 function handler(steps: Step[]) {
   const model = new FakeModel(steps);

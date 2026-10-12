@@ -925,6 +925,13 @@ Setup uses placeholders in `.env.example`; without them the endpoint answers
 Agent Framework evaluation, the limits and the abuse controls. `npm test` runs
 the mocked suites; `npm run test:live` runs the opt-in live evaluation.
 
+AI access defaults closed. Configure a judge access code and independent session
+signing secret in `.env.local`, then unlock explanations using the access bar.
+Playback works while AI is locked. Explicit local access is available outside
+production with `PITCHLENS_ACCESS_MODE=local`. Development and production npm
+commands bind to `127.0.0.1`. See [security controls](docs/security-controls.md)
+for usage allowances, the kill switch, and remaining hosting requirements.
+
 ## Broadcast mode (MVP 8)
 
 > The layout has since been reorganised into the **Match** and **Recap** views described in [Using the viewer](#using-the-viewer): the control bar now sits under the pitch, the score on it, and the explanation panel beside it. The pop-ups, live feed and set-up drawer work as described here. Match centre has since been removed, and Pro data is now the **Tactics** switch on the pitch.

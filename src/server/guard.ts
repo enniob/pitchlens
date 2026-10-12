@@ -92,26 +92,3 @@ export class AnswerCache<T> {
     if (this.entries.size > this.size) this.entries.delete(this.entries.keys().next().value!);
   }
 }
-
-/**
- * Best-effort client key: the first X-Forwarded-For address when behind a
- * proxy, else a shared key. X-Forwarded-For can be forged by a client unless
- * the platform overwrites it, which is why the global limit also applies.
- */
-export function clientKey(headers: Headers): string {
-  const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  if (forwarded && /^[0-9a-fA-F.:]{2,45}$/.test(forwarded)) return forwarded;
-  const real = headers.get("x-real-ip")?.trim();
-  if (real && /^[0-9a-fA-F.:]{2,45}$/.test(real)) return real;
-  return "unknown";
-}
-
-/** Constant-time string comparison for the access token. */
-export function sameSecret(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const x = enc.encode(a);
-  const y = enc.encode(b);
-  let diff = x.length ^ y.length;
-  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
-  return diff === 0;
-}

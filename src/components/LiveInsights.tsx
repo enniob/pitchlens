@@ -6,6 +6,7 @@ import { requestExplanation } from "@/explain/client";
 import { insightMomentsBetween } from "@/playback/moments";
 import { ALL_MATCH, eventMatchesFocus, normalizeFocus, type MatchFocus } from "@/playback/focus";
 import { eventCopy } from "./eventCopy";
+import { useExplanationAccess } from "./ExplanationAccessGate";
 import { audienceName, ExplanationBody, FALLBACK_TITLE, type SavedExplanation } from "./ExplanationPanel";
 import { formatClock, shortClock } from "./format";
 import { Icon } from "./Icon";
@@ -49,6 +50,8 @@ const sameJob = (a: Job | null, b: Job) => a !== null && a.eventId === b.eventId
  * Answers arrive after the moment (typically 10–20 s) and are labelled with
  * its time. A card only shows once playback has reached its moment, so a
  * backward seek hides it again (and abandons a request for it).
+ * While AI access is locked nothing is requested and pending work is dropped;
+ * the newest moment missed that way is explained once access returns.
  */
 export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSaved, onReplayFrom, focus = ALL_MATCH }: Props) {
   const validFocus = normalizeFocus(fixture, focus);
@@ -67,10 +70,22 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
   const savedRef = useRef(saved);
   savedRef.current = saved;
   const prevTime = useRef(timeMs);
+  const allowed = useExplanationAccess();
+  const allowedRef = useRef(allowed);
+  allowedRef.current = allowed;
+  // The newest automatic insight not asked for, or dropped, because access was locked.
+  const missed = useRef<Job | null>(null);
 
   useEffect(() => () => { controller.current?.abort(); }, []);
 
   const setQueue = (job: Job | null) => { queued.current = job; setQueuedJob(job); };
+
+  function abandonRunning() {
+    controller.current?.abort();
+    controller.current = null;
+    runningRef.current = null;
+    setRunning(null);
+  }
 
   function startNext() {
     const next = queued.current;
@@ -81,7 +96,7 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
   function start(job: Job) {
     // A checked answer is kept; one that failed its checks may be asked for again, and replaces it.
     const done = savedRef.current.find((s) => s.id === insightId(job.eventId, job.audience));
-    if ((done && !isFallback(done)) || sameJob(runningRef.current, job)) return;
+    if (!allowedRef.current || (done && !isFallback(done)) || sameJob(runningRef.current, job)) return;
     // Busy: wait, replacing anything older that was waiting.
     if (controller.current) { setQueue(job); return; }
     const c = new AbortController();
@@ -119,24 +134,35 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
     };
     if (queued.current && !relevant(queued.current)) setQueue(null);
     if (runningRef.current && !relevant(runningRef.current)) {
-      controller.current?.abort();
-      controller.current = null;
-      runningRef.current = null;
-      setRunning(null);
+      abandonRunning();
       startNext();
     }
   }, [validFocus.teamId, validFocus.playerId]);
+
+  // Locking or expiry drops all pending work; unlocking picks up the newest missed moment if it still applies.
+  useEffect(() => {
+    if (!allowed) {
+      const pending = queued.current ?? runningRef.current;
+      if (pending) missed.current = pending;
+      setQueue(null);
+      abandonRunning();
+      return;
+    }
+    const job = missed.current;
+    missed.current = null;
+    const event = job && fixture.events.find((e) => e.id === job.eventId);
+    if (job && event && job.audience === audience && timeMs >= job.atMs && eventMatchesFocus(event, validFocus)) start(job);
+    // Runs once per access change; the other values are read as they are at that moment.
+  }, [allowed]);
 
   useEffect(() => {
     const from = prevTime.current;
     prevTime.current = timeMs;
     // Back before a moment: abandon its request or its place in the queue.
+    if (missed.current && timeMs < missed.current.atMs) missed.current = null;
     if (queued.current && timeMs < queued.current.atMs) setQueue(null);
     if (runningRef.current && timeMs < runningRef.current.atMs) {
-      controller.current?.abort();
-      controller.current = null;
-      runningRef.current = null;
-      setRunning(null);
+      abandonRunning();
       startNext();
     }
     if (replay) {
@@ -151,7 +177,9 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
     // Only the latest moment reached in one step is explained automatically.
     const latest = reached.filter((event) => eventMatchesFocus(event, validFocus)).at(-1);
     if (!latest) return;
-    start({ eventId: latest.id, atMs: latest.t, audience });
+    const job = { eventId: latest.id, atMs: latest.t, audience };
+    if (allowedRef.current) start(job);
+    else missed.current = job;
     // Runs once per clock change; the other values are read as they are at that moment.
   }, [timeMs]);
 
@@ -195,7 +223,7 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
               ) : error ? (
                 <div className="insight__status">
                   <p className="explain__error" role="alert"><Icon name="warning" size={16} />{error}</p>
-                  <button type="button" className="btn btn--ghost btn--small" onClick={() => start(job)}>Try again</button>
+                  <button type="button" className="btn btn--ghost btn--small" disabled={!allowed} onClick={() => start(job)}>Try again</button>
                 </div>
               ) : result ? (
                 open ? (
@@ -209,7 +237,7 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
                   <p className="insight__headline">{isFallback(result) ? FALLBACK_TITLE : result.result.explanation.headline}</p>
                 )
               ) : (
-                <button type="button" className="btn btn--ghost btn--small insight__ask" onClick={() => start(job)}>
+                <button type="button" className="btn btn--ghost btn--small insight__ask" disabled={!allowed} onClick={() => start(job)}>
                   <Icon name="spark" size={14} />Explain for {audienceName(audience)}
                 </button>
               )}

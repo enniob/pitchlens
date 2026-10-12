@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MatchFixture, Team } from "@/match/contract";
 import { sampleFixture } from "@/match/fixture";
 import type { Audience, ExplainSuccess } from "@/explain/api";
@@ -9,6 +9,7 @@ import { proStatisticsAt } from "@/playback/proData";
 import { recapMoments } from "@/playback/recap";
 import { statisticsAt } from "@/playback/statistics";
 import { ExplanationDetails } from "./Evidence";
+import { LOCKED_HINT, useExplanationAccess } from "./ExplanationAccessGate";
 import { eventCopy, plainDescription } from "./eventCopy";
 import { AudienceSwitch, audienceName, CheckRow, savedTitle, type SavedExplanation } from "./ExplanationPanel";
 import { formatClock } from "./format";
@@ -133,24 +134,30 @@ function TeamName({ team }: { team: Team }) {
   );
 }
 
-/** "How the match unfolded": one full-time summary from the explanation service, requested when the recap opens. */
+/**
+ * "How the match unfolded": one full-time summary from the explanation service,
+ * requested when the recap opens, or once AI access is unlocked. Locking
+ * abandons a summary still loading; one already shown stays.
+ */
 function Story({ fixture, audience, onReplay, cached, onSummary }:
   { fixture: MatchFixture; audience: Audience; onReplay: (t: number) => void; cached?: ExplainSuccess; onSummary?: (a: Audience, r: ExplainSuccess) => void }) {
   const supported = matchReferenceOf(fixture, sampleFixture.matchId) !== null;
+  const allowed = useExplanationAccess();
   const [state, setState] = useState<{ kind: "loading" } | { kind: "error"; message: string } | { kind: "done"; result: ExplainSuccess }>(
     cached ? { kind: "done", result: cached } : { kind: "loading" });
   const [attempt, setAttempt] = useState(0);
-  // A summary fetched earlier this match is reused; Try again always asks afresh.
-  const reuse = cached !== undefined && attempt === 0;
+  // The attempt whose summary is on screen: a summary fetched earlier this match is reused; Try again always asks afresh.
+  const answered = useRef<number | null>(cached ? 0 : null);
   const [showEvidence, setShowEvidence] = useState(false);
 
   useEffect(() => {
-    if (!supported || reuse) return;
+    if (!supported || !allowed || answered.current === attempt) return;
     const controller = new AbortController();
     setState({ kind: "loading" });
     requestExplanation(fixture, sampleFixture.matchId, fixture.durationMs, audience, controller.signal, fetch, "match")
       .then((result) => {
         if (controller.signal.aborted) return;
+        answered.current = attempt;
         setState({ kind: "done", result });
         onSummary?.(audience, result);
       })
@@ -160,11 +167,13 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
             ? e.message : "The summary could not be loaded. Check your connection and try again." });
       });
     return () => controller.abort();
-    // `reuse` only changes with `attempt`, and onSummary is a stable callback from the viewer.
-  }, [fixture, audience, supported, attempt]);
+    // `answered` is read as it is when an attempt starts, and onSummary is a stable callback from the viewer.
+  }, [fixture, audience, supported, attempt, allowed]);
 
   if (!supported)
     return <article className="recap__story"><h3>How the match unfolded</h3><p>Summaries are unavailable for this match. Try the demo or generate a new match.</p></article>;
+  if (!allowed && state.kind === "loading")
+    return <article className="recap__story"><h3>How the match unfolded</h3><p role="status" className="recap__status">{LOCKED_HINT}</p></article>;
   if (state.kind === "loading")
     return (
       <article className="recap__story" aria-busy="true">
@@ -178,7 +187,8 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
       <article className="recap__story">
         <h3>How the match unfolded</h3>
         <p role="alert" className="explain__error"><Icon name="warning" size={16} />{state.message}</p>
-        <button type="button" className="btn btn--small" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+        {!allowed && <p className="recap__status">{LOCKED_HINT}</p>}
+        <button type="button" className="btn btn--small" disabled={!allowed} onClick={() => setAttempt((n) => n + 1)}>Try again</button>
       </article>
     );
 
@@ -190,7 +200,8 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
       {fallback ? (
         <>
           <p>We could not produce a checked summary of this match.</p>
-          <button type="button" className="btn btn--small" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+          {!allowed && <p className="recap__status">{LOCKED_HINT}</p>}
+          <button type="button" className="btn btn--small" disabled={!allowed} onClick={() => setAttempt((n) => n + 1)}>Try again</button>
         </>
       ) : (
         <>

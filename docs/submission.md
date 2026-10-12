@@ -47,9 +47,11 @@ instant live response.
 ## Local walkthrough
 
 1. Install Node.js 22 and run `npm ci`.
-2. Copy `.env.example` to `.env.local`; configure the required Foundry settings.
+2. Copy `.env.example` to `.env.local`; configure Foundry, a random judge access
+   code, and an independent session signing secret.
 3. Run `npm run dev` and open `http://localhost:3000`.
-4. Select **Kick off the demo**, pause after the shot, and inspect patterns.
+4. Unlock AI explanations with the code, then select **Kick off the demo**,
+   pause after the shot, and inspect patterns.
 5. Request an explanation, compare audience modes, expand evidence, and replay.
 6. Choose a team/player focus. Seek backwards and confirm later moments disappear.
 7. Reach full time and open **Recap**.

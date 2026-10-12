@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { connection } from "next/server";
 import "./globals.css";
 
 // Self-hosted by Next at build time: no font requests at runtime.
@@ -16,7 +17,8 @@ export const viewport: Viewport = {
   themeColor: "#0b1622",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await connection();
   return (
     <html lang="en" className={inter.variable}>
       <body>{children}</body>

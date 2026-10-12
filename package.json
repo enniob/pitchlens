@@ -4,9 +4,9 @@
   "private": true,
   "description": "Explainable synthetic football intelligence with interactive 3D playback and Microsoft Foundry.",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --hostname 127.0.0.1",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:live": "vitest run --config vitest.live.config.mts",

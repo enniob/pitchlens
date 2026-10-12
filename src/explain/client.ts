@@ -29,7 +29,10 @@ export async function requestExplanation(
     const code = body?.error?.code;
     const messages: Record<string, string> = {
       "not-configured": "The explanation service is not configured yet.",
-      unauthorized: "The explanation service requires an access token. Check the server configuration for local testing.",
+      unauthorized: "Unlock AI explanations using the access code above the match.",
+      "explanations-disabled": "AI explanations are temporarily disabled. Playback is still available.",
+      "budget-exhausted": "Today's AI explanation allowance has been reached. Playback is still available.",
+      "session-quota-exhausted": "This session has used its AI explanation allowance.",
       "rate-limited": "Too many requests. Wait a minute before trying again.",
       busy: "The explanation service is busy. Try again shortly.",
       "upstream-rate-limited": "The model service is busy. Try again shortly.",
