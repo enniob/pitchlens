@@ -91,6 +91,54 @@ describe("grounding checks", () => {
     expect(issues(edit((r) => (r.limitations = ["Whether a later shot is saved is not known."])))).toEqual([]);
   });
 
+  // Regressions found by the scenario evaluation (docs/ai-evaluation.md).
+  it("do not read a shirt number and initial as a time", () => {
+    const early = extractMatchContext(sampleFixture, 3_450);
+    const r: ExplanationResponse = {
+      explanationVersion: "1.0.0",
+      matchId: sampleFixture.matchId,
+      timeMs: 3_450,
+      status: "explained",
+      headline: "Harbor City win the ball",
+      explanation: "#6 S. Okafor won the ball at 2.4 s.",
+      facts: [{ text: "At 2.4 s #6 S. Okafor won the ball.", evidence: [{ kind: "event", id: "e1-turnover" }] }],
+      interpretation: [],
+      limitations: [],
+    };
+    expect(issues(r, early)).toEqual([]);
+    // A real later time is still caught, with or without a capital.
+    expect(issues(edit((x) => (x.explanation = "Play stopped at 6 Seconds."), structuredClone(r)), early)[0]).toContain("6 Seconds");
+    expect(issues(edit((x) => (x.explanation = "Play stopped at 6s."), structuredClone(r)), early)[0]).toContain("6s");
+  });
+
+  it("accept a player named in a cited event's own description", () => {
+    const r = edit((x) => (x.facts[0]!.text = "#6 S. Okafor won the ball from #8 F. Lindqvist at 2.4 s."));
+    expect(r.facts[0]!.evidence).toEqual([{ kind: "event", id: "e1-turnover" }]);
+    expect(issues(r)).toEqual([]);
+    // Still rejected when the cited event does not name them.
+    expect(issues(edit((x) => (x.facts[1]!.text = "#9 shot at 8.8 s past F. Lindqvist."))).join()).toContain("Lindqvist");
+  });
+
+  it("reject a shot's result before it is revealed", () => {
+    const pending: ExplanationResponse = {
+      explanationVersion: "1.0.0",
+      matchId: sampleFixture.matchId,
+      timeMs: 9_050,
+      status: "explained",
+      headline: "Castell shoots",
+      explanation: "Harbor City's number 9 has just shot.",
+      facts: [{ text: "#9 shot at 8.8 s.", evidence: [{ kind: "event", id: "e5-shot" }] }],
+      interpretation: [],
+      limitations: ["Whether the shot went in is not known yet."],
+    };
+    expect(issues(pending, beforeGoal)).toEqual([]);
+    for (const text of ["#9 shot at 8.8 s and it went in.", "#9's shot at 8.8 s beat the keeper.", "#9 shot on target at 8.8 s."])
+      expect(issues(edit((r) => (r.facts[0]!.text = text), structuredClone(pending)), beforeGoal), text).toEqual([expect.stringContaining("shot result")]);
+    expect(issues(edit((r) => (r.explanation = "The shot crossed the line."), structuredClone(pending)), beforeGoal)[0]).toContain("crossed the line");
+    // Once the goal is revealed and cited, the same words are supported.
+    expect(issues(edit((r) => (r.facts[1]!.text = "#9 shot at 8.8 s and it went in at 9.4 s.")))).toEqual([]);
+  });
+
   it("apply the audience limits", () => {
     const long = edit((r) => (r.explanation = "Harbor City won the ball. ".repeat(30).trim()));
     expect(long.explanation.length).toBeGreaterThan(AUDIENCE_LIMITS.casual.explanation);

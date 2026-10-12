@@ -10,9 +10,10 @@
  *   - a time later than the selected time ("at 12.4 s" when paused at 9 s)
  *   - a score other than the score at the selected time
  *   - a shirt number or player surname that is not in the roster, or, in a
- *     claim, a player the claim's cited events do not involve
- *   - an event (goal, offside, foul, save, ...) that is not in the claim's cited
- *     evidence or, for the headline and explanation, in any supplied evidence
+ *     claim, a player the claim's cited events do not involve or name
+ *   - an event (goal, shot result, offside, foul, save, ...) that is not in the
+ *     claim's cited evidence or, for the headline and explanation, in any
+ *     supplied evidence
  *   - wording too long or too dense for the requested audience
  *
  * Limitations get the time, score and player checks, but not the event ones.
@@ -40,6 +41,14 @@ const EVENT_WORDS: { label: string; pattern: RegExp; supports: (e: ContextEvent)
     supports: (e) => e.type === "goal",
     inInterpretation: true,
   },
+  {
+    // A shot's result, which is unknown until its goal or shot-result event is revealed.
+    label: "a shot result",
+    pattern:
+      /\b(into the (net|goal)|in the net|went in|goes in|crossed the (goal ?)?line|beat the (keeper|goalkeeper)|(on|off) target|went wide|goes wide|wide of the (post|goal|target)|over the bar|hit the (post|bar|crossbar|woodwork))\b/i,
+    supports: (e) => e.type === "goal" || e.type === "shot-result" || e.type === "deflection" || (e.type === "shot" && e.outcome !== "pending"),
+    inInterpretation: true,
+  },
   { label: "an offside", pattern: /\b(flagged\s+)?offside\b(?!\s+(line|trap|position))/i, supports: (e) => e.type === "offside", inInterpretation: false },
   { label: "a foul", pattern: /\bfoul(ed|s)?\b/i, supports: (e) => e.type === "foul" || e.type === "free-kick" || e.type === "penalty", inInterpretation: false },
   { label: "a penalty", pattern: /\bpenalty\b(?!\s+(area|box|spot))/i, supports: (e) => e.type === "penalty", inInterpretation: false },
@@ -53,7 +62,8 @@ const EVENT_WORDS: { label: string; pattern: RegExp; supports: (e: ContextEvent)
   },
 ];
 
-const TIME = /(\d+(?:\.\d+)?)\s*(ms|s|secs?|seconds?)\b/gi;
+// Not a shirt number followed by an initial, as event descriptions name players ("#6 S. Okafor").
+const TIME = /(?<![#\d.])(\d+(?:\.\d+)?)\s*(ms|s|secs?|[sS]econds?)\b/g;
 const MINUTE = /\b(\d+)(?:st|nd|rd|th)?\s+minute\b/gi;
 // Two numbers joined by a dash, but not part of a formation such as 4-3-3.
 const SCORE = /(?<![\d.\-–])(\d{1,2})\s?[–-]\s?(\d{1,2})(?![\d\-–])/g;
@@ -88,6 +98,8 @@ export function checkGrounding(response: ExplanationResponse, context: MatchCont
       if (e.playerId) players.add(e.playerId);
       if (e.recipientId) players.add(e.recipientId);
       if (e.type === "formation-change") for (const p of context.players) if (p.teamId === e.teamId) players.add(p.id);
+      // The recorded description can name another player ("... wins the ball from #8 F. Lindqvist").
+      for (const p of context.players) if (e.description.includes(p.name)) players.add(p.id);
     }
     return { events, players };
   };

@@ -93,7 +93,7 @@ For a live quality smoke check in PowerShell, using the local `.env` file:
 ```powershell
 $env:PITCHLENS_LIVE_EVAL = '1'
 $env:PITCHLENS_LIVE_REQUIRE_EXPLANATION = '1'
-node --env-file=.env node_modules/vitest/vitest.mjs run --config vitest.live.config.mts -t 'scripted goal'
+node --env-file=.env node_modules/vitest/vitest.mjs run --config vitest.live.config.mts -t 'demo-goal-recorded'
 ```
 
 The extra smoke gate requires reviewed, usable demo-goal explanations in both
@@ -335,8 +335,10 @@ evidence:
 - a score other than the score at the selected time (formations such as
   4-3-3 are not mistaken for scores)
 - a shirt number no player wears, or a player named in a claim whose cited
-  events do not involve them (a cited snapshot shows everyone)
-- events not in the evidence: scoring, offside, foul, penalty, corner,
+  events do not involve or name them (a cited snapshot shows everyone).
+  A shirt number followed by an initial ("#6 S. Okafor") is not read as a time
+- events not in the evidence: scoring, a shot's result ("went in", "beat the
+  keeper", "on target"), offside, foul, penalty, corner,
   throw-in and save wording must be backed by an event of that kind in the
   claim's citations (for the headline and explanation, in the evidence as a
   whole). A goal earlier than the evidence window is allowed when the score
@@ -529,24 +531,29 @@ Mocked suites:
 - `tests/explain-api.test.ts`: the HTTP contract, request IDs, caching, every
   rejection, the origin and token checks, rate and concurrency limits, and
   error mapping
+- `tests/explain-eval-scenarios.test.ts`, `tests/explain-eval-failures.test.ts`
+  and `tests/explain-eval-report.test.ts`: the scenario evaluation described in
+  [ai-evaluation.md](ai-evaluation.md)
 
-Live evaluation (`tests-live/explain.live.test.ts`) runs five moments (the
-scripted shot before its result is known, the scripted goal, and a generated
-offside, goal and formation change) for both audiences: 10 workflows of up to
-8 model calls each. It runs only with `PITCHLENS_LIVE_EVAL=1` and the Foundry
-variables set:
+Live evaluation (`tests-live/explain.live.test.ts`) runs the evaluation
+scenarios from `tests/support/scenarios.ts` for both audiences. By default it
+runs the 7 scenarios marked `live` (14 workflows, at most 112 model calls). It
+runs only with `PITCHLENS_LIVE_EVAL=1` and the Foundry variables set:
 
 ```sh
 PITCHLENS_LIVE_EVAL=1 FOUNDRY_ENDPOINT=https://<your-resource>.openai.azure.com \
   FOUNDRY_API_KEY=<your-api-key> FOUNDRY_DEPLOYMENT=<your-deployment> npm run test:live
 ```
 
-It **asserts** only properties that must hold whatever the model writes: the
-response validates against evidence the tools could have returned, no later
-event is cited, and `matchId` and `timeMs` match. It **reports** quality as a
-`LIVE` table and summary (verified, revised, insufficient, fallback, errors,
-calls, tokens and time per case). Model output varies between runs, so treat
-the summary as a sample, not a benchmark.
+It **asserts** only the deterministic release blockers, which must hold
+whatever the model writes: the response validates against evidence the tools
+could have returned, no later event, time, score or formation appears, and
+`matchId` and `timeMs` match. It **reports** a Markdown table and summary:
+outcome counts, scenario and audience, safety separately from a usable
+explanation, latency, model and tool calls, input and output tokens, and an
+estimated cost when prices are configured. Bounds, prices and the report file
+are described in [ai-evaluation.md](ai-evaluation.md). Model output varies
+between runs, so treat the summary as a sample, not a benchmark.
 
 ## Not implemented yet
 
