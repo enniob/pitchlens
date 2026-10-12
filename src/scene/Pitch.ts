@@ -21,13 +21,32 @@ function paintGrass(): HTMLCanvasElement {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("2D canvas unavailable for pitch texture");
 
-  // Mown stripes.
+  // Deterministic turf grain: generated once, with no downloaded assets.
+  const pixels = ctx.createImageData(canvas.width, canvas.height);
+  let seed = 731;
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const grain = ((seed >>> 24) / 255 - 0.5) * 16;
+      const variation = Math.sin(x / 93) * Math.cos(y / 71) * 3;
+      const stripe = Math.floor((x / PX_PER_M - APRON) / (PITCH_LENGTH / 18));
+      const inPitch = x >= APRON * PX_PER_M && x <= (APRON + PITCH_LENGTH) * PX_PER_M
+        && y >= APRON * PX_PER_M && y <= (APRON + PITCH_WIDTH) * PX_PER_M;
+      const mow = inPitch ? (stripe % 2 === 0 ? 5 : -3) : -8;
+      const i = (y * canvas.width + x) * 4;
+      pixels.data[i] = 65 + grain + variation + mow;
+      pixels.data[i + 1] = 104 + grain + variation + mow;
+      pixels.data[i + 2] = 35 + grain * 0.5 + variation + mow;
+      pixels.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(pixels, 0, 0);
+
+  // Fine, translucent mowing streaks soften the stripe edges.
   const stripes = 18;
   const stripeW = PITCH_LENGTH / stripes;
-  ctx.fillStyle = "#2f7d32";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
   for (let i = 0; i < stripes; i++) {
-    ctx.fillStyle = i % 2 === 0 ? "#358a38" : "#2e7a31";
+    ctx.fillStyle = i % 2 === 0 ? "rgba(195,207,119,0.04)" : "rgba(15,40,17,0.04)";
     ctx.fillRect((APRON + i * stripeW) * PX_PER_M, APRON * PX_PER_M, stripeW * PX_PER_M, PITCH_WIDTH * PX_PER_M);
   }
 
@@ -86,7 +105,24 @@ function paintGrass(): HTMLCanvasElement {
   return canvas;
 }
 
-function buildGoal(material: THREE.Material, netMaterial: THREE.Material, side: -1 | 1): THREE.Group {
+function netPanel(width: number, height: number, material: THREE.LineBasicMaterial): THREE.LineSegments {
+  const vertices: number[] = [];
+  const columns = Math.ceil(width / 0.18);
+  const rows = Math.ceil(height / 0.18);
+  for (let i = 0; i <= columns; i++) {
+    const x = -width / 2 + width * i / columns;
+    vertices.push(x, -height / 2, 0, x, height / 2, 0);
+  }
+  for (let i = 0; i <= rows; i++) {
+    const y = -height / 2 + height * i / rows;
+    vertices.push(-width / 2, y, 0, width / 2, y, 0);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  return new THREE.LineSegments(geometry, material);
+}
+
+function buildGoal(material: THREE.Material, netMaterial: THREE.LineBasicMaterial, side: -1 | 1): THREE.Group {
   const goal = new THREE.Group();
   const half = GOAL_WIDTH / 2;
 
@@ -94,24 +130,26 @@ function buildGoal(material: THREE.Material, netMaterial: THREE.Material, side: 
   for (const z of [-half, half]) {
     const post = new THREE.Mesh(postGeo, material);
     post.position.set(0, GOAL_HEIGHT / 2, z);
+    post.castShadow = true;
     goal.add(post);
   }
   const bar = new THREE.Mesh(new THREE.CylinderGeometry(POST_RADIUS, POST_RADIUS, GOAL_WIDTH + POST_RADIUS * 2, 12), material);
   bar.rotation.x = Math.PI / 2;
   bar.position.set(0, GOAL_HEIGHT, 0);
+  bar.castShadow = true;
   goal.add(bar);
 
-  // Net: back, roof and two sides as wireframe planes.
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(GOAL_WIDTH, GOAL_HEIGHT, 24, 8), netMaterial);
+  // Square net cells rather than the diagonals of triangulated wireframes.
+  const back = netPanel(GOAL_WIDTH, GOAL_HEIGHT, netMaterial);
   back.position.set(side * GOAL_DEPTH, GOAL_HEIGHT / 2, 0);
   back.rotation.y = Math.PI / 2;
   goal.add(back);
-  const roof = new THREE.Mesh(new THREE.PlaneGeometry(GOAL_DEPTH, GOAL_WIDTH, 6, 24), netMaterial);
+  const roof = netPanel(GOAL_DEPTH, GOAL_WIDTH, netMaterial);
   roof.position.set((side * GOAL_DEPTH) / 2, GOAL_HEIGHT, 0);
   roof.rotation.x = Math.PI / 2;
   goal.add(roof);
   for (const z of [-half, half]) {
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(GOAL_DEPTH, GOAL_HEIGHT, 6, 8), netMaterial);
+    const wall = netPanel(GOAL_DEPTH, GOAL_HEIGHT, netMaterial);
     wall.position.set((side * GOAL_DEPTH) / 2, GOAL_HEIGHT / 2, z);
     goal.add(wall);
   }
@@ -130,28 +168,26 @@ export function createPitch(maxAnisotropy: number): THREE.Group {
   texture.anisotropy = Math.min(8, maxAnisotropy);
   const grass = new THREE.Mesh(
     new THREE.PlaneGeometry(PITCH_LENGTH + APRON * 2, PITCH_WIDTH + APRON * 2),
-    new THREE.MeshLambertMaterial({ map: texture }),
+    new THREE.MeshStandardMaterial({ map: texture, roughness: 0.96 }),
   );
   grass.rotation.x = -Math.PI / 2;
-  grass.receiveShadow = false;
+  grass.receiveShadow = true;
   group.add(grass);
 
   // Surround so the pitch doesn't float in the void at angled views.
   const surround = new THREE.Mesh(
     new THREE.PlaneGeometry(PITCH_LENGTH + 60, PITCH_WIDTH + 60),
-    new THREE.MeshLambertMaterial({ color: "#1d3b22" }),
+    new THREE.MeshStandardMaterial({ color: "#263a22", roughness: 1 }),
   );
   surround.rotation.x = -Math.PI / 2;
   surround.position.y = -0.02;
   group.add(surround);
 
   const frame = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.4 });
-  const net = new THREE.MeshBasicMaterial({
+  const net = new THREE.LineBasicMaterial({
     color: "#e2e8f0",
-    wireframe: true,
     transparent: true,
-    opacity: 0.35,
-    side: THREE.DoubleSide,
+    opacity: 0.48,
   });
   group.add(buildGoal(frame, net, -1));
   group.add(buildGoal(frame, net, 1));

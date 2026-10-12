@@ -31,7 +31,7 @@ import {
 } from "./rig";
 
 /** Badge size as a fraction of viewport height, so numbers stay readable at any zoom and screen size. */
-const BADGE_SIZE = 0.036;
+const BADGE_SIZE = 0.024;
 /** Badge anchor height; the badge is drawn above this point on screen so it never hides the body. */
 const BADGE_HEIGHT = 2.65;
 
@@ -109,12 +109,13 @@ export class PlayerSquad {
   constructor(fixture: MatchFixture) {
     this.object.name = "players";
     const count = fixture.roster.length;
-    const cloth = new THREE.MeshLambertMaterial();
+    const cloth = new THREE.MeshStandardMaterial({ roughness: 0.88 });
     const part = (geometry: THREE.BufferGeometry, perPlayer: number, material: THREE.Material = cloth) => {
       const mesh = new THREE.InstancedMesh(geometry, material, count * perPlayer);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       // Instances are spread across the whole pitch, so a single bounding sphere is useless for culling.
       mesh.frustumCulled = false;
+      mesh.castShadow = true;
       this.object.add(mesh);
       return mesh;
     };
@@ -134,6 +135,8 @@ export class PlayerSquad {
       new THREE.MeshBasicMaterial({ color: "#000000", transparent: true, opacity: 0.28, depthWrite: false }),
     );
     this.shadow.renderOrder = 1;
+    this.shadow.castShadow = false;
+    (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.12;
     this.torso = part(shirt, 1);
     this.shorts = part(shortsGeo, 1);
     this.head = part(new THREE.SphereGeometry(HEAD_RADIUS, 12, 10), 1);

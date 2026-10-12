@@ -1,6 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Formations } from "@/components/Formations";
 import { MatchViewer } from "@/components/MatchViewer";
 import { tacticsFromControls } from "@/components/SampleMatchViewer";
 import {
@@ -434,13 +433,15 @@ describe("playback of formations", () => {
     expect(engine.frame().formations!.map((x) => x.formation)).toEqual(["4-4-2", "4-3-3"]);
   });
 
-  it("renders each team's active formation and lists the change in the event feed only once reached", () => {
-    const render = (t: number) => renderToStaticMarkup(<Formations teams={f.teams} roster={f.roster} formations={formationsAt(f, t)} />);
-    expect(render(T - 20)).toContain(">4-3-3<");
-    expect(render(T - 20)).not.toContain("4-2-3-1");
-    expect(render(T)).toContain(">4-2-3-1<");
-    expect(render(T)).toContain("Since 0:20");
-    // The score bug shows both shapes at the current time.
+  it("reports each team's active formation and the changes so far only once reached", () => {
+    const shape = (t: number) => formationsAt(f, t)!.find((x) => x.teamId === away.id)!;
+    const changesSoFar = (t: number) => f.tactics!.applied.filter((c) => c.t <= t);
+    expect(shape(T - 20).formation).toBe("4-3-3");
+    expect(changesSoFar(T - 20)).toHaveLength(0);
+    expect(shape(T).formation).toBe("4-2-3-1");
+    expect(shape(T).since).toBe(T);
+    expect(changesSoFar(T).map((c) => `${c.from} → ${c.to}`)).toEqual(["4-3-3 → 4-2-3-1"]);
+    // The scoreline shows both shapes at the current time.
     expect(renderToStaticMarkup(<MatchViewer fixture={f} />)).toContain("Shape <b>4-4-2</b> v <b>4-3-3</b>");
   });
 

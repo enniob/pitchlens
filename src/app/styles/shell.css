@@ -1,0 +1,196 @@
+/* App shell: app bar, match workspace and the docked explanation panel ---------- */
+
+.app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 640px;
+}
+
+/* Brand left, Match / Recap centred, actions right. */
+.appbar {
+  position: relative;
+  z-index: 30;
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+  height: 62px;
+  padding: 0 36px;
+  border-bottom: 1px solid rgba(159, 176, 194, 0.14);
+  background: var(--bg);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  justify-self: start;
+  font-family: var(--font-display-stack);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+
+.brand b {
+  color: var(--accent);
+  font-weight: inherit;
+}
+
+.brand__mark {
+  color: var(--accent);
+}
+
+.appbar__tabs {
+  display: flex;
+  align-self: stretch;
+}
+
+.appbar__tabs button {
+  position: relative;
+  padding: 0 19px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.appbar__tabs button:not(:disabled):hover,
+.appbar__tabs button[aria-current="page"] {
+  color: var(--text);
+}
+
+.appbar__tabs button[aria-current="page"] {
+  font-weight: 600;
+}
+
+.appbar__tabs button[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent);
+}
+
+.appbar__tabs button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.appbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-self: end;
+}
+
+.appbar__actions .btn {
+  min-height: 40px;
+}
+
+/* Outlined "Synthetic match" pill; it opens the note about the made-up data. */
+.appbar__synth {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(159, 176, 194, 0.32);
+  background: transparent;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.appbar__synth:hover,
+.appbar__synth[aria-expanded="true"] {
+  border-color: var(--muted);
+  background: var(--surface-1);
+}
+
+.appbar__synth .icon {
+  color: var(--muted);
+}
+
+.appbar__synth .dot {
+  width: 7px;
+  height: 7px;
+}
+
+.appbar__new {
+  padding: 0 18px;
+}
+
+.synth-note {
+  position: absolute;
+  right: 36px;
+  top: 70px;
+  z-index: 35;
+  max-width: 380px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+  font-size: 14px;
+}
+
+/*
+ * Two columns as in the art: the match on the left, its stage flush with the
+ * left edge, and the light explanation dock on the right, flush with the right
+ * and bottom edges, its top level with the stage's. Non-stage rows in the
+ * arena share one side gutter.
+ */
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(360px, 30vw, 520px);
+  gap: 8px;
+}
+
+.workspace[hidden] {
+  display: none;
+}
+
+.arena {
+  --arena-gutter: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 0 20px;
+}
+
+.arena > :not(.stage) {
+  margin-inline: var(--arena-gutter) 12px;
+}
+
+.arena .stage {
+  flex: 1;
+  height: auto;
+  min-height: 260px;
+  border-radius: 0 14px 14px 0;
+}
+
+/* Level with the top of the stage. */
+.dock {
+  min-height: 0;
+  margin-top: 6px;
+  overflow: auto;
+  border-radius: 20px 0 0 0;
+  border: 1px solid var(--line);
+  border-width: 1px 0 0 1px;
+  background: var(--surface-1);
+  color: var(--text);
+}

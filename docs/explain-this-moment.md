@@ -11,10 +11,10 @@ first, backend-only part of that feature:
   (`src/explain/response.ts`): the structured response an explanation must
   follow, and a runtime validator that checks it against the evidence package.
 
-> **Live AI integration is not implemented yet.** Nothing in this code calls a
-> model or any network service, needs credentials, or changes the UI. The
-> contract is plain JSON and names no provider, so a hosted model can be
-> connected in a later change without altering it.
+> These two modules call no model or network service and need no
+> credentials. The server-side workflow that uses them with a model on
+> Microsoft Foundry is described in [explain-service.md](explain-service.md).
+> The contract is plain JSON and names no provider.
 
 Both modules are pure TypeScript with no rendering, React or network
 dependencies, like `src/match` and `src/playback`.
@@ -299,8 +299,8 @@ be rejected.
 
 ## Not implemented yet
 
-- No model is called. There is no prompt, provider client, credentials,
-  retry policy, rate limiting or caching.
 - There is no UI. The viewer does not show or request explanations.
 - Validation checks structure and citations; it cannot prove that the text of
-  a claim is supported by what it cites.
+  a claim is supported by what it cites. The service adds wording checks and a
+  model review on top (see [explain-service.md](explain-service.md)), which
+  reduce but do not remove that gap.

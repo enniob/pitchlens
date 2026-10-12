@@ -1,0 +1,591 @@
+/* Understand this moment ------------------------------------------------------------ */
+
+/*
+ * Pieces shared by the panel and the recap (check row, facts and limits,
+ * citations, errors, skeleton) read these --ink-* values. Light cards opt in
+ * with the `paper` class; the docked panel overrides them with the navy theme.
+ */
+.explain,
+.paper {
+  --ink: var(--paper-text);
+  --ink-body: #2b3946;
+  --ink-muted: var(--paper-muted);
+  --ink-line: var(--paper-line);
+  --ink-accent: var(--paper-accent);
+  --ink-raised: var(--paper-2);
+  --ink-sunken: #edf1f2;
+  --ink-hover: #e6ecee;
+  --ink-warn: #b42318;
+  --ink-info: #8a5a00;
+  --ink-reading: #4a78c2;
+  --ink-glyph: #ffffff;
+  --ink-error-bg: #fdecea;
+  --ink-error-line: #f3b8b1;
+  --ink-error-text: #8a1c12;
+  --ink-notice-bg: #fff6dc;
+  --ink-notice-line: #f0d999;
+  --ink-notice-text: #6b4e00;
+  --ink-shimmer: #e3e8ea;
+  --ink-shimmer-hi: #f3f6f7;
+  --ink-accent-wash: var(--paper-accent-wash);
+  color: var(--ink);
+}
+
+/* The docked panel sits on the app's navy surface. */
+.explain {
+  --ink: var(--text);
+  --ink-body: #c9d5e1;
+  --ink-muted: var(--muted);
+  --ink-line: var(--line);
+  --ink-accent: var(--accent);
+  --ink-raised: var(--surface-2);
+  --ink-sunken: var(--bg);
+  --ink-hover: var(--surface-3);
+  --ink-warn: #ffb4a4;
+  --ink-info: var(--notice);
+  --ink-reading: #9cc4ff;
+  --ink-glyph: var(--accent-ink);
+  --ink-error-bg: #2a1311;
+  --ink-error-line: #5b2520;
+  --ink-error-text: #ffc9c4;
+  --ink-notice-bg: #262010;
+  --ink-notice-line: #5c4a1a;
+  --ink-notice-text: var(--notice);
+  --ink-shimmer: var(--surface-2);
+  --ink-shimmer-hi: var(--surface-3);
+  --ink-accent-wash: var(--accent-wash);
+}
+
+.explain {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 28px 24px 24px;
+  overflow-wrap: anywhere;
+}
+
+:where(.explain, .recap) :where(h2, h3, h4, h5, p, ul) {
+  margin: 0;
+}
+
+.explain__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.explain__head h2 {
+  font-family: var(--font-display-stack);
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.ai-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--ink-line);
+  background: var(--ink-raised);
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.explain__scope {
+  margin: 4px 0 16px;
+  font-size: 13px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Casual Fan / Analyst: two equal halves in a light track. */
+.explain__audience {
+  display: flex;
+  width: 100%;
+  padding: 3px;
+  border-radius: 12px;
+  border: 1px solid var(--ink-line);
+  background: var(--ink-sunken);
+}
+
+.explain__audience button {
+  flex: 1;
+  min-height: 40px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.explain__audience button:not([aria-pressed="true"]):hover:not(:disabled) {
+  background: var(--ink-hover);
+  color: var(--ink);
+}
+
+.explain__audience button[aria-pressed="true"] {
+  border-color: var(--ink-accent);
+  background: var(--ink-accent-wash);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.explain__go {
+  gap: 10px;
+  min-height: 54px;
+  margin-top: 16px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #0e7454, var(--paper-accent) 50%, #178a68);
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(15, 27, 38, 0.12);
+}
+
+.explain__go:hover:not(:disabled) {
+  background: linear-gradient(90deg, #0b6849, #0f7556 50%, #13805f);
+}
+
+.explain__go:disabled {
+  opacity: 0.6;
+}
+
+.spinner--small {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+}
+
+/* Request states ----------------------------------------------------------------- */
+
+.explain__note,
+.explain__loading,
+.explain__error,
+.explain__notice,
+.explain__empty {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.explain__note,
+.explain__loading {
+  border: 1px solid var(--ink-line, transparent);
+  background: var(--ink-raised, var(--surface-2));
+  color: var(--ink-muted, var(--muted));
+}
+
+.explain__empty {
+  border: 1px dashed var(--ink-line);
+  color: var(--ink-muted);
+}
+
+.explain__status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.explain .btn--ghost,
+.paper .btn--ghost {
+  color: var(--ink);
+}
+
+.explain .btn--ghost:hover:not(:disabled),
+.paper .btn--ghost:hover:not(:disabled) {
+  background: var(--ink-hover);
+}
+
+.explain__error {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  border: 1px solid var(--ink-error-line, #5b2520);
+  background: var(--ink-error-bg, #2a1311);
+  color: var(--ink-error-text, #ffc9c4);
+}
+
+.explain__error .icon {
+  margin-top: 2px;
+}
+
+.explain__notice {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--ink-notice-line);
+  background: var(--ink-notice-bg);
+  color: var(--ink-notice-text);
+  font-size: 13px;
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.skeleton span {
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--ink-shimmer, var(--surface-3)) 0%, var(--ink-shimmer-hi, var(--line)) 50%,
+    var(--ink-shimmer, var(--surface-3)) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton span:first-child {
+  width: 70%;
+  height: 14px;
+}
+
+.skeleton span:last-child {
+  width: 55%;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* The answer ---------------------------------------------------------------------- */
+
+.explain__answer {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--ink-line);
+}
+
+.explain__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 -6px 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.explain__headline {
+  margin-bottom: 8px;
+  font-family: var(--font-display-stack);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.explain__body {
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--ink-body);
+}
+
+.explain__section {
+  margin: 20px 0 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--ink-line);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* Three cards across; more scroll sideways. */
+.evidence {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 20px) / 3);
+  gap: 10px;
+  margin: 0;
+  padding: 0 0 4px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  list-style: none;
+}
+
+.evidence__card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--ink-line);
+  background: var(--ink-raised);
+  scroll-snap-align: start;
+}
+
+.evidence .evidence__pitch {
+  height: auto;
+  aspect-ratio: 3 / 2;
+  border-radius: 0;
+}
+
+.evidence__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 10px;
+}
+
+.evidence__card time {
+  font-size: 13px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.evidence__what {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.evidence__replay {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  margin-top: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--ink-line);
+  background: var(--ink-raised);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.evidence__replay:hover {
+  background: var(--ink-sunken);
+}
+
+/* Check row: green when checked, otherwise the reason it is not. */
+.check-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--ink-muted, var(--muted));
+  font-variant-numeric: tabular-nums;
+}
+
+.check-row .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-accent, var(--accent));
+}
+
+.check__badge {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.check__badge .icon {
+  color: var(--ink-glyph, var(--accent-ink));
+  stroke-width: 3;
+}
+
+.check-row .check--warn {
+  color: var(--ink-warn, #ffb4a4);
+}
+
+.check-row .check--info {
+  color: var(--ink-info, var(--notice));
+}
+
+/* Facts, reading and limits: quiet secondary detail. */
+.explain__details {
+  margin-top: 16px;
+  border-top: 1px solid var(--ink-line);
+}
+
+.explain__details summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.explain__details summary::-webkit-details-marker {
+  display: none;
+}
+
+.explain__details summary:hover {
+  color: var(--ink);
+}
+
+.explain__details[open] .explain__chevron {
+  transform: rotate(180deg);
+}
+
+.explain__details > :not(summary) {
+  margin-bottom: 12px;
+}
+
+.claims h5,
+.limits h5 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted, var(--muted));
+}
+
+.claims ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.claims li {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ink-raised, var(--surface-2));
+  border: 1px solid var(--ink-line, transparent);
+  border-left: 3px solid var(--ink-accent, var(--accent));
+}
+
+.claims--reading li {
+  border-left-color: var(--ink-reading, #9cc4ff);
+  border-left-style: dashed;
+}
+
+.claims li p {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.claims__cites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--ink-line, var(--line));
+  background: var(--ink-sunken, var(--surface-2));
+  color: var(--ink, var(--text));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cite:hover {
+  background: var(--ink-hover, var(--surface-3));
+  color: var(--ink, var(--text));
+}
+
+.cite time {
+  color: var(--ink-muted, var(--muted));
+  font-variant-numeric: tabular-nums;
+}
+
+.limits {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px dashed var(--ink-muted, #6d7f78);
+}
+
+.limits ul {
+  padding-left: 18px;
+}
+
+.limits li {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-muted, var(--muted));
+}
+
+.explain__disclaimer {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-muted, var(--muted));
+}
+
+/* Your explanations: every earlier answer up to the current time, reopened with one click. */
+.explain__history ul {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.explain__saved {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--ink-line);
+  background: var(--ink-raised);
+  color: var(--ink);
+  text-align: left;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.explain__saved:hover {
+  border-color: var(--ink-accent);
+  background: var(--ink-hover);
+}
+
+.explain__saved-meta {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.explain__saved-meta time {
+  font-variant-numeric: tabular-nums;
+}
+
+.explain__saved-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}

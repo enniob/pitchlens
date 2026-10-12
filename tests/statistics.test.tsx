@@ -1,11 +1,9 @@
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { MatchFixture } from "@/match/contract";
 import { sampleFixture } from "@/match/fixture";
 import { generateMatch } from "@/simulation/generate";
 import { PlaybackEngine } from "@/playback/engine";
 import { statisticsAt } from "@/playback/statistics";
-import { MatchStats } from "@/components/MatchStats";
 
 const home = sampleFixture.teams.find((team) => team.side === "home")!.id;
 const away = sampleFixture.teams.find((team) => team.side === "away")!.id;
@@ -76,11 +74,12 @@ it("does not count a starting score as goals in this sequence", () => {
   expect(statisticsAt(fixture, fixture.durationMs).home.goals).toBe(1);
 });
 
-it("renders an accessible comparison table with empty possession", () => {
-  const html = renderToStaticMarkup(<MatchStats teams={sampleFixture.teams} stats={statisticsAt(sampleFixture, 0)} />);
-  expect(html).toContain("<caption>Match statistics</caption>");
-  expect(html).toContain('scope="row"');
-  expect(html).toContain("Completed passes");
-  expect(html).toContain("—");
-  expect(html).not.toContain("NaN");
+it("starts from empty statistics with no possession share and no NaN", () => {
+  const stats = statisticsAt(sampleFixture, 0);
+  for (const side of ["home", "away"] as const) {
+    for (const value of Object.values(stats[side])) if (typeof value === "number") expect(Number.isNaN(value)).toBe(false);
+    expect(stats[side].goals).toBe(0);
+    expect(stats[side].possessionPercent).toBeNull();
+  }
+  expect(JSON.stringify(stats)).not.toContain("NaN");
 });

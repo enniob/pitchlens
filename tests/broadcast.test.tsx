@@ -1,11 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { LiveFeed } from "@/components/LiveFeed";
-import { MatchCentre } from "@/components/MatchCentre";
 import { MomentBanner } from "@/components/MomentBanner";
-import { ScoreBug } from "@/components/ScoreBug";
+import { ScoreBug, TacticsNumbers } from "@/components/ScoreBug";
 import { SetupDrawer } from "@/components/SetupDrawer";
-import { eventCopy } from "@/components/eventCopy";
 import {
   changeTimeError,
   controlsOf,
@@ -127,14 +125,17 @@ describe("live feed", () => {
     expect(sawPass).toBe(true);
   });
 
-  it("shows data chips only with Pro data on", () => {
+  it("shows the feed with data chips only with Tactics on; otherwise it stays a hidden live region", () => {
     const events = liveFeed(f, goal.t, true);
     const simple = renderToStaticMarkup(<LiveFeed fixture={f} events={liveFeed(f, goal.t, false)} pro={false} />);
     const pro = renderToStaticMarkup(<LiveFeed fixture={f} events={events} pro />);
     expect(simple).not.toContain('class="chip"');
     expect(pro).toContain('class="chip"');
-    expect(pro).toContain("PRO");
+    // Tactics off: visually hidden, but key moments are still announced to screen readers.
+    expect(simple).toMatch(/class="feed[^"]*visually-hidden"/);
+    expect(simple).toContain('aria-live="polite"');
     expect(simple).toContain("Goal!");
+    expect(pro).not.toContain("visually-hidden");
   });
 });
 
@@ -189,7 +190,7 @@ describe("Pro data", () => {
 });
 
 describe("score bug", () => {
-  const render = (t: number, pro: boolean) => {
+  const render = (t: number) => {
     const frame = frameAt(f, t);
     return renderToStaticMarkup(
       <ScoreBug
@@ -199,68 +200,35 @@ describe("score bug", () => {
         status="paused"
         possessionTeamId={frame.possession?.teamId ?? null}
         formations={frame.formations}
-        pro={pro ? { stats: statisticsAt(f, t), extra: proStatisticsAt(f, t) } : null}
       />,
     );
   };
 
   it("shows score, clock and the shapes active now, with team names and shapes as well as colour", () => {
-    expect(render(change.t - 100, false)).toContain("Shape <b>4-4-2</b> v <b>4-3-3</b>");
-    expect(render(change.t, false)).toContain("Shape <b>4-4-2</b> v <b>4-2-3-1</b>");
-    const html = render(goal.t, false);
+    expect(render(change.t - 100)).toContain("Shape <b>4-4-2</b> v <b>4-3-3</b>");
+    expect(render(change.t)).toContain("Shape <b>4-4-2</b> v <b>4-2-3-1</b>");
+    const html = render(goal.t);
     expect(html).toContain('aria-label="Score: Harbor City FC 0, Northvale Rovers 1"');
     expect(html).toContain("marker--home");
     expect(html).toContain("marker--away");
     expect(html).toContain("<time>0:14</time>");
+    // Full team names are written out, so the kit colour is never the only cue.
+    for (const team of f.teams) expect(html).toContain(`${team.name}</span>`);
+    expect(html).toContain("Paused");
   });
 
-  it("adds the Pro panel only when Pro data is on", () => {
-    expect(render(45_000, false)).not.toContain("Passes completed");
-    expect(render(45_000, true)).toContain("Passes completed");
-    expect(render(45_000, true)).toContain("Shots (on target)");
-  });
-});
-
-describe("Match centre", () => {
-  const base = {
-    fixture: f,
-    timeMs: 45_000,
-    events: frameAt(f, 45_000).events,
-    stats: statisticsAt(f, 45_000),
-    proStats: proStatisticsAt(f, 45_000),
-    formations: formationsAt(f, 45_000),
-    keyOnly: true,
-    selectedId: null,
-    onTab: () => {},
-    onKeyOnly: () => {},
-    onSelect: () => {},
-    onReplayFrom: () => {},
-    onClose: () => {},
-  };
-
-  it("lists key moments in plain words, newest first, and explains a selected one", () => {
-    const html = renderToStaticMarkup(<MatchCentre {...base} pro={false} tab="moments" selectedId={goal.id} />);
-    expect(html).toContain("Key moments");
-    expect(html).toContain(eventCopy(goal).explain);
-    expect(html).toContain("Replay from 3 s before");
-    expect(html).toContain("Explain this moment · coming later");
-    expect(html.indexOf("Tactical change")).toBeLessThan(html.indexOf("Goal!"));
+  it("keeps the Tactics numbers out of the scoreline", () => {
+    expect(render(45_000)).not.toContain("Passes completed");
   });
 
-  it("adds Pro numbers to the stats tab only with Pro data on", () => {
-    expect(renderToStaticMarkup(<MatchCentre {...base} pro={false} tab="stats" />)).not.toContain("Pass completion");
-    expect(renderToStaticMarkup(<MatchCentre {...base} pro tab="stats" />)).toContain("Pass completion");
-  });
-
-  it("shows formations with the changes so far, and an explanation for the scripted demo", () => {
-    expect(renderToStaticMarkup(<MatchCentre {...base} pro={false} tab="formations" />)).toContain("Changes so far: 0:30 NVR 4-3-3 → 4-2-3-1");
-    const early = renderToStaticMarkup(<MatchCentre {...base} timeMs={10_000} formations={formationsAt(f, 10_000)} pro={false} tab="formations" />);
-    expect(early).toContain("Changes so far: none yet");
-    expect(early).not.toContain("4-2-3-1");
-    const demo = renderToStaticMarkup(
-      <MatchCentre {...base} fixture={sampleFixture} formations={null} events={[]} pro={false} tab="formations" />,
-    );
-    expect(demo).toContain("No formation data for this match");
+  it("lists the Tactics numbers so far for both teams, named for screen readers", () => {
+    const stats = statisticsAt(f, 45_000);
+    const extra = proStatisticsAt(f, 45_000);
+    const html = renderToStaticMarkup(<TacticsNumbers teams={f.teams} stats={stats} extra={extra} />);
+    for (const label of ["Possession", "Passes completed", "Shots (on target)"]) expect(html).toContain(label);
+    expect(html).toContain(`<b>${extra.home.passesCompleted}/${extra.home.passesAttempted}</b>`);
+    expect(html).toContain(`<b>${stats.away.shots} (${extra.away.shotsOnTarget})</b>`);
+    for (const team of f.teams) expect(html).toContain(team.name);
   });
 });
 

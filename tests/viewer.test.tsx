@@ -27,6 +27,7 @@ describe("MatchViewer with invalid data", () => {
     expect(html).not.toContain("Match data could not be loaded");
     expect(html).toContain("Live feed");
     expect(html).toContain('aria-label="Match timeline"');
-    expect(html).toContain("Synthetic match");
+    // The synthetic-data label stays in the header (" match" is visually hidden on phones).
+    expect(html).toMatch(/class="appbar__synth"[^>]*>.*Synthetic<span class="appbar__synth-long"> match<\/span>/);
   });
 });

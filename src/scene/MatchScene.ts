@@ -10,6 +10,7 @@ import { motionAt } from "@/playback/animation";
 import type { PlaybackFrame } from "@/playback/derive";
 import type { OffsideReview } from "@/playback/offsideReview";
 import { BallModel } from "./Ball";
+import { pitchCameraDistance } from "./camera";
 import { HALF_LENGTH, HALF_WIDTH } from "./coords";
 import { createPitch } from "./Pitch";
 import { PlayerSquad } from "./Player";
@@ -19,15 +20,12 @@ export type CameraView = "overhead" | "angled";
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 4;
 
-const FOV = 38;
-/** Area kept in frame at zoom 1 (pitch plus a margin), metres. */
-const FRAME_LENGTH = 117;
-const FRAME_WIDTH = 80;
+const FOV = 32;
 const VIEW_DIRECTIONS: Record<CameraView, THREE.Vector3> = {
   // Overhead with a slight tilt towards the bottom touchline.
   overhead: new THREE.Vector3(0, 1, 0.17).normalize(),
   // Broadcast-style elevated view from the bottom touchline.
-  angled: new THREE.Vector3(0, 0.62, 0.78).normalize(),
+  angled: new THREE.Vector3(0, 0.85, 0.72).normalize(),
 };
 /**
  * On portrait screens the camera is turned 90° so the pitch runs top-to-bottom
@@ -35,10 +33,9 @@ const VIEW_DIRECTIONS: Record<CameraView, THREE.Vector3> = {
  */
 const PORTRAIT_VIEW_DIRECTIONS: Record<CameraView, THREE.Vector3> = {
   overhead: new THREE.Vector3(0.17, 1, 0).normalize(),
-  angled: new THREE.Vector3(0.78, 0.62, 0).normalize(),
+  angled: new THREE.Vector3(0.72, 0.85, 0).normalize(),
 };
 const PORTRAIT_BELOW_ASPECT = 0.85;
-const VIEW_DISTANCE_SCALE: Record<CameraView, number> = { overhead: 1, angled: 0.82 };
 
 export interface MatchSceneOptions {
   container: HTMLElement;
@@ -79,7 +76,12 @@ export class MatchScene {
     const { container, fixture } = options;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.setClearColor("#070b0a");
+    this.renderer.setClearColor("#0b1622");
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     const canvas = this.renderer.domElement;
     canvas.style.display = "block";
     canvas.style.width = "100%";
@@ -88,13 +90,19 @@ export class MatchScene {
     canvas.setAttribute("role", "img");
     canvas.setAttribute(
       "aria-label",
-      "3D view of a synthetic football match. The score, live feed and Match centre describe what happens.",
+      "3D view of a synthetic football match. The score, timeline and key moments describe what happens.",
     );
     container.appendChild(canvas);
 
-    this.scene.add(new THREE.HemisphereLight("#e0f2fe", "#14532d", 1.7));
-    const sun = new THREE.DirectionalLight("#ffffff", 1.6);
-    sun.position.set(30, 80, 25);
+    this.scene.add(new THREE.HemisphereLight("#e4efff", "#45502b", 1.6));
+    const sun = new THREE.DirectionalLight("#fff4db", 2.6);
+    sun.position.set(-35, 65, -40);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(sun.shadow.camera, { left: -76, right: 76, top: 64, bottom: -64, near: 1, far: 180 });
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.shadow.normalBias = 0.035;
+    sun.shadow.bias = -0.00015;
     this.scene.add(sun);
 
     this.scene.add(createPitch(this.renderer.capabilities.getMaxAnisotropy()));
@@ -156,6 +164,7 @@ export class MatchScene {
     const materials = new Set<THREE.Material>();
     const textures = new Set<THREE.Texture>();
     this.scene.traverse((obj) => {
+      if (obj instanceof THREE.DirectionalLight) obj.shadow.dispose();
       const mesh = obj as Partial<THREE.Mesh>;
       if (mesh.geometry) geometries.add(mesh.geometry);
       const mat = mesh.material;
@@ -182,11 +191,8 @@ export class MatchScene {
   }
 
   private baseDistance(): number {
-    const tanHalf = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
-    const [screenW, screenH] = this.portrait ? [FRAME_WIDTH, FRAME_LENGTH] : [FRAME_LENGTH, FRAME_WIDTH];
-    const fitVertical = screenH / 2 / tanHalf;
-    const fitHorizontal = screenW / 2 / (tanHalf * this.camera.aspect);
-    return Math.max(fitVertical, fitHorizontal) * VIEW_DISTANCE_SCALE[this.view];
+    const direction = (this.portrait ? PORTRAIT_VIEW_DIRECTIONS : VIEW_DIRECTIONS)[this.view];
+    return pitchCameraDistance(direction, this.camera.aspect, FOV, this.portrait);
   }
 
   private updateCamera(): void {

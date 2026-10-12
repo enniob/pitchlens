@@ -1,0 +1,108 @@
+/* Narrower screens: one column, the panel under the match ----------------------- */
+
+@media (max-width: 1100px) {
+  .app {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .arena {
+    padding-bottom: 8px;
+  }
+
+  .arena .stage {
+    flex: none;
+    height: clamp(300px, 56vw, 560px);
+    border-radius: 0;
+  }
+
+  .dock {
+    margin-top: 0;
+    overflow: visible;
+    border-radius: 20px 20px 0 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .appbar {
+    gap: 8px;
+    padding: 0 12px;
+  }
+
+  /* The mark stands in for the name; the synthetic-data label stays, shortened. */
+  .brand__name,
+  .appbar__synth-long {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .appbar__tabs button {
+    padding: 0 10px;
+  }
+
+  .appbar__actions {
+    gap: 6px;
+  }
+
+  .appbar__synth {
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  .appbar__synth .icon {
+    display: none;
+  }
+
+  .appbar__actions .btn {
+    min-height: 44px;
+  }
+
+  .appbar__new {
+    width: 44px;
+    padding: 0;
+  }
+
+  .arena {
+    --arena-gutter: 8px;
+    gap: 10px;
+  }
+
+  .arena > :not(.stage) {
+    margin-inline: var(--arena-gutter);
+  }
+
+  /* Long names wrap rather than being cut off. */
+  .scoreline__main {
+    column-gap: 12px;
+  }
+
+  .scoreline__team {
+    max-width: none;
+    font-size: 14px;
+    line-height: 1.2;
+    white-space: normal;
+  }
+
+  .scoreline__team--home {
+    text-align: right;
+  }
+
+  .scoreline__score {
+    font-size: 20px;
+  }
+
+  .arena .stage {
+    height: auto;
+    min-height: 0;
+  }
+}

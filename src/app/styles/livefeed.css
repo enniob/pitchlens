@@ -1,0 +1,148 @@
+/* Tactics on: the numbers and the live feed over the bottom-left of the pitch, clear of the top overlays. */
+
+.tactics {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: min(380px, calc(100% - 160px));
+  max-height: calc(100% - var(--hud-clear, 96px) - 16px);
+  overflow: hidden;
+}
+
+/* Off, only the visually hidden live region is left inside. */
+.tactics--off {
+  pointer-events: none;
+}
+
+/* Newest first, so a long feed loses its oldest cards. */
+.feed {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.feed__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px 2px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.feed__empty {
+  display: none;
+  margin: 0;
+  color: var(--muted);
+}
+
+/* Over the pitch, an empty feed takes no space at all. */
+.feed--empty .feed__head {
+  display: none;
+}
+
+.feed__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fc {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 8px 12px 8px 8px;
+  border-radius: 10px;
+  background: var(--glass);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(6px);
+  animation: feed-in 0.35s ease;
+}
+
+@keyframes feed-in {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fc--old {
+  opacity: 0.78;
+}
+
+.fc__icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--surface-3);
+}
+
+.fc--goal .fc__icon {
+  color: var(--gold);
+}
+
+.fc--stop .fc__icon {
+  color: var(--danger);
+}
+
+.fc--tactic .fc__icon {
+  color: var(--accent);
+}
+
+.fc__body {
+  min-width: 0;
+}
+
+.fc__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fc__title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.fc__time {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fc__desc {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* With Tactics on, moment pop-ups sit right of the numbers and feed column instead of over it (phones stack the feed below). */
+@media (min-width: 721px) {
+  .stage:has(.tactics:not(.tactics--off)) .banner-wrap {
+    left: calc(16px + min(380px, 100% - 160px) + 12px);
+    justify-content: flex-start;
+  }
+}
