@@ -76,7 +76,7 @@ export class MatchScene {
     const { container, fixture } = options;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.setClearColor("#070b0a");
+    this.renderer.setClearColor("#0b1622");
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
@@ -90,7 +90,7 @@ export class MatchScene {
     canvas.setAttribute("role", "img");
     canvas.setAttribute(
       "aria-label",
-      "3D view of a synthetic football match. The score, live feed and Match centre describe what happens.",
+      "3D view of a synthetic football match. The score, timeline and key moments describe what happens.",
     );
     container.appendChild(canvas);
 

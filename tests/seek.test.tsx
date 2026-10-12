@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Timeline } from "@/components/Timeline";
-import { timelineMoments } from "@/playback/moments";
+import { stripMoments } from "@/components/MomentStrip";
 import { sampleFixture } from "@/match/fixture";
-import { frameAt, nextEventTime, previousEventTime } from "@/playback/derive";
+import { eventsAt, frameAt, nextEventTime, previousEventTime } from "@/playback/derive";
 import { PlaybackEngine } from "@/playback/engine";
 import { generateMatch } from "@/simulation/generate";
 
@@ -168,7 +168,7 @@ describe("Timeline markup", () => {
       <Timeline
         timeMs={timeMs}
         durationMs={sampleFixture.durationMs}
-        moments={timelineMoments(sampleFixture, timeMs)}
+        moments={stripMoments(eventsAt(sampleFixture, timeMs))}
         teams={sampleFixture.teams}
         selectedId={null}
         onSeek={() => {}}
@@ -193,7 +193,7 @@ describe("Timeline markup", () => {
     expect(markers(render({ timeMs: 0 }))).toBe(0);
     const before = render({ timeMs: goal.t - 1 });
     expect(before).not.toContain("timeline__marker--goal");
-    expect(markers(before)).toBe(timelineMoments(sampleFixture, goal.t - 1).length);
+    expect(markers(before)).toBe(stripMoments(eventsAt(sampleFixture, goal.t - 1)).length);
     const at = render({ timeMs: goal.t });
     expect(at).toContain("timeline__marker--goal");
     expect(at).toContain('aria-label="0:09 Goal, Harbor City FC"');

@@ -6,8 +6,99 @@ explanations written by a model on Microsoft Foundry. It describes the HTTP
 contract the viewer will call, how a match is named safely, the analyst and
 verifier steps, their limits, and how to set up and evaluate it.
 
-The UI does not call the service yet; wiring it into the viewer belongs to
-the integration work. No Azure resources are created by this code.
+The viewer calls the service from the **Understand this moment** panel
+docked beside the pitch. No Azure resources are created by this code.
+
+## Testing from the viewer
+
+1. Fill in the server-only Foundry settings in `.env` or `.env.local` and run
+   `npm run dev`. Use the resource root endpoint, without `/api/projects/...`.
+2. Open `http://localhost:3000` and play or seek to a moment. The
+   **Understand this moment** panel is docked beside the pitch.
+3. Select a moment in the strip under the controls to pause at its timestamp,
+   or use the current playback time. Choose **Casual Fan** or **Analyst**, then
+   **Pause and explain** (while playing) or **Explain this moment** (when paused
+   or at full time).
+4. The request calls the live Foundry deployment. The answer shows a headline,
+   a short explanation and **See the evidence**: one card per cited event or
+   snapshot, with a drawing of the positions at that time and a replay button
+   starting three seconds earlier. Observable facts, tactical interpretation and
+   evidence limitations stay separate under **Facts, reading and limits**.
+5. At full time the **Recap** view unlocks. It requests one full-time summary
+   (`focus: "match"`, below) and shows it as **How the match unfolded**, beside
+   the defining moments and final statistics, which are computed in code.
+
+Moment requests are explicit, never automatic; the recap summary is requested
+the first time the recap opens for each audience and reused after that.
+Changing the audience or match cancels a pending browser request. Every answer
+is kept for the current match: the panel lists earlier ones under **Your
+explanations**, and the recap lists them all under **Moments you explained**,
+each opening back in the match at its time. Playing on keeps an answer, marked
+as out of date. Seeking back before the explained time hides it, and the list
+leaves out any answer asked later than the current time, except while
+replaying that answer's own cited evidence; it shows again once playback
+reaches that time. Late responses cannot replace the new moment's explanation.
+Cancel is also available during loading. Errors offer an explicit retry;
+insufficient evidence is displayed as a valid outcome. Both audiences use the
+same evidence rules. Browser-side validation repeats the response contract and
+checks citations against evidence reachable at the selected time; server-side
+validation remains authoritative for what the model was actually shown.
+
+For local viewer testing, leave the optional `PITCHLENS_EXPLAIN_ACCESS_TOKEN`
+unset. The viewer never embeds or asks for a server access token. A deployment
+using this optional bearer-token gate needs an authenticated server-side entry
+point before enabling viewer access. Foundry credentials always stay server-side.
+
+`tests/explain-client.test.ts` and `tests/explanation-panel.test.tsx` use mocked
+HTTP responses to cover requests, audience changes, safe errors, retries,
+unsupported/future citations, backward seeking, cancellation and evidence replay.
+The DOM test dependency is development-only. Live evaluations remain opt-in.
+
+### Kimi deployment compatibility observed during viewer testing
+
+The Kimi-K2.6 deployment initially exhausted the 2,000-token analyst cap with
+`finishReason: "length"`, without returning valid JSON. Setting the server-only
+`FOUNDRY_REASONING_EFFORT=none` made it return complete answers within the same
+budget. `FOUNDRY_TEMPERATURE=0` reduces sampling variability for this factual
+task. Both parameters are optional and omitted by default; configure them only
+when supported by both deployed models. Restart a running server after editing
+its environment if it does not reload the setting automatically.
+
+The [official Kimi model card](https://huggingface.co/moonshotai/Kimi-K2.6#6-model-usage)
+documents a `thinking: { type: "disabled" }` parameter for its own API. A
+separate small probe through the Foundry v1 endpoint rejected that parameter
+with HTTP 400 (`unrecognized_request_argument`); it is therefore not added to
+the application client. A live probe confirmed `reasoning_effort: "none"`
+works on this deployment; that result should not be assumed for other models.
+
+The verifier schema enumerates the exact targets in each draft, and its prompt
+lists them explicitly, so it cannot group a review under a generic field such
+as `limitations`. Both prompts explain the fixture's pitch coordinates and
+recorded event semantics. Revision instructions ask the model to remove
+unsupported optional claims, rather than invent replacements. Token, time,
+tool and revision limits are unchanged, as are the cutoff and evidence checks.
+Fresh live demo-goal requests passed the quality smoke gate in both audiences.
+Earlier trials also showed unsupported wording and quota errors; these settings
+do not guarantee every moment will yield a usable answer. Model reviews reduce
+errors but do not prove factual correctness.
+
+Verification fallbacks are not cached and the viewer labels them as a failure
+to verify, with **Try again**, rather than implying the match lacks evidence.
+Genuine insufficient-evidence responses remain distinct. Successful answer
+cache keys include deployment, output, reasoning and sampling settings, without keys or
+credentials, so a configuration change cannot reuse an old answer.
+
+For a live quality smoke check in PowerShell, using the local `.env` file:
+
+```powershell
+$env:PITCHLENS_LIVE_EVAL = '1'
+$env:PITCHLENS_LIVE_REQUIRE_EXPLANATION = '1'
+node --env-file=.env node_modules/vitest/vitest.mjs run --config vitest.live.config.mts -t 'scripted goal'
+```
+
+The extra smoke gate requires reviewed, usable demo-goal explanations in both
+audiences; without it the live suite continues to assert safety and report
+quality separately. These commands make paid calls to the configured deployment.
 
 ## Approach
 
@@ -69,7 +160,8 @@ and are safe to import in the browser.
   "requestId": "b7f3c2d1-viewer-42",
   "match": { "kind": "sample", "matchId": "synthetic-mvp1-sample-001" },
   "timeMs": 9050,
-  "audience": "casual"
+  "audience": "casual",
+  "focus": "moment"
 }
 ```
 
@@ -79,6 +171,14 @@ and are safe to import in the browser.
 | `match` | A match reference (below). Never a fixture |
 | `timeMs` | Playback time in ms, 0 to the match duration. Floored to whole ms |
 | `audience` | `casual` (Casual Fan) or `analyst` (Analyst) |
+| `focus` | Optional. `moment` (default) explains the selected time. `match` is a full-time summary of the whole match and is only accepted when `timeMs` equals the match duration; anything earlier is rejected with `invalid-request`, so a summary can never describe play the viewer has not reached |
+
+A `match` focus uses the same response contract, validation, grounding checks,
+verifier and limits as a moment. Its evidence starts from the key events of the
+whole match (goals, shots, set pieces, stoppages and formation changes; ordinary
+passes are left out and noted as a limitation) instead of the last 30 seconds,
+and its tools can reach back to kickoff. Grounding accepts any score the match
+passed through, rebuilt from the goal events, rather than only the final one.
 
 The body must be `application/json` and at most 4 KB. Unknown fields are
 rejected.
@@ -131,6 +231,7 @@ rebuilds it (`src/explain/matchRef.ts`, `src/server/resolveMatch.ts`):
   "matchId": "synthetic-mvp1-sample-001",
   "timeMs": 9050,
   "audience": "casual",
+  "focus": "moment",
   "explanation": { /* ExplanationResponse, see explain-this-moment.md */ },
   "verification": {
     "outcome": "verified",        // verified | revised | insufficient-evidence | fallback

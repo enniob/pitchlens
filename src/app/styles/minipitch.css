@@ -1,0 +1,99 @@
+/* Mini pitch drawings ------------------------------------------------------------ */
+
+/* Fills any box like a photo crop (the SVG uses "slice"); with no height set it keeps the pitch's own shape. */
+.minipitch {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background: #2a7334;
+}
+
+.minipitch__grass {
+  fill: #2a7334;
+}
+
+.minipitch__stripe {
+  fill: #318040;
+}
+
+/* Lines and markers keep a fixed on-screen size at every thumbnail size. */
+.minipitch__lines > *,
+.minipitch__ring,
+.minipitch__outline,
+.minipitch__kit,
+.minipitch__ball,
+.minipitch__ball-outline,
+.minipitch__path line {
+  fill: none;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.minipitch__lines > * {
+  stroke: rgba(255, 255, 255, 0.82);
+  stroke-width: 1.1;
+}
+
+.minipitch__lines > .minipitch__goal {
+  fill: rgba(255, 255, 255, 0.35);
+  stroke-width: 0.8;
+}
+
+.minipitch__spots {
+  fill: rgba(255, 255, 255, 0.82);
+}
+
+/* A soft teal glow under the player in the event. */
+.minipitch__ring {
+  stroke: rgba(52, 211, 164, 0.45);
+  stroke-width: 20;
+}
+
+.minipitch__outline {
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 9;
+}
+
+.minipitch__kit {
+  stroke-width: 7;
+}
+
+/* Away players are squares, so teams never rely on colour alone. */
+.minipitch__player--away .minipitch__outline,
+.minipitch__player--away .minipitch__kit {
+  stroke-linecap: square;
+}
+
+.minipitch__player--away .minipitch__outline {
+  stroke-width: 8.5;
+}
+
+.minipitch__player--away .minipitch__kit {
+  stroke-width: 6.5;
+}
+
+.minipitch__player--actor .minipitch__outline {
+  stroke: #ffffff;
+  stroke-width: 11;
+}
+
+.minipitch__ball-outline {
+  stroke: #111111;
+  stroke-width: 6;
+}
+
+.minipitch__ball {
+  stroke: #ffffff;
+  stroke-width: 4.5;
+}
+
+.minipitch__path line {
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1.4;
+  stroke-dasharray: 3 3;
+}
+
+.minipitch__path polygon {
+  fill: rgba(255, 255, 255, 0.9);
+}

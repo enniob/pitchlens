@@ -1,0 +1,269 @@
+/*
+ * Phones: portrait. In page order: the scoreline and view options, the pitch,
+ * then the offside review and the Tactics numbers and feed.
+ */
+@media (max-width: 720px) {
+  .stage {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    overflow: visible;
+    background: none;
+  }
+
+  .stage__pitch {
+    position: relative;
+    flex: none;
+    height: clamp(260px, 72vw, 380px);
+    overflow: hidden;
+    background: radial-gradient(110% 80% at 50% 45%, #13261c 0%, var(--bg) 75%);
+  }
+
+  .hud {
+    position: static;
+    padding: 0 8px 10px;
+    gap: 6px;
+  }
+
+  .scoreline {
+    padding: 8px 16px;
+  }
+
+  .hud__moment {
+    height: 36px;
+    padding: 0 12px 0 10px;
+    font-size: 13px;
+  }
+
+  .hud__options {
+    padding: 3px 6px 3px 3px;
+  }
+
+  .hud__seg button {
+    padding: 0 9px;
+    font-size: 13px;
+  }
+
+  .hud__divider {
+    margin: 0 4px;
+  }
+
+  /* Pinch the page instead: there is no room for the buttons over a phone-sized pitch. */
+  .hud__zoom {
+    display: none;
+  }
+
+  .btn__label {
+    display: none;
+  }
+
+  .synth-note {
+    left: 8px;
+    right: 8px;
+    top: 60px;
+    max-width: none;
+  }
+
+  /* Along the bottom of the pitch. */
+  .banner-wrap {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 8px;
+  }
+
+  .banner__kind,
+  .banner--goal .banner__kind {
+    font-size: 20px;
+    padding: 0 12px;
+  }
+
+  .banner__body {
+    min-width: 0;
+    padding: 8px 12px;
+  }
+
+  .banner__title {
+    font-size: 15px;
+  }
+
+  .banner__sub {
+    display: none;
+  }
+
+  /* Timeline on its own row, buttons and clock under it. */
+  .controls {
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "timeline timeline timeline timeline timeline"
+      "transport clock . speed full";
+    gap: 4px 10px;
+  }
+
+  .controls__transport {
+    gap: 6px;
+  }
+
+  .ctl,
+  .ctl--small,
+  .controls__speed select {
+    height: 44px;
+  }
+
+  .ctl {
+    width: 44px;
+  }
+
+  .ctl--small {
+    width: 40px;
+  }
+
+  .ctl--play {
+    width: 50px;
+    height: 50px;
+  }
+
+  .controls__clock {
+    font-size: 14px;
+  }
+
+  /* Tactics on: under the pitch. Off, the visually hidden feed stays clipped. */
+  .tactics {
+    position: static;
+    width: auto;
+    max-height: none;
+    margin: 10px 8px 0;
+  }
+
+  .feed__empty,
+  .feed--empty .feed__head {
+    display: block;
+  }
+
+  .strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .strip__nav {
+    display: none;
+  }
+
+  .strip__empty {
+    height: 112px;
+  }
+
+  .strip__card {
+    height: 104px;
+    grid-template-columns: 34px minmax(0, 1fr) 84px;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .strip__icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .strip__title {
+    font-size: 15px;
+  }
+
+  .stage__scrim {
+    position: fixed;
+    align-items: start;
+    overflow: auto;
+  }
+
+  .stage__message--card {
+    padding: 56px 10px 10px;
+  }
+
+  .card {
+    padding: 20px;
+  }
+
+  .card h2 {
+    font-size: 26px;
+  }
+
+  .drawer {
+    width: 100%;
+    border-left: 0;
+  }
+}
+
+/* Phones: landscape — compact feed and pop-ups -------------------------------------- */
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .btn__label {
+    display: none;
+  }
+
+  .tactics {
+    left: 10px;
+    bottom: 10px;
+    width: 300px;
+  }
+
+  .feed__head,
+  .fc__desc,
+  .fc:nth-child(n + 3) {
+    display: none;
+  }
+
+  .banner__kind,
+  .banner--goal .banner__kind {
+    font-size: 24px;
+  }
+
+  .banner__sub {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+/* Offside review: under the pitch overlays, where the moment pop-up would be. */
+.offside-review {
+  position: absolute;
+  left: 50%;
+  top: var(--hud-clear, 96px);
+  transform: translateX(-50%);
+  z-index: 12;
+  display: grid;
+  gap: 6px;
+  width: min(420px, calc(100% - 32px));
+  padding: 16px;
+  border: 1px solid var(--gold);
+  border-radius: 12px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.offside-review span {
+  color: var(--muted);
+}
+
+.offside-review .btn {
+  justify-self: start;
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  .offside-review {
+    position: relative;
+    left: auto;
+    top: auto;
+    transform: none;
+    width: auto;
+    margin: 10px 8px 0;
+  }
+}

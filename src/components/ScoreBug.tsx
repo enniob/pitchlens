@@ -2,121 +2,111 @@ import type { Score, Team } from "@/match/contract";
 import type { ActiveFormation } from "@/playback/derive";
 import type { ProStatistics } from "@/playback/proData";
 import type { MatchStatistics } from "@/playback/statistics";
-import { formatClock } from "./format";
+import { shortClock } from "./format";
+import { TeamName } from "./TeamBadge";
+
+export type PlaybackPhase = "ready" | "playing" | "paused" | "ended";
 
 interface ScoreBugProps {
   teams: [Team, Team];
   score: Score;
   timeMs: number;
-  status: "ready" | "playing" | "paused" | "ended";
+  status: PlaybackPhase;
   /** Team in control of the ball right now, if any. */
   possessionTeamId: string | null;
   formations: ActiveFormation[] | null;
-  /** Shown only with Pro data on. */
-  pro: { stats: MatchStatistics; extra: Record<"home" | "away", ProStatistics> } | null;
 }
 
-const STATUS_TEXT = { ready: "Ready", playing: "Playing", paused: "Paused", ended: "Full time" } as const;
-
-/** Minutes and seconds, as on a TV score bug. */
-const shortClock = (ms: number) => formatClock(ms).replace(/\.\d$/, "");
+const STATUS_TEXT = { ready: "Ready", playing: "Live", paused: "Paused", ended: "Full time" } as const;
 
 /**
- * TV-style score bug: team names with their marker shape, score, clock, who
- * has the ball and both teams' current shapes. Team identity never relies on
- * colour alone: short name plus circle (home) or square (away).
+ * The scoreline, a glass pill at the top of the pitch: full team names, score,
+ * then clock, playback status and both teams' current shapes when the fixture
+ * has them. Team identity never relies on colour alone: each name sits next to
+ * its kit-colour marker in the team's shape (home circle, away square).
  */
-export function ScoreBug({ teams, score, timeMs, status, possessionTeamId, formations, pro }: ScoreBugProps) {
+export function ScoreBug({ teams, score, timeMs, status, possessionTeamId, formations }: ScoreBugProps) {
   const home = teams.find((t) => t.side === "home")!;
   const away = teams.find((t) => t.side === "away")!;
   const shape = (team: Team) => formations?.find((f) => f.teamId === team.id)?.formation;
   const holder = possessionTeamId === home.id ? home : possessionTeamId === away.id ? away : null;
   return (
-    <section className="bug" aria-label="Score and clock">
-      <div className="bug__main">
-        <span className="bug__team bug__team--home" style={{ background: home.kit.primary, color: home.kit.number }}>
-          <span className="marker marker--home" aria-hidden="true" />
-          <abbr title={home.name}>{home.shortName}</abbr>
-          <span className={`bug__ball${holder === home ? " bug__ball--on" : ""}`} aria-hidden="true" />
-        </span>
-        <output className="bug__score" aria-label={`Score: ${home.name} ${score.home}, ${away.name} ${score.away}`}>
+    <section className="scoreline" aria-label="Score and clock">
+      <div className="scoreline__main">
+        <TeamName team={home} className="scoreline__team" />
+        <output className="scoreline__score" aria-label={`Score: ${home.name} ${score.home}, ${away.name} ${score.away}`}>
           <span>{score.home}</span>
+          <span className="scoreline__dash" aria-hidden="true">
+            –
+          </span>
           <span>{score.away}</span>
         </output>
-        <span className="bug__team bug__team--away" style={{ background: away.kit.primary, color: away.kit.number }}>
-          <span className={`bug__ball${holder === away ? " bug__ball--on" : ""}`} aria-hidden="true" />
-          <abbr title={away.name}>{away.shortName}</abbr>
-          <span className="marker marker--away" aria-hidden="true" />
-        </span>
-        <span className="bug__clock">
+        <TeamName team={away} className="scoreline__team" />
+      </div>
+      <p className="scoreline__meta">
+        <span className="scoreline__clock">
           <span className="visually-hidden">Match clock </span>
           <time>{shortClock(timeMs)}</time>
         </span>
-      </div>
-      <div className="bug__sub">
-        <span className="bug__status">
-          <span className={`dot${status === "playing" ? " dot--live" : ""}`} aria-hidden="true" />
-          {STATUS_TEXT[status]}
-        </span>
+        <span className={`scoreline__status scoreline__status--${status}`}>{STATUS_TEXT[status]}</span>
         {formations && (
-          <span>
+          <span className="scoreline__shapes">
             Shape <b>{shape(home)}</b> v <b>{shape(away)}</b>
           </span>
         )}
         <span className="visually-hidden">{holder ? `${holder.name} have the ball` : "Nobody has the ball"}</span>
-      </div>
-      {pro && <ProPanel home={home} away={away} {...pro} />}
+      </p>
     </section>
   );
 }
 
-function ProPanel({
-  home,
-  away,
+/**
+ * Tactics numbers so far, shown with the Tactics feed: one row per figure,
+ * a column per team (home first), headed by each team's marker and short name.
+ */
+export function TacticsNumbers({
+  teams,
   stats,
   extra,
 }: {
-  home: Team;
-  away: Team;
+  teams: [Team, Team];
   stats: MatchStatistics;
   extra: Record<"home" | "away", ProStatistics>;
 }) {
-  const h = stats.home.possessionPercent;
-  const a = stats.away.possessionPercent;
+  const home = teams.find((t) => t.side === "home")!;
+  const away = teams.find((t) => t.side === "away")!;
+  const percent = (v: number | null) => (v === null ? "–" : `${v}%`);
   const rows: [string, string, string][] = [
+    ["Possession", percent(stats.home.possessionPercent), percent(stats.away.possessionPercent)],
     ["Passes completed", `${extra.home.passesCompleted}/${extra.home.passesAttempted}`, `${extra.away.passesCompleted}/${extra.away.passesAttempted}`],
     ["Shots (on target)", `${stats.home.shots} (${extra.home.shotsOnTarget})`, `${stats.away.shots} (${extra.away.shotsOnTarget})`],
   ];
+  const head = (team: Team) => (
+    <span className="tactics-numbers__team">
+      <span className={`marker marker--${team.side}`} style={{ color: team.kit.primary }} />
+      {team.shortName}
+    </span>
+  );
   return (
-    <table className="propanel">
-      <caption className="visually-hidden">Pro data so far</caption>
-      <thead className="visually-hidden">
-        <tr>
-          <th scope="col">{home.name}</th>
-          <th scope="col">Statistic</th>
-          <th scope="col">{away.name}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>{h === null ? "–" : `${h}%`}</td>
-          <th scope="row">
-            Possession
-            <span className="propanel__bar" aria-hidden="true">
-              <span style={{ width: `${h ?? 50}%`, background: home.kit.primary }} />
-              <span style={{ width: `${a ?? 50}%`, background: away.kit.primary }} />
-            </span>
-          </th>
-          <td>{a === null ? "–" : `${a}%`}</td>
-        </tr>
-        {rows.map(([label, hv, av]) => (
-          <tr key={label}>
-            <td>{hv}</td>
-            <th scope="row">{label}</th>
-            <td>{av}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <ul className="tactics-numbers" aria-label="Tactics data so far">
+      <li className="tactics-numbers__head" aria-hidden="true">
+        <span />
+        {head(home)}
+        {head(away)}
+      </li>
+      {rows.map(([label, hv, av]) => (
+        <li key={label}>
+          <span>{label}</span>
+          <span>
+            <span className="visually-hidden">{home.name} </span>
+            <b>{hv}</b>
+          </span>
+          <span>
+            <span className="visually-hidden">, {away.name} </span>
+            <b>{av}</b>
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }

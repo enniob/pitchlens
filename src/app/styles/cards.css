@@ -1,0 +1,195 @@
+/* Cards, scrims and messages ---------------------------------------------------- */
+
+.card {
+  max-width: 600px;
+  padding: 28px;
+  border-radius: 16px;
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+
+.card h2 {
+  margin: 0 0 10px;
+  font-family: var(--font-display-stack);
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.card p {
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+
+.stage__scrim > .card,
+.stage__message .card,
+.shell__overlay > .card {
+  width: min(600px, 100%);
+}
+
+.card--center {
+  text-align: center;
+}
+
+.card--center .versus,
+.card--center .card__actions {
+  justify-content: center;
+}
+
+.card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.kicker {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* Team names as in the scoreline: kit-colour marker in the team's shape, full name. */
+.versus {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 20px;
+  margin: 8px 0 18px;
+}
+
+.card--welcome .versus {
+  justify-content: start;
+  grid-template-columns: auto auto auto;
+}
+
+.teamname {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.teamname--home {
+  justify-self: end;
+}
+
+.teamname .marker {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  background: currentColor;
+}
+
+.teamname .marker--away {
+  border-radius: 3px;
+}
+
+.versus__v {
+  color: var(--muted);
+}
+
+.versus__score {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  color: var(--text);
+  font-size: 52px;
+  font-weight: 700;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.stage__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(6, 12, 20, 0.74);
+}
+
+/* The full-time card sits under the pitch overlays, so they stay usable. */
+.stage__scrim--light {
+  z-index: 9;
+  background: rgba(6, 12, 20, 0.55);
+  pointer-events: none;
+}
+
+.stage__scrim--light .card {
+  pointer-events: auto;
+}
+
+.stage__message {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.stage__message--card {
+  z-index: 7;
+  padding: var(--hud-clear, 96px) 20px 20px;
+  background: rgba(6, 12, 20, 0.85);
+  pointer-events: auto;
+}
+
+.stage__message .card h2 {
+  font-size: 24px;
+}
+
+.shell__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(6, 12, 20, 0.78);
+}
+
+.shell__overlay h2 {
+  font-size: 28px;
+  margin-top: 14px;
+}
+
+.shell__error {
+  position: fixed;
+  left: 50%;
+  top: 80px;
+  z-index: 61;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.notice {
+  margin: 20px;
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+}
+
+.notice--error {
+  border-color: var(--danger);
+}
+

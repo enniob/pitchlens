@@ -46,16 +46,19 @@ npm run dev        # http://localhost:3000
 
 ### Using the viewer
 
-The viewer works like a match on TV (see [Broadcast mode](#broadcast-mode-mvp-8) below):
+The viewer has two views, chosen in the bar at the top:
 
-- On first visit, **Kick off the demo** plays the scripted demo. **Set up your own match** opens the set-up drawer.
-- The **control bar** at the bottom has:
-  - restart, previous and next moment, play/pause, and speed (0.5×, 1×, 2× or 4×)
-  - the **timeline**, which gets an icon button for each key moment as it happens
-  - the **Broadcast** / **Top** camera switch, zoom − / + / fit, and the **Pro data** switch
+- **Match**: the 3D pitch with the score over it, the control bar, a strip of the key moments reached so far, and the docked **Understand this moment** panel (see [docs/explain-service.md](docs/explain-service.md)).
+- **Recap**: unlocks at full time. Shows the defining moments (chosen by rules in `src/playback/recap.ts`), an AI summary of how the match unfolded, and the final statistics. **Replay moment** goes back to the match three seconds before it.
+
+- On first visit, **Kick off the demo** plays the scripted demo. **Set up your own match** opens the set-up drawer, as does **New match** in the top bar.
+- The **control bar** under the pitch has:
+  - restart, previous and next moment, play/pause, the clock, speed (0.5×, 1×, 2× or 4×) and full screen
+  - the **timeline**, which gets a marker for each moment in the strip as it happens
+- Over the pitch: the current moment (top left), the scoreline with the clock, playback status and both shapes (top centre), the **3D** / **Top view** camera switch and the **Tactics** switch (top right; it adds possession, pass and shot numbers and a live feed of every touch with data chips, bottom left), and zoom − / + (bottom right).
 - Zoom also works with the mouse wheel or a pinch. When zoomed in, drag to pan.
-- The **score bug**, the **moment pop-ups**, the **live feed** and **Match centre** only show what has happened by the current playback time.
-- If WebGL isn't available, a message replaces the 3D view. Playback, the score, the feed and Match centre still work.
+- The **score**, the **moment pop-ups**, the **timeline**, the **moment strip** and the **live feed** only show what has happened by the current playback time.
+- If WebGL isn't available, a message replaces the 3D view. Playback, the score, the timeline and the moment strip still work.
 - Offside calls with a recorded kick frame get a three-second review: the pitch freezes at the pass, a yellow line marks the offside boundary, and an orange ring highlights the flagged player. The line uses the ball or the second-last opponent, whichever is closer to goal. The match clock, score and feed stay at the whistle. **Continue** resumes immediately; otherwise playback resumes automatically at the same speed. Seeking skips the automatic review; replaying through the call shows it again. Calls without a recorded kick frame retain the normal offside banner.
 
 ## Architecture
@@ -70,6 +73,7 @@ src/
     derive.ts             Pure functions: positions, score and events at time t
     statistics.ts         Pure function: match statistics at time t
     moments.ts            Pure functions: key moments, pop-ups and the live feed at time t
+    recap.ts              The defining moments of a finished match, for the recap
     proData.ts            Pure functions: Pro data chips and extra statistics from fixture data
     animation.ts          Pure functions: player speed, distance travelled and ball contacts (kicks, throws, saves, tackles…) at time t
     engine.ts             PlaybackEngine: the single simulation clock
@@ -100,9 +104,14 @@ src/
     MatchScene.ts         Puts the scene together: lights, cameras, zoom/pan, resize, dispose
   components/             React UI
     SampleMatchViewer.tsx App shell: loaded match, set-up drawer, Pro data preference, first-visit card
-    MatchViewer.tsx       Runs the one requestAnimationFrame loop and connects engine → scene → broadcast overlays
-    ScoreBug.tsx, MomentBanner.tsx, LiveFeed.tsx, Timeline.tsx, PlaybackControls.tsx, MatchCentre.tsx,
-    MatchStats.tsx, Formations.tsx, SetupDrawer.tsx, TeamBadge.tsx, Icon.tsx
+    MatchViewer.tsx       Runs the one requestAnimationFrame loop and connects engine → scene → overlays; lays out the Match and Recap views
+    AppBar.tsx            Brand, Match / Recap switch, Synthetic match note and New match
+    ExplanationPanel.tsx  "Understand this moment": request, cancellation, time boundaries and the answer
+    Evidence.tsx          Evidence cards, cited claims and limits shared by the panel and the recap
+    Recap.tsx             "The match, explained.": defining moments, full-time summary and final numbers
+    MomentStrip.tsx, MiniPitch.tsx  Key-moment cards and the small top-down position drawings they use
+    ScoreBug.tsx, MomentBanner.tsx, LiveFeed.tsx, Timeline.tsx, PlaybackControls.tsx,
+    SetupDrawer.tsx, TeamBadge.tsx, Icon.tsx
     eventCopy.ts          Plain-language titles, icons and explanations for events
     setup.ts              Set-up form model, per-field validation, tactics configuration
   app/                    Next.js App Router page and layout, and the api/explain route
@@ -840,7 +849,7 @@ fixtures without tactics, invalid input, payload bounds and invalid responses.
 
 `POST /api/explain` explains a paused moment with a model deployed on
 **Microsoft Foundry**, called through Foundry's OpenAI-compatible v1 chat
-completions API from the Next.js server. The viewer does not call it yet.
+completions API from the Next.js server. The viewer calls it from the **Understand this moment** panel.
 
 - **Request:** a match reference, a time and an audience (`casual` or
   `analyst`). The browser never sends match data. The scripted demo is named
@@ -874,6 +883,8 @@ the mocked suites; `npm run test:live` runs the opt-in live evaluation.
 
 ## Broadcast mode (MVP 8)
 
+> The layout has since been reorganised into the **Match** and **Recap** views described in [Using the viewer](#using-the-viewer): the control bar now sits under the pitch, the score on it, and the explanation panel beside it. The pop-ups, live feed and set-up drawer work as described here. Match centre has since been removed, and Pro data is now the **Tactics** switch on the pitch.
+
 ![First visit: the demo is one click away](docs/screenshots/broadcast-desktop-welcome.jpg)
 
 ![A goal pop-up over the full-screen pitch, with the live feed and score bug](docs/screenshots/broadcast-desktop-goal.jpg)
@@ -894,7 +905,7 @@ console game, so a first-time fan can follow it without instructions:
 - **Live feed.** Up to three key moments from the last 12 seconds slide in at
   the side and clear themselves. Each has a plain title (“Free kick”, “Save”)
   and the simulator's description.
-- **Match centre.** Opened from the top right, it floats over the pitch
+- **Match centre** (since removed). Opened from the top right, it floated over the pitch
   instead of shrinking it. It has three tabs:
   - **Moments:** key moments or every touch, newest first. Selecting one
     explains it in a sentence and offers *Replay from 3 s before*.
@@ -964,10 +975,15 @@ Every Pro figure is read or computed from fixture data in
   formations never show anything after the current time. Seeking back restores
   the earlier formation, and restart restores the starting one.
 - The scripted demo and fixtures from schema 1.0.0 to 1.3.0 still load.
-  Without formation data, the score bug omits the shapes and Match centre
-  explains why.
-- *Explain this moment* is still a labelled concept in Match centre. The
-  evidence extractor in `src/explain/` is not connected to the UI.
+  Without formation data, the score bug omits the shapes.
+- *Explain this moment* in the **Understand this moment** panel calls the Foundry-backed service.
+  Select a moment, choose Casual Fan or Analyst, and press **Pause and explain**.
+  Facts, tactical interpretation and limitations are shown separately, with
+  replay buttons for cited evidence. Every answer is kept for the match under
+  **Your explanations**, and the recap lists them under **Moments you
+  explained**. Seeking back hides answers asked later than the current time;
+  seeking or changing the audience cancels a pending request. See
+  [the local testing guide](docs/explain-service.md#testing-from-the-viewer).
 
 ### Accessibility
 
@@ -994,9 +1010,10 @@ Every Pro figure is read or computed from fixture data in
 
 ### Limitations
 
-- Player position labels (ST, LCB…) appear in Pro feed chips, the moment
-  details and the Formations tab, not on the 3D players.
-- The live feed lists recent moments only; the full history is in Match centre.
+- Player position labels (ST, LCB…) appear in Pro feed chips, not on the 3D
+  players.
+- The live feed lists recent moments only; the moment strip and the timeline
+  keep every key moment reached.
 - The flat 2D fallback for devices without WebGL is still only a proposal.
   Without WebGL, the 3D area shows a message.
 - Keyboard shortcuts (such as Space for play) are not added yet. Every control
@@ -1014,7 +1031,8 @@ Every Pro figure is read or computed from fixture data in
   - Pro totals consistent with `statisticsAt`
   - the score bug's shapes at, and just before, a formation change
   - Match centre tabs, Pro rows, the formation history and the scripted demo's
-    empty state
+    empty state (removed with Match centre; the formation and statistics logic
+    keeps its own tests)
   - set-up validation, the “Not applied yet” state, and regenerating an
     identical match from a recovered set-up
 - The timeline, viewer and formation tests were updated for the new markup and

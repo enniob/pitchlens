@@ -1,0 +1,661 @@
+/* Recap: "The match, explained." ---------------------------------------------------- */
+
+.recap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px clamp(16px, 5vw, 86px) 12px;
+}
+
+.recap > * {
+  max-width: 1500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Hero */
+
+.recap__head {
+  text-align: center;
+}
+
+.recap__head h2 {
+  font-family: var(--font-display-stack);
+  font-size: 54px;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.recap__head p {
+  margin-top: 6px;
+  font-size: 20px;
+  color: var(--muted);
+}
+
+/* Scoreline, centred on the page, with the audience switch at the right */
+
+.recap__scoreline {
+  display: grid;
+  /* The side columns keep room for the switch, so long team names wrap instead of colliding. */
+  grid-template-columns: minmax(290px, 1fr) minmax(0, auto) minmax(290px, 1fr);
+  align-items: center;
+  margin-top: 18px;
+}
+
+.recap__result {
+  grid-column: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 40px;
+}
+
+.recap__team {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.recap__team--home {
+  justify-self: end;
+}
+
+.recap__team .marker {
+  width: 24px;
+  height: 24px;
+  border-width: 2px;
+}
+
+.recap__team .marker--away {
+  border-radius: 5px;
+}
+
+.recap__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.recap__score output {
+  font-family: var(--font-display-stack);
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recap__score span {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.recap__audience {
+  grid-column: 3;
+  justify-self: end;
+  gap: 2px;
+  padding: 5px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+}
+
+.recap__audience button {
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 18px;
+  font-size: 15px;
+  color: var(--muted);
+}
+
+.recap__audience button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Defining moments */
+
+.recap__moments {
+  /* One equal column per moment (1–3), spanning the content width so the edges line up with the row below. */
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 20px;
+  margin-top: 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.recap__moment {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+}
+
+.recap__thumb {
+  position: relative;
+  height: 160px;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.recap__thumb .minipitch {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
+.recap__thumb time {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: rgba(6, 12, 20, 0.82);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.recap__moment h3 {
+  margin-top: 12px;
+  font-family: var(--font-display-stack);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.recap__moment p {
+  flex: 1;
+  margin-top: 4px;
+  min-height: calc(2 * 1.45em);
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.recap__replay {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 12px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid #3a5168;
+  background: transparent;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.recap__replay:hover {
+  background: var(--surface-2);
+}
+
+.recap__play {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.recap__go {
+  margin-left: auto;
+  transform: rotate(-90deg);
+}
+
+/* Story and snapshot */
+
+.recap__lower {
+  display: grid;
+  grid-template-columns: minmax(0, 55fr) minmax(0, 45fr);
+  gap: 20px;
+  margin-top: 20px;
+}
+
+/*
+ * A white paper card. The shared pieces inside (check row, claims, citations,
+ * errors, skeleton) take their colours from the .paper --ink-* hook; the app
+ * tokens are remapped for the generic button, link and focus ring, and as fallbacks.
+ */
+.recap__story {
+  --text: var(--paper-text);
+  --muted: var(--paper-muted);
+  --line: var(--paper-line);
+  --surface-2: var(--paper);
+  --surface-3: var(--paper-line);
+  --accent: var(--paper-accent);
+  --focus: #1d5fbf;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 32px;
+  border-radius: 14px;
+  background: var(--paper-2);
+  color: var(--paper-text);
+}
+
+.recap__story h3 {
+  font-family: var(--font-display-stack);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.recap__story p {
+  margin-top: 8px;
+  font-size: 19px;
+  line-height: 1.5;
+  color: var(--ink-body, var(--paper-text));
+}
+
+.recap__story .recap__headline {
+  margin-top: 10px;
+  font-weight: 700;
+  color: var(--paper-text);
+}
+
+.recap__story .recap__headline + p {
+  margin-top: 2px;
+}
+
+.recap__story .recap__status {
+  font-size: 15px;
+  color: var(--ink-muted, var(--paper-muted));
+}
+
+.recap__story .btn {
+  align-self: flex-start;
+  margin-top: 12px;
+  color: var(--paper-text);
+}
+
+.recap__story .explain__error {
+  font-size: 15px;
+}
+
+.recap__check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 32px;
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.recap__check .check-row {
+  margin: 0;
+  justify-content: flex-start;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.recap__check .check {
+  gap: 10px;
+  font-size: 15px;
+}
+
+.recap__check .check__badge {
+  width: 26px;
+  height: 26px;
+}
+
+.recap__check .link {
+  position: relative;
+  gap: 8px;
+  font-size: 16px;
+}
+
+.recap__check .link:hover {
+  text-decoration: underline;
+}
+
+/* A thin divider between the check and the link. */
+.recap__check .link::before {
+  content: "";
+  position: absolute;
+  left: -16px;
+  top: 6px;
+  bottom: 6px;
+  border-left: 1px solid var(--ink-line, var(--paper-line));
+}
+
+.recap__check .link .icon {
+  transform: none;
+  transition: transform 0.15s ease;
+}
+
+.recap__check .link[aria-expanded="true"] .icon {
+  transform: rotate(-90deg);
+}
+
+.recap__evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.recap__story .claims li p,
+.recap__story .limits li {
+  margin-top: 0;
+  font-size: 15px;
+}
+
+.recap__story .explain__disclaimer {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.recap__snapshot {
+  padding: 22px 28px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+}
+
+.recap__snapshot h3 {
+  margin-bottom: 6px;
+  font-family: var(--font-display-stack);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.recap__snapshot table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.recap__snapshot tr + tr {
+  border-top: 1px solid var(--line);
+}
+
+.recap__snapshot th,
+.recap__snapshot td {
+  padding: 13px 0;
+  font-size: 17px;
+}
+
+.recap__snapshot th[scope="row"] {
+  text-align: left;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--text) 80%, var(--muted));
+}
+
+.recap__value {
+  width: 64px;
+  padding-left: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recap__value--home {
+  text-align: right;
+}
+
+.recap__snapshot td.recap__bar {
+  width: 46%;
+  padding-left: 24px;
+  padding-right: 22px;
+}
+
+.recap__bar > span {
+  display: flex;
+  gap: 4px;
+  height: 8px;
+}
+
+.recap__bar span span {
+  flex-basis: 0;
+  min-width: 0;
+  border-radius: 4px;
+}
+
+/* Moments you explained: back to the match at that moment, answer showing. */
+.recap__asked {
+  margin-top: 20px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+}
+
+.recap__asked h3 {
+  margin-bottom: 12px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.recap__asked ol {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recap__asked-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.recap__asked-item:hover {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+.recap__asked-meta {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.recap__asked-meta time {
+  font-variant-numeric: tabular-nums;
+}
+
+.recap__asked-title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.recap__asked-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.recap__foot {
+  margin-top: 8px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Shorter laptop screens: tighten so most of the recap stays in view. */
+@media (max-height: 860px) and (min-width: 1101px) {
+  .recap {
+    padding-top: 14px;
+  }
+
+  .recap__head h2 {
+    font-size: 44px;
+  }
+
+  .recap__head p {
+    font-size: 18px;
+  }
+
+  .recap__scoreline {
+    margin-top: 12px;
+  }
+
+  .recap__score output {
+    font-size: 46px;
+  }
+
+  .recap__moments {
+    margin-top: 14px;
+  }
+
+  .recap__thumb {
+    height: 128px;
+  }
+
+  .recap__moment h3 {
+    font-size: 20px;
+  }
+
+  .recap__lower {
+    margin-top: 16px;
+  }
+}
+
+/* Tablets: the switch gets its own row, moments go two across, story above snapshot. */
+@media (max-width: 1100px) {
+  .recap__scoreline {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    row-gap: 16px;
+  }
+
+  .recap__result,
+  .recap__audience {
+    grid-column: 1;
+  }
+
+  .recap__audience {
+    justify-self: center;
+  }
+
+  .recap__moments {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* A lone last card spans the row rather than leaving a gap. */
+  .recap__moment:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .recap__lower {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .recap {
+    padding: 20px 16px;
+  }
+
+  .recap__head h2 {
+    font-size: 34px;
+  }
+
+  .recap__head p {
+    font-size: 17px;
+  }
+
+  .recap__result {
+    column-gap: 14px;
+  }
+
+  .recap__team {
+    flex-direction: column;
+    gap: 6px;
+    font-size: 17px;
+    text-align: center;
+  }
+
+  .recap__team--home {
+    justify-self: center;
+  }
+
+  .recap__team .marker {
+    width: 18px;
+    height: 18px;
+  }
+
+  .recap__score output {
+    font-size: 38px;
+  }
+
+  .recap__audience button {
+    padding: 0 14px;
+  }
+
+  .recap__moments {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .recap__thumb {
+    height: 150px;
+  }
+
+  .recap__moment h3 {
+    font-size: 19px;
+  }
+
+  .recap__story {
+    padding: 20px;
+  }
+
+  .recap__story h3 {
+    font-size: 24px;
+  }
+
+  .recap__story p {
+    font-size: 17px;
+  }
+
+  .recap__snapshot {
+    padding: 18px 20px;
+  }
+
+  .recap__snapshot th,
+  .recap__snapshot td {
+    font-size: 15px;
+  }
+
+  .recap__value {
+    width: 48px;
+    padding-left: 8px;
+  }
+
+  .recap__snapshot td.recap__bar {
+    width: 38%;
+    padding-left: 12px;
+    padding-right: 10px;
+  }
+
+  .recap__foot {
+    text-align: center;
+  }
+}

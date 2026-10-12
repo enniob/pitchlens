@@ -32,7 +32,7 @@ export function MomentBanner({ fixture, event, kind, score }: MomentBannerProps)
     <div className="banner-wrap">
       <div className={`banner banner--${kind}`} role="status">
         <div className="banner__kind">
-          <Icon name={copy.icon} size={28} />
+          <Icon name={copy.icon} size={24} />
           {label}
         </div>
         <div className="banner__body">

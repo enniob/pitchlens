@@ -1,0 +1,154 @@
+/* Scoreline: a glass pill at the top centre of the pitch ------------------------- */
+
+.scoreline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 28px;
+  border-radius: 14px;
+  background: var(--glass);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* Names take equal sides so the score stays centred whatever their length. */
+.scoreline__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 20px;
+  max-width: 100%;
+}
+
+.scoreline__team {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 11em;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.scoreline__team--home {
+  justify-self: end;
+}
+
+/* Filled kit-colour marker, keeping the team's shape (see "Team shapes" in base.css). */
+.scoreline__team .marker {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  background: currentColor;
+}
+
+.scoreline__team .marker--away {
+  border-radius: 2px;
+}
+
+.scoreline__score {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreline__dash {
+  font-weight: 600;
+}
+
+/* "0:42 | Paused | Shape 4-4-2 v 4-3-3", split by thin dividers. */
+.scoreline__meta {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.scoreline__meta > :not(.visually-hidden) + :not(.visually-hidden) {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.scoreline__clock {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreline__status--playing {
+  color: var(--accent);
+}
+
+.scoreline__shapes b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Tactics numbers, above the Tactics feed ---------------------------------------- */
+
+.tactics-numbers {
+  flex: none;
+  display: grid;
+  gap: 2px;
+  margin: 0 0 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--glass);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(6px);
+  list-style: none;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.tactics-numbers li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 72px;
+  align-items: center;
+  gap: 8px;
+}
+
+.tactics-numbers li > :not(:first-child) {
+  text-align: right;
+}
+
+.tactics-numbers b {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tactics-numbers__head {
+  padding-bottom: 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tactics-numbers__team {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  color: var(--text);
+}
+
+.tactics-numbers__team .marker {
+  width: 9px;
+  height: 9px;
+  border: 0;
+  background: currentColor;
+}

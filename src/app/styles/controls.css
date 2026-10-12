@@ -1,0 +1,568 @@
+/* Pitch stage and its overlays ----------------------------------------------------- */
+
+/* Full screen shows the whole match column on the page background. */
+.arena:fullscreen {
+  padding: 16px;
+  background: var(--bg);
+}
+
+/*
+ * The stage is a size container, so the overlays adapt to the pitch's own
+ * width (which depends on the docked panel), not the window's.
+ * --hud-clear is how far below the top row other overlays start.
+ */
+.stage {
+  container: stage / inline-size;
+}
+
+.stage > * {
+  --hud-clear: 96px;
+}
+
+.stage__pitch {
+  position: absolute;
+  inset: 0;
+}
+
+/* Top row over the pitch: current moment, the scoreline pill (centred), view options. */
+.hud {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 16px;
+  z-index: 10;
+  display: grid;
+  /* Equal sides keep the pill centred on the pitch; a side only grows past that when its content needs it. */
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
+  align-items: start;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.hud > * {
+  pointer-events: auto;
+}
+
+.hud__moment {
+  grid-column: 1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 16px 0 14px;
+  border-radius: 10px;
+  background: var(--glass);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hud__moment time {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud .scoreline {
+  grid-column: 2;
+}
+
+.hud__options {
+  grid-column: 3;
+  justify-self: end;
+}
+
+/* Medium pitch: the moment chip keeps its icon and time, and the pill moves off-centre if needed. */
+@container stage (max-width: 960px) {
+  .hud .scoreline {
+    padding: 8px 20px;
+  }
+
+  .hud__moment {
+    padding: 0 12px;
+  }
+
+  .hud__moment-title,
+  .hud__moment-sep {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* Narrow pitch: the pill on its own row, the chip and options under it. */
+@container stage (max-width: 760px) {
+  .stage > * {
+    --hud-clear: 144px;
+  }
+
+  .hud {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .hud .scoreline {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .hud__moment {
+    grid-row: 2;
+  }
+
+  .hud__options {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
+.hud__options {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 4px 4px;
+  border-radius: 12px;
+  background: var(--glass);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+}
+
+.hud__seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.hud__seg button {
+  min-height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hud__seg button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.hud__seg button[aria-pressed="true"] {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.hud__seg button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hud__divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 8px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  padding: 0 2px 0 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.switch__track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--track);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  transition: background 0.2s;
+}
+
+.switch__knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: left 0.2s;
+}
+
+.switch[aria-checked="true"] .switch__track {
+  background: var(--accent);
+}
+
+.switch[aria-checked="true"] .switch__knob {
+  left: 19px;
+  background: var(--accent-ink);
+}
+
+/* Zoom, tucked into the bottom-right corner of the pitch. */
+.hud__zoom {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10;
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--glass);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+}
+
+.hud__zoom button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.hud__zoom button:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.hud__zoom button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Playback bar under the pitch ------------------------------------------------------ */
+
+.controls {
+  flex: none;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "transport clock timeline speed full";
+  align-items: center;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.controls__transport {
+  grid-area: transport;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Square dark buttons, as on a video player. */
+.ctl {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  transition: background-color 0.15s ease;
+}
+
+.ctl:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.ctl:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ctl--small {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.ctl--play {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+}
+
+.controls__clock {
+  grid-area: clock;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.controls__clock span[aria-hidden="true"],
+.controls__total {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.controls .timeline {
+  grid-area: timeline;
+}
+
+.controls__speed {
+  grid-area: speed;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.controls__speed select {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 46px;
+  padding: 0 34px 0 16px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.controls__speed select:hover {
+  background: var(--surface-3);
+}
+
+.controls__speed .icon {
+  position: absolute;
+  right: 12px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.controls__full {
+  grid-area: full;
+}
+
+.controls__full[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Timeline: a thin track with moment markers and a playhead -------------------------- */
+
+.timeline {
+  position: relative;
+  isolation: isolate;
+  height: 46px;
+  min-width: 0;
+}
+
+/* The native slider takes pointer and keyboard input; the rail behind it draws the track. */
+.timeline__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.timeline__slider:focus-visible {
+  outline: none;
+}
+
+.timeline__slider::-webkit-slider-runnable-track {
+  height: 100%;
+  background: transparent;
+}
+
+.timeline__slider::-moz-range-track {
+  height: 100%;
+  background: transparent;
+}
+
+/* Same width as the drawn playhead, so its travel matches the rail inset. */
+.timeline__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 46px;
+  background: transparent;
+  border: 0;
+}
+
+.timeline__slider::-moz-range-thumb {
+  width: 20px;
+  height: 46px;
+  background: transparent;
+  border: 0;
+}
+
+.timeline__rail,
+.timeline__markers {
+  position: absolute;
+  inset: 0 10px;
+}
+
+.timeline__rail {
+  pointer-events: none;
+}
+
+.timeline__track,
+.timeline__fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 999px;
+}
+
+.timeline__track {
+  right: 0;
+  background: var(--track);
+}
+
+.timeline__fill {
+  background: #c7d3df;
+}
+
+/* Playhead: a teal knob with a short tick above and below. */
+.timeline__head {
+  position: absolute;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(52, 211, 164, 0.25);
+  z-index: 3;
+}
+
+.timeline__head::before,
+.timeline__head::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 2px;
+  height: 9px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.timeline__head::before {
+  bottom: calc(100% + 4px);
+}
+
+.timeline__head::after {
+  top: calc(100% + 4px);
+}
+
+.timeline__slider:focus-visible ~ .timeline__rail .timeline__head {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.timeline__markers {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.timeline__marker {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-top: -11px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.timeline__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--team, var(--muted));
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.timeline__marker--ball .icon {
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.timeline__marker--goal {
+  color: var(--gold);
+}
+
+.timeline__marker--tactic .timeline__dot {
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.timeline__marker:hover .timeline__dot,
+.timeline__marker--selected .timeline__dot {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text);
+}
+
+.timeline__marker--selected.timeline__marker--ball .icon {
+  box-shadow: 0 0 0 2px var(--text);
+}
+
+/* Hover and keyboard tag; the selected moment is also named on the pitch. */
+.timeline__label {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  z-index: 4;
+  display: none;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.timeline__marker:hover .timeline__label,
+.timeline__marker:focus-visible .timeline__label {
+  display: block;
+}

@@ -17,7 +17,7 @@ export interface EventCopy {
 
 const COPY: Partial<Record<MatchEvent["type"], Omit<EventCopy, "tone">>> = {
   goal: { title: "Goal!", icon: "goal", explain: "The whole ball crossed the goal line between the posts and under the bar." },
-  shot: { title: "Shot", icon: "shot", explain: "A strike at goal. The result follows a moment later." },
+  shot: { title: "Shot", icon: "target", explain: "A strike at goal. The result follows a moment later." },
   foul: {
     title: "Foul",
     icon: "whistle",
@@ -32,10 +32,10 @@ const COPY: Partial<Record<MatchEvent["type"], Omit<EventCopy, "tone">>> = {
   corner: { title: "Corner", icon: "flag", explain: "A defender sent the ball over their own goal line, so the attackers restart from the corner." },
   "free-kick": { title: "Free kick", icon: "restart", explain: "Play restarts where the foul happened; opponents stand at least 9.15 m back." },
   kickoff: { title: "Kick-off", icon: "restart", explain: "Play starts or restarts from the centre spot. After a goal, the team that conceded kicks off." },
-  "formation-change": { title: "Tactical change", icon: "swap", explain: "Same players in new positions. This is not a substitution." },
+  "formation-change": { title: "Tactical change", icon: "users", explain: "Same players in new positions. This is not a substitution." },
   "throw-in": { title: "Throw-in", icon: "restart", explain: "The ball crossed the sideline. The team that did not touch it last throws it back in." },
   "goal-kick": { title: "Goal kick", icon: "restart", explain: "The attackers put the ball over the goal line, so the goalkeeper restarts play." },
-  turnover: { title: "Ball won", icon: "pass", explain: "Possession switches to the other team." },
+  turnover: { title: "Turnover", icon: "swap", explain: "Possession switches to the other team." },
   deflection: { title: "Deflection", icon: "pass", explain: "The ball came off a player or the goal frame." },
 };
 
@@ -48,7 +48,7 @@ export function eventCopy(e: MatchEvent): EventCopy {
     return { title: "Off target", icon: "shot", explain: "The shot did not go in.", tone };
   }
   if (e.type === "pass") {
-    if (e.outcome === "complete") return { title: "Pass", icon: "pass", explain: "A player finds a teammate.", tone };
+    if (e.outcome === "complete") return { title: "Pass", icon: "nodes", explain: "A player finds a teammate.", tone };
     if (e.outcome === "intercepted") return { title: "Pass cut out", icon: "pass", explain: "An opponent reached the pass first.", tone };
     return { title: "Pass out of play", icon: "pass", explain: "The pass ran out of play.", tone };
   }
