@@ -10,6 +10,8 @@
  * the API key never appear in an error message.
  */
 
+import { ModelScheduler } from "./modelScheduler";
+
 export interface FoundryConfig {
   /** Base URL ending in /openai/v1, e.g. https://<resource>.openai.azure.com/openai/v1 */
   baseUrl: string;
@@ -24,6 +26,8 @@ export interface FoundryConfig {
   reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
   /** Optional sampling setting for deployments that support it. */
   temperature?: number;
+  /** Deployment request quota, used to space calls (including verifier calls). */
+  requestsPerMinute?: number;
 }
 
 export type ConfigResult = { ok: true; config: FoundryConfig } | { ok: false; missing: string[]; invalid: string[] };
@@ -46,6 +50,8 @@ export function foundryConfigFromEnv(env: Record<string, string | undefined> = p
   const reasoning = env.FOUNDRY_REASONING_EFFORT?.trim();
   if (reasoning && !["none", "minimal", "low", "medium", "high"].includes(reasoning)) invalid.push("FOUNDRY_REASONING_EFFORT");
   const temperature = env.FOUNDRY_TEMPERATURE?.trim();
+  const rpm = env.FOUNDRY_REQUESTS_PER_MINUTE?.trim();
+  if (rpm && (!Number.isInteger(Number(rpm)) || Number(rpm) < 1 || Number(rpm) > 60_000)) invalid.push("FOUNDRY_REQUESTS_PER_MINUTE");
   if (temperature && (!Number.isFinite(Number(temperature)) || Number(temperature) < 0 || Number(temperature) > 2)) invalid.push("FOUNDRY_TEMPERATURE");
 
   let baseUrl = "";
@@ -64,7 +70,8 @@ export function foundryConfigFromEnv(env: Record<string, string | undefined> = p
     ok: true,
     config: { baseUrl, apiKey, deployment, verifierDeployment, structuredOutput: structured as FoundryConfig["structuredOutput"],
       ...(reasoning ? { reasoningEffort: reasoning as FoundryConfig["reasoningEffort"] } : {}),
-      ...(temperature ? { temperature: Number(temperature) } : {}) },
+      ...(temperature ? { temperature: Number(temperature) } : {}),
+      ...(rpm ? { requestsPerMinute: Number(rpm) } : {}) },
   };
 }
 
@@ -126,7 +133,23 @@ function retryAfter(headers: Headers): number | undefined {
   return Number.isFinite(date) ? Math.min(Math.max(0, date - Date.now()), 600_000) : undefined;
 }
 
+const deploymentSchedulers = new Map<string, ModelScheduler>();
+
 export class FoundryClient implements ModelClient {
+  private readonly isolatedSchedulers = new Map<string, ModelScheduler>();
+  private scheduler(role: ChatRequest["role"]): ModelScheduler {
+    const schedulers = this.fetchImpl === fetch ? deploymentSchedulers : this.isolatedSchedulers;
+    const deployment = role === "verifier" ? this.config.verifierDeployment : this.config.deployment;
+    const key = JSON.stringify([this.config.baseUrl, deployment, this.config.requestsPerMinute]);
+    let scheduler = schedulers.get(key);
+    if (!scheduler) {
+      // Bound process memory if configuration is changed repeatedly.
+      if (schedulers.size >= 64) schedulers.delete(schedulers.keys().next().value!);
+      scheduler = new ModelScheduler(this.config.requestsPerMinute ? Math.ceil(60_000 / this.config.requestsPerMinute) : 0);
+      schedulers.set(key, scheduler);
+    }
+    return scheduler;
+  }
   constructor(
     private readonly config: FoundryConfig,
     private readonly fetchImpl: typeof fetch = fetch,
@@ -152,6 +175,8 @@ export class FoundryClient implements ModelClient {
 
     let response: Response;
     try {
+      await this.scheduler(request.role).acquire(request.signal);
+      request.signal.throwIfAborted();
       response = await this.fetchImpl(`${this.config.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json", "api-key": this.config.apiKey },
@@ -165,7 +190,9 @@ export class FoundryClient implements ModelClient {
 
     if (response.status === 429) {
       await response.body?.cancel().catch(() => {});
-      throw new ModelError("rate-limited", "The model service is rate limiting requests.", retryAfter(response.headers));
+      const delay = retryAfter(response.headers) ?? 1_000;
+      this.scheduler(request.role).defer(delay);
+      throw new ModelError("rate-limited", "The model service is rate limiting requests.", delay);
     }
     if (response.status === 408 || response.status === 504) {
       await response.body?.cancel().catch(() => {});
@@ -183,6 +210,8 @@ export class FoundryClient implements ModelClient {
       if (request.signal.aborted) throw new ModelError("timeout", "The model did not answer in time.");
       throw new ModelError("bad-provider-response", "The model service returned a body that is not JSON.");
     }
+    if (typeof json !== "object" || json === null || Array.isArray(json))
+      throw new ModelError("bad-provider-response", "The model service returned no message.");
     const choice = (json as { choices?: { message?: Record<string, unknown>; finish_reason?: unknown }[] }).choices?.[0];
     const message = choice?.message;
     if (!message || typeof message !== "object") throw new ModelError("bad-provider-response", "The model service returned no message.");

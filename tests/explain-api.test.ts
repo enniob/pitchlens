@@ -6,10 +6,11 @@ import { generateMatch } from "@/simulation/generate";
 import { handleExplain, MAX_BODY_BYTES, type ExplainDeps, type ExplainLogRecord } from "@/server/explainHandler";
 import { ModelError } from "@/server/foundry";
 import { AnswerCache, RequestGuard } from "@/server/guard";
+import { issueSession, SESSION_COOKIE } from "@/server/accessSession";
 import { answer, approve, FakeModel, goalExplanation, type Step } from "./support/fakeModel";
 
 const KEY = "secret-key-for-tests";
-const ENV = { FOUNDRY_ENDPOINT: "https://r.openai.azure.com", FOUNDRY_API_KEY: KEY, FOUNDRY_DEPLOYMENT: "d" };
+const ENV = { NODE_ENV: "test", PITCHLENS_ACCESS_MODE: "local", FOUNDRY_ENDPOINT: "https://r.openai.azure.com", FOUNDRY_API_KEY: KEY, FOUNDRY_DEPLOYMENT: "d" };
 const URL_ = "https://pitchlens.example/api/explain";
 
 function setup(steps: Step[] = [], env: Record<string, string> = ENV, guard = new RequestGuard()) {
@@ -38,6 +39,39 @@ const call = async (deps: ExplainDeps, request: Request) => {
 };
 
 describe("POST /api/explain", () => {
+  it("requires signed access even for cached answers, and rejects altered cookies", async () => {
+    const secret = "test-session-signing-secret-32-characters";
+    const env = { ...ENV, PITCHLENS_ACCESS_MODE: "", PITCHLENS_JUDGE_ACCESS_CODE: "test-judge-access-code", PITCHLENS_SESSION_SECRET: secret };
+    const draft = goalExplanation();
+    const { deps, model } = setup([answer(draft), approve(draft)], env);
+    const cookie = `${SESSION_COOKIE}=${issueSession(secret, Date.now()).value}`;
+    expect((await call(deps, post(body()))).response.status).toBe(401);
+    expect(model.requests).toHaveLength(0);
+    expect((await call(deps, post(body(), { cookie }))).response.status).toBe(200);
+    expect((await call(deps, post(body()))).response.status).toBe(401);
+    expect((await call(deps, post(body(), { cookie: `${cookie}x` }))).response.status).toBe(401);
+    expect((await call(deps, post(body(), { cookie }))).json).toMatchObject({ cached: true });
+    expect(model.requests).toHaveLength(2);
+  });
+
+  it("enforces the kill switch and daily allowance before model calls", async () => {
+    for (const [env, code] of [
+      [{ ...ENV, PITCHLENS_EXPLANATIONS_DISABLED: "1" }, "explanations-disabled"],
+      [{ ...ENV, PITCHLENS_DAILY_TOKEN_BUDGET: "1" }, "budget-exhausted"],
+    ] as const) {
+      const { deps, model } = setup([], env);
+      expect((await call(deps, post(body()))).json).toMatchObject({ error: { code } });
+      expect(model.requests).toHaveLength(0);
+    }
+  });
+
+  it("counts failed provider workflows against the session allowance", async () => {
+    const { deps, model } = setup([new ModelError("provider-error", "failed")], { ...ENV, PITCHLENS_SESSION_EXPLANATIONS: "1" });
+    expect((await call(deps, post(body()))).response.status).toBe(502);
+    expect((await call(deps, post(body()))).json).toMatchObject({ error: { code: "session-quota-exhausted" } });
+    expect(model.requests).toHaveLength(1);
+  });
+
   it("answers with the explanation, its verification, a trace and the request ID", async () => {
     const draft = goalExplanation();
     const { deps, logs } = setup([answer(draft), approve(draft)]);
@@ -167,7 +201,7 @@ describe("POST /api/explain", () => {
 
   it("requires the access token when one is set", async () => {
     const draft = goalExplanation();
-    const { deps } = setup([answer(draft), approve(draft)], { ...ENV, PITCHLENS_EXPLAIN_ACCESS_TOKEN: "let-me-in" });
+    const { deps } = setup([answer(draft), approve(draft)], { ...ENV, PITCHLENS_ACCESS_MODE: "", PITCHLENS_EXPLAIN_ACCESS_TOKEN: "let-me-in" });
     expect((await call(deps, post(body()))).response.status).toBe(401);
     expect((await call(deps, post(body(), { authorization: "Bearer wrong" }))).response.status).toBe(401);
     expect((await call(deps, post(body(), { authorization: "Bearer let-me-in" }))).response.status).toBe(200);
@@ -181,8 +215,8 @@ describe("POST /api/explain", () => {
     expect(response.status).toBe(429);
     expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(json).toMatchObject({ ok: false, error: { code: "rate-limited", retryable: true, retryAfterMs: expect.any(Number) } });
-    // Another client is still served.
-    expect((await call(deps, post(body(), { "x-forwarded-for": "198.51.100.7" }))).json).not.toMatchObject({ error: { code: "rate-limited" } });
+    // Untrusted forwarded headers cannot reset the authenticated identity's quota.
+    expect((await call(deps, post(body(), { "x-forwarded-for": "198.51.100.7" }))).json).toMatchObject({ error: { code: "rate-limited" } });
   });
 
   it("limits concurrent workflows", async () => {
@@ -216,14 +250,27 @@ describe("POST /api/explain", () => {
       [new ModelError("bad-provider-response", "not json"), 502, "upstream-error"],
     ];
     for (const [error, status, code] of cases) {
-      const { deps, logs } = setup([error]);
+      const { deps, logs, model } = setup(error.code === "rate-limited" ? [error, error] : [error]);
       const { response, json } = await call(deps, post(body()));
       expect(response.status, code).toBe(status);
       expect(json).toMatchObject({ ok: false, error: { code, retryable: true } });
       expect(JSON.stringify(json)).not.toContain(KEY);
       expect(logs[0]).toMatchObject({ error: code, status });
+      expect(model.requests).toHaveLength(error.code === "rate-limited" ? 2 : 1);
       if (code === "upstream-rate-limited") expect(response.headers.get("retry-after")).toBe("3");
     }
+  });
+
+  it("returns a reviewed answer after one transient provider throttle", async () => {
+    const draft = goalExplanation();
+    const { deps, model } = setup([new ModelError("rate-limited", "busy", 1), answer(draft), approve(draft)]);
+    const { response, json } = await call(deps, post(body()));
+    expect(response.status).toBe(200);
+    expect(json).toMatchObject({ ok: true, verification: { outcome: "verified" }, trace: { modelCalls: 3 } });
+    expect(model.requests).toHaveLength(3);
+    const cached = await call(deps, post(body()));
+    expect(cached.json).toMatchObject({ ok: true, cached: true });
+    expect(model.requests).toHaveLength(3);
   });
 
   it("hides unexpected errors", async () => {

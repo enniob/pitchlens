@@ -8,5 +8,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.{ts,tsx}"],
+    // Simulator suites are CPU-heavy. Bound contention rather than raising
+    // every test's timeout and concealing unexpectedly slow behavior.
+    maxWorkers: 2,
   },
 });

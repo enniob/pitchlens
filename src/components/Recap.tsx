@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MatchFixture, Team } from "@/match/contract";
 import { sampleFixture } from "@/match/fixture";
 import type { Audience, ExplainSuccess } from "@/explain/api";
@@ -9,9 +9,12 @@ import { proStatisticsAt } from "@/playback/proData";
 import { recapMoments } from "@/playback/recap";
 import { statisticsAt } from "@/playback/statistics";
 import { ExplanationDetails } from "./Evidence";
+import { LOCKED_HINT, useExplanationAccess } from "./ExplanationAccessGate";
 import { eventCopy, plainDescription } from "./eventCopy";
 import { AudienceSwitch, audienceName, CheckRow, savedTitle, type SavedExplanation } from "./ExplanationPanel";
 import { formatClock } from "./format";
+import { ALL_MATCH, eventMatchesFocus, normalizeFocus, type MatchFocus as Focus } from "@/playback/focus";
+import { MatchFocus } from "./MatchFocus";
 import { Icon } from "./Icon";
 import { MiniPitch } from "./MiniPitch";
 
@@ -19,6 +22,8 @@ interface Props {
   /** Only rendered once playback has reached full time. */
   fixture: MatchFixture;
   audience: Audience;
+  focus?: Focus;
+  onFocus?: (focus: Focus) => void;
   onAudience: (audience: Audience) => void;
   /** Back to the match, replaying from this time. */
   onReplayFrom: (timeMs: number) => void;
@@ -37,9 +42,11 @@ const subtitleOf = (count: number) =>
   count === 0 ? "The final numbers, and how the match unfolded." : `${COUNT_WORDS[count] ?? `${count} moments`} that shaped the result.`;
 
 /** "The match, explained.": the defining moments, an AI summary of how the match unfolded and the final numbers. */
-export function Recap({ fixture, audience, onAudience, onReplayFrom, explained = [], onOpenExplanation, summaries = {}, onSummary }: Props) {
+export function Recap({ fixture, audience, onAudience, onReplayFrom, explained = [], onOpenExplanation, summaries = {}, onSummary, focus = ALL_MATCH, onFocus }: Props) {
   const end = fixture.durationMs;
-  const moments = useMemo(() => recapMoments(fixture), [fixture]);
+  const validFocus = normalizeFocus(fixture, focus);
+  const focused = Boolean(validFocus.teamId || validFocus.playerId);
+  const moments = useMemo(() => recapMoments({ ...fixture, events: fixture.events.filter((e) => eventMatchesFocus(e, validFocus)) }), [fixture, validFocus.teamId, validFocus.playerId]);
   const score = scoreAt(fixture, end);
   const home = fixture.teams.find((t) => t.side === "home")!;
   const away = fixture.teams.find((t) => t.side === "away")!;
@@ -66,6 +73,8 @@ export function Recap({ fixture, audience, onAudience, onReplayFrom, explained =
         <AudienceSwitch audience={audience} onAudience={onAudience} className="recap__audience" withIcons />
       </div>
 
+      {onFocus && <MatchFocus fixture={fixture} timeMs={end} focus={focus} onFocus={onFocus} />}
+      {focused && <p className="recap__foot">{moments.length ? "Highlights for your favorite. The summary and final score cover the whole match." : "No defining moments for this favorite. Choose Show whole match to see other highlights."}</p>}
       {moments.length > 0 && (
         <ol className="recap__moments" aria-label="Defining moments">
           {moments.map((e) => {
@@ -78,7 +87,7 @@ export function Recap({ fixture, audience, onAudience, onReplayFrom, explained =
                   <time>{clock}</time>
                 </div>
                 <h3>{copy.title}</h3>
-                <p>{plainDescription(e)}</p>
+                <p>{plainDescription(e, fixture.roster)}</p>
                 <button type="button" className="recap__replay" aria-label={`Replay moment: ${copy.title} at ${clock}`} onClick={() => replay(e.t)}>
                   <span className="recap__play" aria-hidden="true"><Icon name="play" size={14} /></span>
                   Replay moment
@@ -97,6 +106,7 @@ export function Recap({ fixture, audience, onAudience, onReplayFrom, explained =
       {explained.length > 0 && onOpenExplanation && (
         <section className="recap__asked" aria-labelledby="recap-asked-title">
           <h3 id="recap-asked-title">Explained moments</h3>
+          {focused && <p>Saved explanations from the whole match, including both teams.</p>}
           <ol>
             {[...explained].sort((a, b) => a.atMs - b.atMs).map((s) => (
               <li key={s.id}>
@@ -124,24 +134,30 @@ function TeamName({ team }: { team: Team }) {
   );
 }
 
-/** "How the match unfolded": one full-time summary from the explanation service, requested when the recap opens. */
+/**
+ * "How the match unfolded": one full-time summary from the explanation service,
+ * requested when the recap opens, or once AI access is unlocked. Locking
+ * abandons a summary still loading; one already shown stays.
+ */
 function Story({ fixture, audience, onReplay, cached, onSummary }:
   { fixture: MatchFixture; audience: Audience; onReplay: (t: number) => void; cached?: ExplainSuccess; onSummary?: (a: Audience, r: ExplainSuccess) => void }) {
   const supported = matchReferenceOf(fixture, sampleFixture.matchId) !== null;
+  const allowed = useExplanationAccess();
   const [state, setState] = useState<{ kind: "loading" } | { kind: "error"; message: string } | { kind: "done"; result: ExplainSuccess }>(
     cached ? { kind: "done", result: cached } : { kind: "loading" });
   const [attempt, setAttempt] = useState(0);
-  // A summary fetched earlier this match is reused; Try again always asks afresh.
-  const reuse = cached !== undefined && attempt === 0;
+  // The attempt whose summary is on screen: a summary fetched earlier this match is reused; Try again always asks afresh.
+  const answered = useRef<number | null>(cached ? 0 : null);
   const [showEvidence, setShowEvidence] = useState(false);
 
   useEffect(() => {
-    if (!supported || reuse) return;
+    if (!supported || !allowed || answered.current === attempt) return;
     const controller = new AbortController();
     setState({ kind: "loading" });
     requestExplanation(fixture, sampleFixture.matchId, fixture.durationMs, audience, controller.signal, fetch, "match")
       .then((result) => {
         if (controller.signal.aborted) return;
+        answered.current = attempt;
         setState({ kind: "done", result });
         onSummary?.(audience, result);
       })
@@ -151,11 +167,13 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
             ? e.message : "The summary could not be loaded. Check your connection and try again." });
       });
     return () => controller.abort();
-    // `reuse` only changes with `attempt`, and onSummary is a stable callback from the viewer.
-  }, [fixture, audience, supported, attempt]);
+    // `answered` is read as it is when an attempt starts, and onSummary is a stable callback from the viewer.
+  }, [fixture, audience, supported, attempt, allowed]);
 
   if (!supported)
     return <article className="recap__story"><h3>How the match unfolded</h3><p>Summaries are unavailable for this match. Try the demo or generate a new match.</p></article>;
+  if (!allowed && state.kind === "loading")
+    return <article className="recap__story"><h3>How the match unfolded</h3><p role="status" className="recap__status">{LOCKED_HINT}</p></article>;
   if (state.kind === "loading")
     return (
       <article className="recap__story" aria-busy="true">
@@ -169,7 +187,8 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
       <article className="recap__story">
         <h3>How the match unfolded</h3>
         <p role="alert" className="explain__error"><Icon name="warning" size={16} />{state.message}</p>
-        <button type="button" className="btn btn--small" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+        {!allowed && <p className="recap__status">{LOCKED_HINT}</p>}
+        <button type="button" className="btn btn--small" disabled={!allowed} onClick={() => setAttempt((n) => n + 1)}>Try again</button>
       </article>
     );
 
@@ -181,7 +200,8 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
       {fallback ? (
         <>
           <p>We could not produce a checked summary of this match.</p>
-          <button type="button" className="btn btn--small" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+          {!allowed && <p className="recap__status">{LOCKED_HINT}</p>}
+          <button type="button" className="btn btn--small" disabled={!allowed} onClick={() => setAttempt((n) => n + 1)}>Try again</button>
         </>
       ) : (
         <>

@@ -102,7 +102,7 @@ describe("full-time summary evidence", () => {
 });
 
 describe("POST /api/explain with focus", () => {
-  const ENV = { FOUNDRY_ENDPOINT: "https://r.openai.azure.com", FOUNDRY_API_KEY: "k", FOUNDRY_DEPLOYMENT: "d" };
+  const ENV = { NODE_ENV: "test", PITCHLENS_ACCESS_MODE: "local", FOUNDRY_ENDPOINT: "https://r.openai.azure.com", FOUNDRY_API_KEY: "k", FOUNDRY_DEPLOYMENT: "d" };
   const setup = (steps: ReturnType<typeof answer>[] = []) => {
     const model = new FakeModel(steps);
     const deps: ExplainDeps = { env: ENV, createClient: () => model, guard: new RequestGuard(), cache: new AnswerCache(), log: () => {} };

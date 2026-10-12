@@ -166,7 +166,8 @@ describe("actions in progress", () => {
     const c = extractMatchContext(sampleFixture, Math.round((pass.startT! + pass.t) / 2));
     expect(eventIn(c, pass.id)).toBeUndefined();
     expect(c.events.some((e) => e.recipientId === pass.recipientId)).toBe(false);
-    expect(json(c)).not.toContain("complete");
+    expect(c.events.some((e) => e.outcome === "complete")).toBe(false);
+    expect(c.measurements.statistics.every((s) => s.completedPasses === 0)).toBe(true);
     expect(c.ball.control).toBe("none");
     expect(c.ball.lastControl).toMatchObject({ playerId: pass.playerId });
     expect(c.ball.lastControl!.t).toBeLessThanOrEqual(pass.startT!);
@@ -222,7 +223,10 @@ describe("descriptive metadata", () => {
     expect(sampleFixture.title).toMatch(/goal/);
     expect(c.match.label).toBe("Harbor City FC vs Northvale Rovers (synthetic)");
     expect(json(c)).not.toContain(sampleFixture.title);
-    expect(json(c)).not.toMatch(/goal|score[sd]/i);
+    // Measurement field names may mention goals; the values must reveal none.
+    expect(JSON.stringify(c.events)).not.toMatch(/goal|score[sd]/i);
+    expect(c.measurements.statistics.every((s) => s.goals === 0)).toBe(true);
+    expect(c.measurements.patterns).toEqual([]);
   });
 
   it("is independent of the title, whatever it says", () => {

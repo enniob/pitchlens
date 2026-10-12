@@ -39,7 +39,7 @@ export function LiveFeed({ fixture, events, pro }: LiveFeedProps) {
                   <span className="fc__title">{copy.title}</span>
                   <time className="fc__time">{shortClock(e.t)}</time>
                 </div>
-                <p className="fc__desc">{plainDescription(e)}</p>
+                <p className="fc__desc">{plainDescription(e, fixture.roster)}</p>
                 {pro && (
                   <ul className="chips" aria-label="Pro data">
                     {proChips(fixture, e).map((c) => (

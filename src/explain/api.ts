@@ -105,6 +105,9 @@ export interface ExplainSuccess {
 export const EXPLAIN_ERRORS = {
   "invalid-request": { status: 400, retryable: false },
   "unauthorized": { status: 401, retryable: false },
+  "explanations-disabled": { status: 503, retryable: false },
+  "budget-exhausted": { status: 503, retryable: true },
+  "session-quota-exhausted": { status: 429, retryable: false },
   "forbidden-origin": { status: 403, retryable: false },
   "unknown-match": { status: 404, retryable: false },
   "payload-too-large": { status: 413, retryable: false },

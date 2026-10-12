@@ -21,6 +21,27 @@ const reject = (draftTargets: string[], target: string) => ({
 const targets = ["headline", "explanation", "facts[0]", "facts[1]", "facts[2]", "interpretation[0]", "limitations[0]"];
 
 describe("analyst workflow", () => {
+  it("retries one short provider cooldown within the original call and token budgets", async () => {
+    const draft = goalExplanation();
+    const model = new FakeModel([new ModelError("rate-limited", "busy", 1), answer(draft), approve(draft)]);
+    const out = await run(model);
+    expect(out.trace.modelCalls).toBe(3);
+    expect(out.trace.chargedTokens).toBeGreaterThan(out.trace.tokens.prompt + out.trace.tokens.completion);
+    expect(out.trace.steps).toContainEqual(expect.objectContaining({ kind: "model", finishReason: "rate-limited", tokens: null }));
+    const limited = new FakeModel([new ModelError("rate-limited", "busy", 1)]);
+    await expect(run(limited, 9_400, { limits: { modelCalls: 1 } })).rejects.toMatchObject({ code: "rate-limited" });
+    expect(limited.requests).toHaveLength(1);
+  });
+
+  it("never retries persistent throttling more than once or an aborted cooldown", async () => {
+    const model = new FakeModel([new ModelError("rate-limited", "busy", 1), new ModelError("rate-limited", "busy", 1)]);
+    await expect(run(model)).rejects.toMatchObject({ code: "rate-limited" });
+    expect(model.requests).toHaveLength(2);
+    const controller = new AbortController();
+    const cancelled = new FakeModel([() => { controller.abort(); return new ModelError("rate-limited", "busy", 1); }]);
+    await expect(run(cancelled, 9_400, { signal: controller.signal })).rejects.toMatchObject({ code: "timeout" });
+    expect(cancelled.requests).toHaveLength(1);
+  });
   it("constrains verifier targets to every exact field in the current draft", async () => {
     const draft = goalExplanation();
     const model = new FakeModel([answer(draft), approve(draft)]);

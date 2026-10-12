@@ -38,6 +38,9 @@ import { Recap } from "./Recap";
 import { ScoreBug, TacticsNumbers, type PlaybackPhase } from "./ScoreBug";
 import { TeamName } from "./TeamBadge";
 import { Timeline } from "./Timeline";
+import { MatchFocus } from "./MatchFocus";
+import { ALL_MATCH, type MatchFocus as Focus } from "@/playback/focus";
+import { MatchPatterns } from "./MatchPatterns";
 
 /** Longest real-time step fed to the engine, so a backgrounded tab doesn't jump on return. */
 const MAX_FRAME_MS = 250;
@@ -163,6 +166,7 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
   const [appView, setAppView] = useState<AppView>("match");
   // One audience for the panel and the recap, so switching views keeps the choice.
   const [audience, setAudience] = useState<Audience>("casual");
+  const [focus, setFocus] = useState<Focus>(ALL_MATCH);
   // Kept here, not in the panel or recap, so moving between Match and Recap never loses an answer.
   // The viewer is keyed by match, so these reset with a new match.
   const [explained, setExplained] = useState<SavedExplanation[]>([]);
@@ -399,6 +403,8 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
           }}
           summaries={summaries}
           onSummary={onSummary}
+          focus={focus}
+          onFocus={setFocus}
         />
       )}
       {/* Hidden, not unmounted, during the recap so the 3D scene and playback survive. */}
@@ -564,6 +570,7 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
         </div>
         <aside className="dock" aria-label="Match panel">
           <DockTabs tab={pro ? "tactics" : "moments"} onTab={(next) => { if ((next === "tactics") !== pro) onTogglePro?.(); }} />
+          <MatchFocus fixture={fixture} timeMs={t} focus={focus} onFocus={setFocus} />
           {/* Hidden, not unmounted, on the Tactics tab so a pending explanation survives. */}
           <div className="dock__panel" id="dock-panel-moments" role="tabpanel" aria-labelledby="dock-tab-moments" hidden={pro}>
           <ExplanationPanel
@@ -581,6 +588,7 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
             }
             saved={explained}
             shownId={shownExplanation}
+            focus={focus}
             onSaved={onSavedExplanation}
             onShow={setShownExplanation}
           />
@@ -593,6 +601,7 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
             aria-labelledby={pro ? "dock-tab-tactics" : undefined}
           >
             {stats && proStats && <TacticsNumbers teams={fixture.teams} stats={stats} extra={proStats} />}
+            <MatchPatterns fixture={fixture} timeMs={t} favoriteTeamId={focus.teamId ?? undefined} favoritePlayerId={focus.playerId ?? undefined} onReplay={(time) => act((e) => { e.seek(time); e.play(); })} />
             <LiveFeed fixture={fixture} events={feed} pro={pro} />
           </div>
         </aside>

@@ -35,6 +35,7 @@ import {
 } from "@/explain/prompts";
 import { insufficientEvidence, parseExplanation, type ExplanationResponse } from "@/explain/response";
 import { ModelError, type ChatMessage, type ChatRequest, type ChatResult, type ModelClient } from "./foundry";
+import { abortableDelay } from "./modelScheduler";
 
 export const WORKFLOW_LIMITS = {
   /** Whole workflow, from the first model call to the answer. */
@@ -128,11 +129,30 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
       throw new BudgetExhausted(`token limit reached (${charged} used, ${reserve} needed, ${limits.totalTokens} allowed)`);
     const remaining = deadline - now();
     if (remaining < 1_000) throw new ModelError("timeout", "The explanation took too long.");
-    modelCalls++;
     const timeout = AbortSignal.timeout(Math.min(limits.modelCallMs, remaining));
     const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
     const t0 = now();
-    const result = await input.client.complete({ ...request, signal });
+    let attemptStarted = t0;
+    let result: ChatResult;
+    for (let attempt = 0; ; attempt++) {
+      attemptStarted = now();
+      modelCalls++;
+      try {
+        result = await input.client.complete({ ...request, signal });
+        break;
+      } catch (e) {
+        // A failed provider attempt may have consumed tokens. Charge the
+        // reservation, and count every retry within the original call budget.
+        charged += reserve;
+        trace({ kind: "model", role: request.role, ms: Math.round(now() - attemptStarted), finishReason: e instanceof ModelError ? e.code : "error", toolCalls: 0, tokens: null });
+        if (!(e instanceof ModelError) || e.code !== "rate-limited" || attempt >= 1 || modelCalls >= limits.modelCalls || charged + reserve > limits.totalTokens) throw e;
+        const delay = Math.max(250, e.retryAfterMs ?? 1_000);
+        // Long provider cooldowns remain actionable rate-limit responses.
+        if (delay >= 5_000 || delay + 1_000 >= Math.min(deadline - now(), limits.modelCallMs - (now() - t0))) throw e;
+        try { await abortableDelay(delay, signal); }
+        catch { throw new ModelError("timeout", "The explanation took too long."); }
+      }
+    }
     if (result.usage) {
       tokens.prompt += result.usage.prompt;
       tokens.completion += result.usage.completion;
@@ -142,7 +162,7 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
     trace({
       kind: "model",
       role: request.role,
-      ms: Math.round(now() - t0),
+      ms: Math.round(now() - attemptStarted),
       finishReason: result.finishReason,
       toolCalls: result.toolCalls.length,
       tokens: result.usage,

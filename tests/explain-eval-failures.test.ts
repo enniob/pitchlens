@@ -97,7 +97,7 @@ describe("failure handling on the evaluation scenarios", () => {
   it.each(cases)("$name: provider failures and timeouts are errors, never an explanation", async ({ s, audience }) => {
     const good = groundedDraft(s, audience);
     await expect(run(s, audience, [new ModelError("provider-error", "HTTP 500")])).rejects.toMatchObject({ code: "provider-error" });
-    await expect(run(s, audience, [new ModelError("rate-limited", "busy", 3_000)])).rejects.toMatchObject({ code: "rate-limited", retryAfterMs: 3_000 });
+    await expect(run(s, audience, [new ModelError("rate-limited", "busy", 10_000)])).rejects.toMatchObject({ code: "rate-limited", retryAfterMs: 10_000 });
     // The verifier failing after a good draft is still an error, not an unreviewed answer.
     if (good.status === "explained")
       await expect(run(s, audience, [answer(good), new ModelError("bad-provider-response", "no message")])).rejects.toMatchObject({ code: "bad-provider-response" });
@@ -117,7 +117,7 @@ describe("failure handling on the evaluation scenarios", () => {
 });
 
 const KEY = "eval-secret-key-0123456789";
-const ENV = { FOUNDRY_ENDPOINT: "https://eval.openai.azure.com", FOUNDRY_API_KEY: KEY, FOUNDRY_DEPLOYMENT: "eval-analyst" };
+const ENV = { NODE_ENV: "test", PITCHLENS_ACCESS_MODE: "local", FOUNDRY_ENDPOINT: "https://eval.openai.azure.com", FOUNDRY_API_KEY: KEY, FOUNDRY_DEPLOYMENT: "eval-analyst" };
 
 function handler(steps: Step[]) {
   const model = new FakeModel(steps);

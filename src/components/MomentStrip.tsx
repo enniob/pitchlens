@@ -114,7 +114,7 @@ export function MomentStrip({ fixture, moments: shown, selectedId, onSelect }: P
                   <span className="strip__text">
                     <time>{shortClock(e.t)}</time>
                     <span className="strip__title">{copy.title}</span>
-                    <span className="strip__desc">{plainDescription(e)}</span>
+                    <span className="strip__desc">{plainDescription(e, fixture.roster)}</span>
                   </span>
                   <MiniPitch fixture={fixture} timeMs={e.t} highlight={e} className="strip__pitch" />
                 </button>

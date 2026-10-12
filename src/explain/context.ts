@@ -35,6 +35,7 @@ import type {
 import { formationSlot } from "@/match/formations";
 import { validateFixture } from "@/match/validate";
 import { eventsAt, formationsAt, lastAtOrBefore, scoreAt } from "@/playback/derive";
+import { measureEvents, type EventMeasurements } from "@/playback/patterns";
 
 export const CONTEXT_VERSION = "1.0.0" as const;
 
@@ -154,6 +155,8 @@ export interface MatchContext {
   formations: ContextFormation[] | null;
   /** Revealed events in the window, oldest first. */
   events: ContextEvent[];
+  /** Deterministic counts and patterns from these retained events only. */
+  measurements: EventMeasurements;
   /** Oldest first; the last one is at `time.positionsAtMs`. */
   snapshots: ContextSnapshot[];
   ball: {
@@ -346,6 +349,7 @@ export function extractMatchContext(fixture: MatchFixture, t: number, options: C
       }),
       formations,
       events,
+      measurements: measureEvents(events, fixture.teams, selectedMs, windowStartMs, filteredEvents === 0 && truncatedEvents === 0),
       snapshots,
       ball: { control, lastControl },
       limitations,

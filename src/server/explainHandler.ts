@@ -16,10 +16,14 @@ import {
   type Focus,
 } from "@/explain/api";
 import { parseMatchReference, type MatchReference } from "@/explain/matchRef";
-import { explainMoment, type WorkflowLimits } from "./analyst";
+import { explainMoment, WORKFLOW_LIMITS, type WorkflowLimits } from "./analyst";
 import { FoundryClient, foundryConfigFromEnv, ModelError, type ModelClient, type FoundryConfig } from "./foundry";
-import { AnswerCache, clientKey, RequestGuard, sameSecret } from "./guard";
+import { AnswerCache, RequestGuard } from "./guard";
 import { resolveMatch } from "./resolveMatch";
+import { authorizeExplanation } from "./accessSession";
+import { BodyReadError, readLimitedBody } from "./requestBody";
+import { UsageBudget, usageConfig } from "./usageBudget";
+import { requestOrigin } from "./requestOrigin";
 
 /** Largest request body accepted, in bytes. */
 export const MAX_BODY_BYTES = 4_096;
@@ -48,6 +52,18 @@ export interface ExplainDeps {
   cache: AnswerCache<Omit<ExplainSuccess, "requestId" | "cached">>;
   log: (record: ExplainLogRecord) => void;
   limits?: Partial<WorkflowLimits>;
+  ingress?: RequestGuard;
+  budget?: UsageBudget;
+}
+
+const state = new WeakMap<ExplainDeps, { ingress: RequestGuard; budget: UsageBudget }>();
+function protections(deps: ExplainDeps) {
+  let value = state.get(deps);
+  if (!value) {
+    value = { ingress: deps.ingress ?? new RequestGuard({ perClient: 60, global: 240, concurrent: 16 }), budget: deps.budget ?? new UsageBudget() };
+    state.set(deps, value);
+  }
+  return value;
 }
 
 export function defaultDeps(): ExplainDeps {
@@ -73,33 +89,6 @@ function json(body: ExplainSuccess | ExplainFailure, status: number, retryAfterM
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-/** Reads at most `limit` bytes of the body; null when it is larger. */
-async function readLimited(request: Request, limit: number): Promise<string | null> {
-  const declared = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > limit) return null;
-  if (!request.body) return "";
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel().catch(() => {});
-      return null;
-    }
-    chunks.push(value);
-  }
-  const all = new Uint8Array(size);
-  let offset = 0;
-  for (const c of chunks) {
-    all.set(c, offset);
-    offset += c.byteLength;
-  }
-  return new TextDecoder().decode(all);
-}
-
 export async function handleExplain(request: Request, deps: ExplainDeps): Promise<Response> {
   let requestId: string = crypto.randomUUID();
   const record: ExplainLogRecord = { event: "explain", requestId, status: 0 };
@@ -116,20 +105,26 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
   };
 
   // Access and origin checks come first, before the body is read.
-  const token = deps.env.PITCHLENS_EXPLAIN_ACCESS_TOKEN?.trim();
-  if (token) {
-    const given = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() ?? "";
-    if (!sameSecret(given, token)) return fail("unauthorized", "This service needs an access token.");
-  }
+  if (deps.env.PITCHLENS_EXPLANATIONS_DISABLED === "1") return fail("explanations-disabled", "AI explanations are temporarily disabled.");
+  const access = authorizeExplanation(request, deps.env);
+  if (!access.ok) return fail(access.code, access.code === "unauthorized" ? "Unlock AI explanations with your access code." : "Explanation access is not configured on this server.");
   const origin = request.headers.get("origin");
   if (origin) {
-    const allowed = new Set([new URL(request.url).origin, ...(deps.env.PITCHLENS_ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean)]);
+    const allowed = new Set([requestOrigin(request), ...(deps.env.PITCHLENS_ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean)]);
     if (!allowed.has(origin)) return fail("forbidden-origin", "Requests from this site are not allowed.");
   }
   if (!/^application\/json\b/i.test(request.headers.get("content-type") ?? "")) return fail("unsupported-media-type", "Send the request as application/json.");
 
-  const text = await readLimited(request, MAX_BODY_BYTES);
-  if (text === null) return fail("payload-too-large", `The request is larger than ${MAX_BODY_BYTES} bytes.`);
+  const protection = protections(deps);
+  const incoming = protection.ingress.admit(access.identity);
+  if (!incoming.ok) return fail(incoming.code, "Too many requests. Try again shortly.", incoming.retryAfterMs);
+  try {
+  let text: string;
+  try { text = await readLimitedBody(request, MAX_BODY_BYTES); }
+  catch (error) {
+    if (error instanceof BodyReadError) return fail(error.code, error.code === "timeout" ? "The request body took too long or was cancelled." : error.code === "payload-too-large" ? `The request is larger than ${MAX_BODY_BYTES} bytes.` : "The request body could not be read.");
+    return fail("invalid-request", "The request body could not be read.");
+  }
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -160,6 +155,8 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
 
   const config = foundryConfigFromEnv(deps.env);
   if (!config.ok) return fail("not-configured", "Explanations are not set up on this server.");
+  const usage = usageConfig(deps.env);
+  if (!usage) return fail("not-configured", "Explanation usage limits are not configured correctly.");
 
   const { baseUrl, deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature } = config.config;
   // Model settings affect the answer. Never reuse a result from an older
@@ -173,12 +170,13 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
     return json({ ...cached, requestId, cached: true }, 200);
   }
 
-  const admission = deps.guard.admit(clientKey(request.headers));
+  const admission = deps.guard.admit(access.identity);
   if (!admission.ok)
     return admission.code === "busy"
       ? fail("busy", "The service is busy. Try again in a moment.", admission.retryAfterMs)
       : fail("rate-limited", "Too many explanation requests. Try again shortly.", admission.retryAfterMs);
 
+  let reservation: { settle: (charged?: number) => void } | undefined;
   try {
     const resolved = resolveMatch(reference);
     if (!resolved.ok) return fail("unknown-match", resolved.error);
@@ -188,6 +186,9 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
     if (focus === "match" && timeMs !== resolved.fixture.durationMs)
       return fail("invalid-request", `A match summary is only available at full time (timeMs ${resolved.fixture.durationMs}).`);
 
+    const allowed = protection.budget.reserve(access.identity, access.expiresAt, deps.limits?.totalTokens ?? WORKFLOW_LIMITS.totalTokens, usage.dailyTokens, usage.sessionExplanations);
+    if (!allowed.ok) return fail(allowed.code, allowed.code === "budget-exhausted" ? "The explanation service has reached its daily usage allowance." : allowed.code === "session-quota-exhausted" ? "This session has used its explanation allowance." : "This session already has an explanation running.", allowed.retryAfterMs);
+    reservation = allowed;
     const result = await explainMoment({
       fixture: resolved.fixture,
       timeMs,
@@ -197,6 +198,7 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
       signal: request.signal,
       limits: deps.limits,
     });
+    reservation.settle(result.trace.chargedTokens);
     const answer: Omit<ExplainSuccess, "requestId" | "cached"> = {
       apiVersion: EXPLAIN_API_VERSION,
       ok: true,
@@ -221,6 +223,10 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
     }
     return fail("internal-error", "Something went wrong while explaining this moment.");
   } finally {
+    reservation?.settle();
     admission.release();
+  }
+  } finally {
+    incoming.release();
   }
 }

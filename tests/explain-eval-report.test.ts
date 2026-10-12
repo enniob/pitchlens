@@ -12,6 +12,7 @@ import {
   redact,
   selectCases,
   summarise,
+  releaseFailures,
   type LiveResult,
 } from "./support/liveReport";
 import { EVAL_SCENARIOS } from "./support/scenarios";
@@ -27,6 +28,15 @@ const trace = (calls: { role: "analyst" | "verifier"; prompt: number; completion
 const result = (extra: Partial<LiveResult>): LiveResult => ({ scenario: "demo-goal-recorded", audience: "casual", outcome: "verified", blockers: [], leaks: [], unsupported: [], latencyMs: 2_000, ...extra });
 
 describe("live evaluation bounds", () => {
+  it("fails release coverage for missing, skipped, provider-error and unusable cases", () => {
+    const expected = [{ scenario: { id: "demo-goal-recorded" }, audience: "casual" as const }];
+    expect(releaseFailures([], expected)).toHaveLength(1);
+    for (const outcome of ["error", "skipped", "fallback"] as const) expect(releaseFailures([result({ outcome })], expected).length).toBeGreaterThan(0);
+    expect(releaseFailures([result({ quality: "needs-review", answer: "{}" })], expected)).toHaveLength(1);
+    expect(releaseFailures([result({ quality: "usable", answer: "{}" })], expected)).toEqual([]);
+    expect(releaseFailures([result({ quality: "honest-insufficient", outcome: "insufficient-evidence", answer: "{}" })], expected)).toEqual([]);
+    expect(releaseFailures([result({ quality: "usable" })], expected)).toHaveLength(1);
+  });
   it("default to the live scenarios for both audiences, within the case and call limits", () => {
     const bounds = liveBoundsFromEnv({});
     expect(bounds).toEqual({ scenarios: "default", audiences: ["casual", "analyst"], maxCases: LIVE_DEFAULT_CASES, maxModelCalls: LIVE_DEFAULT_CASES * WORKFLOW_LIMITS.modelCalls });

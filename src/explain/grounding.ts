@@ -12,8 +12,10 @@
  *   - a shirt number or player surname that is not in the roster, or, in a
  *     claim, a player the claim's cited events do not involve or name
  *   - an event (goal, shot result, offside, foul, save, ...) that is not in the
- *     claim's cited evidence or, for the headline and explanation, in any
- *     supplied evidence
+ *     claim's cited evidence (facts and interpretation alike) or, for the
+ *     headline and explanation, in any supplied evidence. Only the headline
+ *     and explanation may mention a goal the score shows but the evidence
+ *     window no longer contains.
  *   - wording too long or too dense for the requested audience
  *
  * Limitations get the time, score and player checks, but not the event ones.
@@ -33,13 +35,18 @@ export const AUDIENCE_LIMITS: Record<Audience, { explanation: number; facts: num
   analyst: { explanation: 1_200, facts: 8, interpretation: 5 },
 };
 
-/** Words that state a particular kind of event happened, and the evidence that supports them. */
-const EVENT_WORDS: { label: string; pattern: RegExp; supports: (e: ContextEvent) => boolean; inInterpretation: boolean }[] = [
+/**
+ * Words that state a particular kind of event happened, and the evidence that
+ * supports them. Facts and interpretation are checked alike; the lookaheads keep
+ * tactical terms ("offside trap", "penalty area", "corner of the box") from
+ * counting as events.
+ */
+const EVENT_WORDS: { label: string; pattern: RegExp; supports: (e: ContextEvent) => boolean }[] = [
+  { label: "a shot", pattern: /\b(shots?|shoots|shooting)\b/i, supports: (e) => e.type === "shot" },
   {
     label: "a goal",
     pattern: /\b(scores|scored|scoring|equali[sz](es|ed|er|ing))\b|\b(opening|winning|first|second|third)\s+goal\b|\bgoal\s+(for|by)\b/i,
     supports: (e) => e.type === "goal",
-    inInterpretation: true,
   },
   {
     // A shot's result, which is unknown until its goal or shot-result event is revealed.
@@ -47,18 +54,16 @@ const EVENT_WORDS: { label: string; pattern: RegExp; supports: (e: ContextEvent)
     pattern:
       /\b(into the (net|goal)|in the net|went in|goes in|crossed the (goal ?)?line|beat the (keeper|goalkeeper)|(on|off) target|went wide|goes wide|wide of the (post|goal|target)|over the bar|hit the (post|bar|crossbar|woodwork))\b/i,
     supports: (e) => e.type === "goal" || e.type === "shot-result" || e.type === "deflection" || (e.type === "shot" && e.outcome !== "pending"),
-    inInterpretation: true,
   },
-  { label: "an offside", pattern: /\b(flagged\s+)?offside\b(?!\s+(line|trap|position))/i, supports: (e) => e.type === "offside", inInterpretation: false },
-  { label: "a foul", pattern: /\bfoul(ed|s)?\b/i, supports: (e) => e.type === "foul" || e.type === "free-kick" || e.type === "penalty", inInterpretation: false },
-  { label: "a penalty", pattern: /\bpenalty\b(?!\s+(area|box|spot))/i, supports: (e) => e.type === "penalty", inInterpretation: false },
-  { label: "a corner", pattern: /\bcorner(\s+kick)?s?\b(?!\s+(of|flag))/i, supports: (e) => e.type === "corner", inInterpretation: false },
-  { label: "a throw-in", pattern: /\bthrow-?ins?\b/i, supports: (e) => e.type === "throw-in", inInterpretation: false },
+  { label: "an offside", pattern: /\b(flagged\s+)?offside\b(?!\s+(line|trap|position))/i, supports: (e) => e.type === "offside" },
+  { label: "a foul", pattern: /\bfoul(ed|s)?\b/i, supports: (e) => e.type === "foul" || e.type === "free-kick" || e.type === "penalty" },
+  { label: "a penalty", pattern: /\bpenalty\b(?!\s+(area|box|spot))/i, supports: (e) => e.type === "penalty" },
+  { label: "a corner", pattern: /\bcorner(\s+kick)?s?\b(?!\s+(of|flag))/i, supports: (e) => e.type === "corner" },
+  { label: "a throw-in", pattern: /\bthrow-?ins?\b/i, supports: (e) => e.type === "throw-in" },
   {
     label: "a save",
     pattern: /\b(saves|saved|parried|parries)\b|\b(a|the)\s+save\b/i,
     supports: (e) => (e.type === "shot-result" && e.outcome === "saved") || e.type === "deflection",
-    inInterpretation: false,
   },
 ];
 
@@ -71,6 +76,7 @@ const NUMBER = /#(\d{1,3})\b/g;
 
 interface Scope {
   events: ContextEvent[];
+  snapshotTimes?: number[];
   /** Players the text may name. */
   players: Set<string>;
 }
@@ -87,12 +93,13 @@ export function checkGrounding(response: ExplanationResponse, context: MatchCont
     issues.push(`more than ${limits.interpretation} interpretation claims for the ${audience} audience`);
 
   const allPlayers = new Set(context.players.map((p) => p.id));
-  const everything: Scope = { events: context.events, players: allPlayers };
+  const everything: Scope = { events: context.events, players: allPlayers, snapshotTimes: context.snapshots.map((s) => s.t) };
   const eventById = new Map(context.events.map((e) => [e.id, e]));
   const scopeOf = (claim: Claim): Scope => {
     const events = claim.evidence.flatMap((r) => (r.kind === "event" && eventById.has(r.id) ? [eventById.get(r.id)!] : []));
     // A snapshot shows every player; an event involves its player and recipient, or the whole team for a formation change.
-    if (claim.evidence.some((r) => r.kind === "snapshot")) return { events, players: allPlayers };
+    const snapshotTimes = claim.evidence.flatMap((r) => r.kind === "snapshot" ? [r.t] : []);
+    if (snapshotTimes.length) return { events, players: allPlayers, snapshotTimes };
     const players = new Set<string>();
     for (const e of events) {
       if (e.playerId) players.add(e.playerId);
@@ -107,7 +114,7 @@ export function checkGrounding(response: ExplanationResponse, context: MatchCont
   check(issues, "headline", response.headline, everything, context, scores, "all");
   check(issues, "explanation", response.explanation, everything, context, scores, "all");
   response.facts.forEach((c, i) => check(issues, `facts[${i}]`, c.text, scopeOf(c), context, scores, "all"));
-  response.interpretation.forEach((c, i) => check(issues, `interpretation[${i}]`, c.text, scopeOf(c), context, scores, "interpretation"));
+  response.interpretation.forEach((c, i) => check(issues, `interpretation[${i}]`, c.text, scopeOf(c), context, scores, "all"));
   // Limitations say what is unknown ("whether the shot was saved"), so event wording is not checked there.
   response.limitations.forEach((l, i) => check(issues, `limitations[${i}]`, l, everything, context, scores, "none"));
   return issues;
@@ -131,12 +138,49 @@ function scoreProgression(context: MatchContext): Score[] {
   return final.home === context.score.home && final.away === context.score.away ? scores : [context.score];
 }
 
-function check(issues: string[], where: string, text: string, scope: Scope, context: MatchContext, scores: Score[], events: "all" | "interpretation" | "none"): void {
+function check(issues: string[], where: string, text: string, scope: Scope, context: MatchContext, scores: Score[], events: "all" | "none"): void {
   const selected = context.time.selectedMs;
+  // Measurements define fixed screen thirds, not player-relative left/right
+  // zones. A model must not invent that mapping from near-central coordinates.
+  if (events !== "none" && /\b(?:left|right)[ -](?:side(?:d)?|half[ -]?space)\b/i.test(text))
+    issues.push(`${where} uses a left/right zone label not defined by the supplied measurements; use a measured channel or omit the geography`);
+
+  // Explicit clock/minute prose needs the same future boundary as seconds.
+  // Requiring "at" avoids confusing scorelines or unrelated ratios with clocks.
+  for (const m of text.matchAll(/\bat\s+(\d{1,3}):([0-5]\d)(?:\.(\d+))?\b/gi)) {
+    const ms = (Number(m[1]) * 60 + Number(`${m[2]}.${m[3] ?? "0"}`)) * 1000;
+    const tolerance = 500 / 10 ** (m[3]?.length ?? 0);
+    const known = [...scope.events.flatMap((e) => e.startT === undefined ? [e.t] : [e.t, e.startT]), ...(scope.snapshotTimes ?? [])];
+    const rounded = known.some((t) => t <= selected && Math.abs(t - ms) <= tolerance);
+    if (ms > selected + 50 && !rounded) issues.push(`${where} mentions ${m[0]}, after the selected time`);
+  }
+  for (const m of text.matchAll(/\bminute\s+(\d+)\b/gi)) {
+    if ((Number(m[1]) - 1) * 60_000 > selected) issues.push(`${where} mentions ${m[0]}, after the selected time`);
+  }
 
   for (const m of text.matchAll(TIME)) {
     const ms = m[2]!.toLowerCase() === "ms" ? Number(m[1]) : Number(m[1]) * 1000;
-    if (ms > selected + 50) issues.push(`${where} mentions ${m[0].trim()}, after the selected time (${selected / 1000} s)`);
+    const prefix = text.slice(Math.max(0, m.index! - 60), m.index).toLowerCase();
+    const suffix = text.slice(m.index! + m[0].length, m.index! + m[0].length + 15).toLowerCase();
+    const duration = !/\bat\s+$/.test(prefix) && (/(?:took|takes|lasted|lasting|within|over|in|for|after|last|previous|duration(?: of)?|elapsed(?: time)?|approximately|about|roughly)\s+(?:(?:approximately|about|roughly|only|just)\s+)?$/.test(prefix) || /^\s+(?:later|earlier|apart|elapsed|after|before)\b/.test(suffix));
+    const times = [...scope.events.flatMap((e) => e.startT !== undefined ? [e.t, e.startT] : [e.t]), ...(scope.snapshotTimes ?? [])];
+    const decimals = m[1]!.split(".")[1]?.length ?? 0;
+    const tolerance = m[2]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** decimals;
+    const roundedKnownTime = !duration && ms <= selected + tolerance && times.some((t) => t <= selected && Math.abs(t - ms) <= tolerance);
+    if (ms > selected + 50 && !roundedKnownTime) issues.push(`${where} mentions ${m[0].trim()}, after the selected time (${selected / 1000} s)`);
+    if (where.startsWith("facts[") || where.startsWith("interpretation[")) {
+      if (duration) {
+        // Whole-second prose may round by half a second; decimal times must
+        // agree to their stated precision. Both endpoints must be cited.
+        const citedIds = new Set(scope.events.map((e) => e.id));
+        const windowClaim = /(?:last|previous)\s+$/.test(prefix);
+        const measuredWindow = windowClaim && context.measurements?.patterns.some((p) => p.kind === "activity-change" && p.eventIds.length > 0 && p.eventIds.every((id) => citedIds.has(id)) && p.values.windowMs === ms);
+        if (windowClaim ? !measuredWindow : !times.some((a) => times.some((b) => a !== b && Math.abs(Math.abs(a - b) - ms) <= tolerance)))
+          issues.push(`${where} gives the duration ${m[0].trim()}, which is not supported by two cited time endpoints`);
+      } else if (!times.some((t) => Math.abs(t - ms) <= tolerance)) {
+        issues.push(`${where} gives the time ${m[0].trim()}, which matches nothing it cites`);
+      }
+    }
   }
   for (const m of text.matchAll(MINUTE)) {
     if ((Number(m[1]) - 1) * 60_000 > selected) issues.push(`${where} mentions the ${m[0].trim()}, after the selected time`);
@@ -164,13 +208,14 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
   }
 
   const summary = where === "headline" || where === "explanation";
-  // A goal before the evidence window still counts in the score, but cannot be cited.
-  const uncitableGoal = home + away > 0 && !context.events.some((e) => e.type === "goal");
   for (const w of EVENT_WORDS) {
-    if (events === "none" || (events === "interpretation" && !w.inInterpretation)) continue;
+    if (events === "none") continue;
     const m = text.match(w.pattern);
     if (!m || scope.events.some(w.supports)) continue;
-    if (w.label === "a goal" && (uncitableGoal || (summary && home + away > 0))) continue;
+    // The score shows a goal happened, even one before the evidence window that
+    // cannot be cited, but only the headline and explanation may rely on it.
+    // Facts and interpretation must cite the goal itself.
+    if (w.label === "a goal" && summary && home + away > 0) continue;
     issues.push(`${where} says "${m[0]}", but the evidence it ${summary ? "has" : "cites"} contains no ${w.label.replace(/^an? /, "")}`);
   }
 }

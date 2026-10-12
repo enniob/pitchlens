@@ -50,7 +50,14 @@ export function groundedDraft(s: EvalScenario, audience: Audience): ExplanationR
       interpretation: [],
       limitations: ["No events are recorded up to this moment; only player positions are available."],
     };
-  const facts: Claim[] = picked.map((e) => ({ text: `At ${seconds(e.t)}: ${e.description.replace(/[.!]*$/, "")}.`, evidence: [{ kind: "event", id: e.id }] }));
+  const facts: Claim[] = picked.map((e) => {
+    // Result/deflection descriptions can mention the earlier strike. Cite
+    // that retained action too rather than treating a result as a shot event.
+    const shot = e.type !== "shot" && /\bshot\b/i.test(e.description)
+      ? context.events.slice().reverse().find((candidate) => candidate.type === "shot" && candidate.teamId === e.teamId && candidate.t <= e.t && (!e.playerId || candidate.playerId === e.playerId))
+      : undefined;
+    return { text: `At ${seconds(e.t)}: ${e.description.replace(/[.!]*$/, "")}.`, evidence: [{ kind: "event", id: e.id }, ...(shot ? [{ kind: "event" as const, id: shot.id }] : [])] };
+  });
   const { home, away } = context.score;
   if (facts.length < AUDIENCE_LIMITS[audience].facts)
     facts.push({ text: `The score is ${home}–${away}.`, evidence: [{ kind: "snapshot", t: context.time.positionsAtMs }] });
