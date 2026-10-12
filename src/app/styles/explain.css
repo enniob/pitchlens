@@ -3,7 +3,7 @@
 /*
  * Pieces shared by the panel and the recap (check row, facts and limits,
  * citations, errors, skeleton) read these --ink-* values. Light cards opt in
- * with the `paper` class; the docked panel overrides them with the navy theme.
+ * with the `paper` class; the docked panel and recap story share the navy theme.
  */
 .explain,
 .paper {
@@ -31,8 +31,9 @@
   color: var(--ink);
 }
 
-/* The docked panel sits on the app's navy surface. */
-.explain {
+/* Explanation surfaces share the app's navy palette, including evidence and status states. */
+.explain,
+.recap__story {
   --ink: var(--text);
   --ink-body: #c9d5e1;
   --ink-muted: var(--muted);

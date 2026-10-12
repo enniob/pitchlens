@@ -26,7 +26,11 @@ docked beside the pitch. No Azure resources are created by this code.
    evidence limitations stay separate under **Facts, reading and limits**.
 5. At full time the **Recap** view unlocks. It requests one full-time summary
    (`focus: "match"`, below) and shows it as **How the match unfolded**, beside
-   the defining moments and final statistics, which are computed in code.
+   up to three defining moments and final statistics, which are computed in code.
+   The highlights favor goals and other significant events, combine events within
+   three seconds into one passage, and appear in match order. They are a selected
+   recap, rather than a list of every key event. The summary and supporting evidence
+   share the viewer's navy palette.
 
 Moment requests are explicit, never automatic; the recap summary is requested
 the first time the recap opens for each audience and reused after that.
