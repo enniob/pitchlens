@@ -6,19 +6,25 @@
   padding: 20px 24px 24px;
 }
 
-/* On Game moments, only the visually hidden live region is left inside. */
-.tactics--off {
+/*
+ * On Game moments, only the visually hidden live region is left inside, so
+ * the panel takes no room. Qualified so it beats `.dock__panel { flex: 1 }`
+ * in shell.css, which loads later.
+ */
+.dock__panel.tactics--off {
   flex: none;
   padding: 0;
+  /* Holds the visually hidden feed, which would otherwise sit below the page and make it scroll. */
+  position: relative;
+  overflow: hidden;
   pointer-events: none;
 }
 
-/* Newest first, so a long feed loses its oldest cards. */
+/* Newest first. Full height: the dock panel around it scrolls, so no card is cut off. */
 .feed {
   display: flex;
+  flex: none;
   flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .feed__head {
