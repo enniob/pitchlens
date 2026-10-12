@@ -7,6 +7,7 @@ const PATHS = {
   next: "M6 6l8 6-8 6zM18 6v12",
   close: "M6 6l12 12M18 6L6 18",
   setup: "M4 7h10M18 7h2M4 17h2M10 17h10M16 5v4M8 15v4",
+  lock: "M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5zM12 14v3",
   list: "M4 5h16M4 12h16M4 19h10",
   plus: "M12 5v14M5 12h14",
   minus: "M5 12h14",

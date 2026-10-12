@@ -1,0 +1,8 @@
+.scrim { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 1rem; background: rgb(3 10 18 / 75%); backdrop-filter: blur(5px); }
+.scrim[hidden] { display: none; }
+.dialog { width: min(100%, 30rem); max-height: calc(100dvh - 2rem); overflow-y: auto; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface-1); color: var(--text); box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 40%); }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.25rem 1.25rem 1rem; border-bottom: 1px solid var(--line); }
+.head h2 { margin: 0; font-size: 1.125rem; }
+.head h2:focus { outline: none; }
+.body { padding: .5rem; }
+.footer { display: flex; justify-content: flex-end; padding: 1rem 1.25rem; border-top: 1px solid var(--line); }

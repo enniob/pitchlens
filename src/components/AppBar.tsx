@@ -10,9 +10,11 @@ interface Props {
   synthOpen: boolean;
   onToggleSynth: () => void;
   onNewMatch?: () => void;
+  onOpenPreferences?: () => void;
+  onOpenAccess?: () => void;
 }
 
-export function AppBar({ view, recapReady, onView, synthOpen, onToggleSynth, onNewMatch }: Props) {
+export function AppBar({ view, recapReady, onView, synthOpen, onToggleSynth, onNewMatch, onOpenPreferences, onOpenAccess }: Props) {
   return (
     <header className="appbar">
       <span className="brand">
@@ -37,6 +39,12 @@ export function AppBar({ view, recapReady, onView, synthOpen, onToggleSynth, onN
         </button>
       </nav>
       <div className="appbar__actions">
+        {onOpenPreferences && <button type="button" className="btn btn--ghost btn--icon" aria-label="Preferences" title="Favorite team and player" aria-haspopup="dialog" onClick={onOpenPreferences}>
+          <Icon name="setup" />
+        </button>}
+        {onOpenAccess && <button type="button" className="btn btn--ghost btn--icon" aria-label="AI access" title="AI access" aria-haspopup="dialog" onClick={onOpenAccess}>
+          <Icon name="lock" />
+        </button>}
         <button type="button" className="appbar__synth" aria-expanded={synthOpen} aria-controls="synth-note" onClick={onToggleSynth}>
           <Icon name="flask" size={18} />
           <span>

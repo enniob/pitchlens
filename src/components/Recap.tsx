@@ -74,7 +74,7 @@ export function Recap({ fixture, audience, onAudience, onReplayFrom, explained =
       </div>
 
       {onFocus && <MatchFocus fixture={fixture} timeMs={end} focus={focus} onFocus={onFocus} />}
-      {focused && <p className="recap__foot">{moments.length ? "Highlights for your favorite. The summary and final score cover the whole match." : "No defining moments for this favorite. Choose Show whole match to see other highlights."}</p>}
+      {focused && <p className="recap__foot">{moments.length ? "Highlights for your favorite. The summary and final score cover the whole match." : "No defining moments for this favorite. Open Preferences in the header and choose Show whole match to see other highlights."}</p>}
       {moments.length > 0 && (
         <ol className="recap__moments" aria-label="Defining moments">
           {moments.map((e) => {

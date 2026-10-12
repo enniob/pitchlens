@@ -14,7 +14,8 @@ moments** tab) docked beside the pitch. No Azure resources are created by this c
 1. Fill in the server-only Foundry settings in `.env` or `.env.local` and run
    `npm run dev`. Use the resource root endpoint, without `/api/projects/...`.
 2. Configure the access code and signing secret described under [Setup](#setup),
-   then open `http://localhost:3000` and unlock AI explanations with that code.
+   then open `http://localhost:3000`, open **AI access** in the header,
+   and unlock explanations with that code.
    Play. The **Live insights** panel is
    docked beside the pitch. When play reaches a key moment, an insight card
    for it appears there on its own (see [Live insights](#live-insights)).

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { ExplanationAccess } from "./ExplanationAccess";
+import { SettingsDialog } from "./SettingsDialog";
 
 /**
  * Whether this viewer may ask for AI explanations right now. Defaults to true
@@ -12,17 +13,24 @@ import { ExplanationAccess } from "./ExplanationAccess";
 export const ExplanationAccessContext = createContext(true);
 
 export const useExplanationAccess = () => useContext(ExplanationAccessContext);
+const AccessSettingsContext = createContext<(() => void) | undefined>(undefined);
+export const useOpenAccessSettings = () => useContext(AccessSettingsContext);
 
 /** Shown wherever an AI request is unavailable because access is locked. */
-export const LOCKED_HINT = "Unlock AI explanations with the access code above. Match playback works without it.";
+export const LOCKED_HINT = "Open AI access in the header to unlock explanations. Match playback works without it.";
 
-/** The access bar plus everything that may ask for explanations, sharing one session check. */
+/** One session monitor for the whole page, with its controls in a header-opened dialog. */
 export function ExplanationAccessGate({ children }: { children: ReactNode }) {
   const [allowed, setAllowed] = useState(false);
+  const [open, setOpen] = useState(false);
   return (
     <ExplanationAccessContext.Provider value={allowed}>
-      <ExplanationAccess onAccessChange={setAllowed} />
-      {children}
+      <AccessSettingsContext.Provider value={() => setOpen(true)}>
+        <SettingsDialog open={open} title="AI access" onClose={() => setOpen(false)}>
+          <ExplanationAccess onAccessChange={setAllowed} open={open} />
+        </SettingsDialog>
+        {children}
+      </AccessSettingsContext.Provider>
     </ExplanationAccessContext.Provider>
   );
 }

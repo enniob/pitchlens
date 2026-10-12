@@ -1,5 +1,16 @@
 /* Narrower screens: one column, the panel under the match ----------------------- */
 
+@media (max-width: 1000px) {
+  .appbar { grid-template-columns: auto 1fr auto; gap: 12px; padding-inline: 18px; }
+  .appbar__tabs { justify-self: center; }
+}
+
+@media (max-width: 480px) {
+  .appbar { height: auto; grid-template-columns: auto 1fr; padding-block: 6px; }
+  .appbar__tabs { min-height: 44px; justify-self: end; }
+  .appbar__actions { grid-column: 1 / -1; justify-self: stretch; justify-content: flex-end; }
+}
+
 @media (max-width: 1100px) {
   .app {
     height: auto;

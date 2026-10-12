@@ -11,7 +11,7 @@ in ignored `.env.local` or the hosting secret store. Generate each with
 `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`.
 Share only the access code privately with authorized viewers.
 
-The access bar sends the code to same-origin `POST /api/session`. The server
+The header's **AI access** dialog sends the code to same-origin `POST /api/session`. The server
 sets a signed 30-minute cookie with HttpOnly, SameSite=Strict and Path=/api;
 Secure is required in production and on HTTPS. GET reports status without
 credentials; DELETE clears the browser cookie. Mutations require the exact

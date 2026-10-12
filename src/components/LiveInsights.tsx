@@ -193,7 +193,7 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
     <section className="insights" aria-labelledby="insights-title">
       <h3 id="insights-title" className="visually-hidden">Automatic insights</h3>
       {visible.length === 0 && (
-        <p className="explain__empty">{validFocus.teamId || validFocus.playerId ? "No insights for this favorite yet. Choose Show whole match to see other moments." : "Insights appear here as goals, shots, fouls near goal and tactical changes happen. They only use what has happened so far."}</p>
+        <p className="explain__empty">{validFocus.teamId || validFocus.playerId ? "No insights for this favorite yet. Open Preferences in the header and choose Show whole match to see other moments." : "Insights appear here as goals, shots, fouls near goal and tactical changes happen. They only use what has happened so far."}</p>
       )}
       <ol className="insights__list" aria-live="polite" aria-relevant="additions">
         {visible.map((m) => {

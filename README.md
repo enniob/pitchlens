@@ -81,7 +81,7 @@ The viewer has two views, chosen in the bar at the top:
 - **Match**: the 3D pitch with the score over it, the control bar, a strip of the key moments reached so far, and the docked **Live insights** panel, where insight cards appear as key moments happen (see [docs/explain-service.md](docs/explain-service.md)).
 - **Recap**: unlocks at full time. Shows the defining moments (chosen by rules in `src/playback/recap.ts`), an AI summary of how the match unfolded, and the final statistics. **Replay moment** goes back to the match three seconds before it.
 
-- **Favorite team / Favorite player** above the dock focus automatic insights,
+- **Preferences** in the header opens a modal where **Favorite team / Favorite player** focus automatic insights,
   measured patterns, and recap highlights. Focused counts use only events
   reached so far. A pass counts as a player's reception only when completed;
   being the intended recipient of an intercepted pass does not count. Choose
@@ -926,7 +926,7 @@ Agent Framework evaluation, the limits and the abuse controls. `npm test` runs
 the mocked suites; `npm run test:live` runs the opt-in live evaluation.
 
 AI access defaults closed. Configure a judge access code and independent session
-signing secret in `.env.local`, then unlock explanations using the access bar.
+signing secret in `.env.local`, then open **AI access** in the header to unlock explanations.
 Playback works while AI is locked. Explicit local access is available outside
 production with `PITCHLENS_ACCESS_MODE=local`. Development and production npm
 commands bind to `127.0.0.1`. See [security controls](docs/security-controls.md)

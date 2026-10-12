@@ -37,10 +37,11 @@ function unlockFailure(status: number) {
  * `onAccessChange` hears whether explanations may be requested: only once a
  * status check says this browser is signed in and the service is available.
  */
-export function ExplanationAccess({ onAccessChange }: { onAccessChange?: (allowed: boolean) => void } = {}) {
+export function ExplanationAccess({ onAccessChange, open }: { onAccessChange?: (allowed: boolean) => void; open?: boolean } = {}) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState<AccessStatus | null>(null);
   const [code, setCode] = useState("");
+  useEffect(() => { if (open === false) setCode(""); }, [open]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const statusRequest = useRef<AbortController | null>(null);
