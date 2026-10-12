@@ -191,21 +191,34 @@ function TeamFieldset({
   // Errors show once Generate was tried, or as soon as a typed time is invalid.
   const visibleError = error && (showError || controls.changeAt.trim() !== "") ? error : null;
   return (
-    <fieldset className="fieldset">
+    <fieldset className="fieldset setup-team">
       <legend>
-        <TeamBadge team={team} /> {team.name} <span className="help">({side})</span>
+        <TeamBadge team={team} />
+        <span className="setup-team__heading">
+          <span>{team.name}</span>
+          <span className="setup-team__side">{side} team</span>
+        </span>
       </legend>
-      <div className="formation-picker" role="group" aria-label={`${team.name} starting formation`}>
-        {FORMATION_IDS.map((id) => (
-          <button key={id} type="button" className="formation-option" aria-pressed={controls.formation === id} onClick={() => update((d) => (d.teams[side].formation = id))}>
-            <FormationDiagram id={id} />
-            {id}
-          </button>
-        ))}
+      <div className="tactics-board">
+        <figure className="tactics-board__preview">
+          <FormationDiagram id={controls.formation} team={team} />
+          <figcaption>Starting shape · ↑ Attack</figcaption>
+        </figure>
+        <div className="formation-picker" role="group" aria-label={`${team.name} starting formation`}>
+          {FORMATION_IDS.map((id) => (
+            <button key={id} type="button" className="formation-option" aria-pressed={controls.formation === id} onClick={() => update((d) => (d.teams[side].formation = id))}>
+              <span>
+                <span className="formation-option__name">{id}</span>
+                <span className="formation-option__description">{FORMATION_LABELS[id]}</span>
+              </span>
+              <span className="formation-option__check"><Icon name="check" size={16} /></span>
+            </button>
+          ))}
+        </div>
       </div>
-      <label className="check">
-        <input type="checkbox" checked={on} onChange={() => update((d) => (d.changeOn[side] = !d.changeOn[side]))} />
-        Change formation during the match
+      <label className="setup-team__switch">
+        <span>Change formation during the match</span>
+        <input type="checkbox" role="switch" checked={on} onChange={() => update((d) => (d.changeOn[side] = !d.changeOn[side]))} />
       </label>
       {on && (
         <>
@@ -256,13 +269,30 @@ function TeamFieldset({
   );
 }
 
-/** Small dot diagram of a formation, attacking up. */
-function FormationDiagram({ id }: { id: FormationId }) {
+const FORMATION_LABELS: Record<FormationId, string> = {
+  "4-4-2": "Two forwards",
+  "4-3-3": "Three forwards",
+  "4-2-3-1": "One forward",
+};
+
+/** Schematic starting shape, not live player positions. Uses the preset's default shirt numbers. */
+function FormationDiagram({ id, team }: { id: FormationId; team: Team }) {
   return (
-    <span className="formation-option__pitch" aria-hidden="true">
+    <svg className="tactics-board__pitch" viewBox="0 0 150 194" role="img" aria-label={`${team.name} ${id} starting formation schematic, attacking up`}>
+      <rect className="tactics-board__grass" width="150" height="194" rx="7" />
+      {[0, 2, 4, 6].map((stripe) => <rect key={stripe} className="tactics-board__stripe" x="8" y={8 + stripe * 22.25} width="134" height="22.25" />)}
+      <g className="tactics-board__markings" fill="none" strokeWidth="1">
+        <rect x="8" y="8" width="134" height="178" />
+        <path d="M8 97h134M45 8v26h60V8M60 8v10h30V8M45 186v-26h60v26M60 186v-10h30v10M66 8V3h18v5M66 186v5h18v-5" />
+        <circle cx="75" cy="97" r="20" />
+        <circle cx="75" cy="97" r="1.5" />
+      </g>
       {FORMATIONS[id].slots.map((s) => (
-        <i key={s.id} style={{ left: `${((34 - s.lateral) / 68) * 100}%`, top: `${92 - (s.depth / 55) * 80}%` }} />
+        <g key={s.id} transform={`translate(${75 - (s.lateral / 34) * 67}, ${s.position === "GK" ? 170 : 140 - ((s.depth - 25) / 25) * 100})`} aria-hidden="true">
+          <circle r="9" fill={s.position === "GK" ? "var(--gold)" : team.kit.primary} className="tactics-board__player" />
+          <text textAnchor="middle" dy=".35em" fill={s.position === "GK" ? "var(--bg)" : team.kit.number}>{s.shirt}</text>
+        </g>
       ))}
-    </span>
+    </svg>
   );
 }

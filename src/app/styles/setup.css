@@ -113,46 +113,222 @@
   background: var(--bg);
 }
 
+.setup-team + .setup-team {
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.setup-team__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setup-team__side {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tactics-board {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+}
+
+.tactics-board__preview {
+  margin: 0;
+  min-width: 0;
+}
+
+.tactics-board__preview figcaption {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.tactics-board__pitch {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.tactics-board__grass {
+  fill: var(--accent-wash);
+}
+
+.tactics-board__stripe {
+  fill: var(--accent);
+  opacity: 0.035;
+}
+
+.tactics-board__markings {
+  stroke: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.tactics-board__player {
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+
+.tactics-board__pitch text {
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .formation-picker {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
 .formation-option {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 10px 6px 8px;
-  border-radius: var(--radius);
-  border: 1.5px solid var(--line);
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 60px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
   background: var(--surface-2);
-  font-family: var(--font-display-stack);
-  font-weight: 700;
-  font-size: 18px;
+  text-align: left;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.formation-option[aria-pressed="true"] {
-  border-color: var(--text);
+.formation-option:hover {
+  border-color: var(--accent);
   background: var(--surface-3);
 }
 
-.formation-option__pitch {
-  position: relative;
-  width: 64px;
-  height: 44px;
-  border-radius: 5px;
-  background: #27653d;
+.formation-option__name {
+  display: block;
+  font-weight: 650;
+  font-size: 18px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-.formation-option__pitch i {
-  position: absolute;
-  width: 6px;
-  height: 6px;
+.formation-option__description {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.formation-option__check {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: #ffffff;
-  transform: translate(-50%, -50%);
+  background: var(--accent);
+  color: var(--accent-ink);
+  visibility: hidden;
+}
+
+.formation-option[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.formation-option[aria-pressed="true"] .formation-option__check {
+  visibility: visible;
+}
+
+.setup-team__switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.setup-team__switch input {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border: 1px solid var(--track);
+  border-radius: 12px;
+  background: var(--track);
+  cursor: pointer;
+}
+
+.setup-team__switch input::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+}
+
+.setup-team__switch input:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.setup-team__switch input:checked::before {
+  left: 16px;
+  background: var(--accent-ink);
+}
+
+@media (max-width: 400px) {
+  .drawer__body {
+    padding-inline: 16px;
+  }
+
+  .drawer__actions {
+    flex-direction: column;
+  }
+
+  .tactics-board {
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .formation-option {
+    padding: 8px 10px;
+  }
+
+  .formation-option__name {
+    font-size: 16px;
+  }
+
+  .formation-option__check {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+@media (forced-colors: active) {
+  .tactics-board__player {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+
+  .tactics-board__pitch text {
+    fill: CanvasText;
+  }
+
+  .tactics-board__markings {
+    stroke: CanvasText;
+  }
+
+  .setup-team__switch input::before {
+    background: ButtonText;
+  }
 }
 
 .check {
