@@ -76,12 +76,10 @@ export function PlaybackControls(p: PlaybackControlsProps) {
 interface StageControlsProps {
   view: CameraView;
   sceneAvailable: boolean;
-  pro: boolean;
   onView: (view: CameraView) => void;
-  onTogglePro: () => void;
 }
 
-/** Camera and Tactics switches, laid over the top-right corner of the pitch. */
+/** Camera switch, laid over the top-right corner of the pitch. */
 export function StageControls(p: StageControlsProps) {
   return (
     <div className="hud__options">
@@ -93,16 +91,6 @@ export function StageControls(p: StageControlsProps) {
           Top view
         </button>
       </div>
-      <span className="hud__divider" aria-hidden="true" />
-      <button type="button" className="switch" role="switch" aria-checked={p.pro} aria-describedby="tactics-desc" onClick={p.onTogglePro}>
-        Tactics
-        <span className="switch__track" aria-hidden="true">
-          <span className="switch__knob" />
-        </span>
-      </button>
-      <span id="tactics-desc" className="visually-hidden">
-        Shows a live feed of every touch with distances, positions and pitch zones, plus extra match numbers over the pitch.
-      </span>
     </div>
   );
 }

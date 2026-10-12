@@ -1,9 +1,9 @@
-/* Understand this moment ------------------------------------------------------------ */
+/* Live insights ------------------------------------------------------------------ */
 
 /*
  * Pieces shared by the panel and the recap (check row, facts and limits,
  * citations, errors, skeleton) read these --ink-* values. Light cards opt in
- * with the `paper` class; the docked panel overrides them with the navy theme.
+ * with the `paper` class; the docked panel and recap story share the navy theme.
  */
 .explain,
 .paper {
@@ -31,8 +31,9 @@
   color: var(--ink);
 }
 
-/* The docked panel sits on the app's navy surface. */
-.explain {
+/* Explanation surfaces share the app's navy palette, including evidence and status states. */
+.explain,
+.recap__story {
   --ink: var(--text);
   --ink-body: #c9d5e1;
   --ink-muted: var(--muted);
@@ -56,10 +57,8 @@
   --ink-accent-wash: var(--accent-wash);
 }
 
+/* The dock panel around it is the one that scrolls. */
 .explain {
-  height: 100%;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   padding: 28px 24px 24px;
   overflow-wrap: anywhere;
 }
@@ -588,4 +587,125 @@
   font-size: 15px;
   font-weight: 600;
   line-height: 1.35;
+}
+
+/* Live insights: a card per key moment reached, newest first and open. */
+.insights__list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.insight {
+  border: 1px solid var(--ink-line);
+  border-radius: 12px;
+  background: var(--ink-raised);
+  animation: feed-in 0.35s ease;
+}
+
+.insight--open {
+  border-color: var(--ink-accent);
+}
+
+.insight__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+}
+
+.insight__head:hover {
+  background: var(--ink-hover);
+  border-radius: 12px;
+}
+
+.insight--goal .insight__head .icon {
+  color: var(--gold);
+}
+
+.insight--stop .insight__head .icon {
+  color: var(--danger);
+}
+
+.insight--tactic .insight__head .icon {
+  color: var(--accent);
+}
+
+.insight__title {
+  flex: 1;
+  font-weight: 700;
+}
+
+.insight__time {
+  font-size: 13px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.insight__headline,
+.insight__status,
+.insight__ask {
+  margin: 0 14px 12px;
+}
+
+.insight__headline {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink-body);
+}
+
+.insight__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--ink-muted);
+}
+
+.insight__status .explain__error {
+  margin: 0;
+}
+
+.insight__ask {
+  gap: 6px;
+  color: var(--ink-accent);
+}
+
+.insight__answer {
+  padding: 0 14px 14px;
+}
+
+.insight__answer .explain__section {
+  font-size: 16px;
+}
+
+/* Asking about any other moment is the secondary action below the feed. */
+.explain__ask .explain__go {
+  min-height: 44px;
+  margin-top: 0;
+  border: 1px solid var(--ink-line);
+  background: var(--ink-raised);
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.explain__ask .explain__go:hover:not(:disabled) {
+  border-color: var(--ink-accent);
+  background: var(--ink-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .insight {
+    animation: none;
+  }
 }

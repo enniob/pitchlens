@@ -226,25 +226,15 @@
   margin-top: 20px;
 }
 
-/*
- * A white paper card. The shared pieces inside (check row, claims, citations,
- * errors, skeleton) take their colours from the .paper --ink-* hook; the app
- * tokens are remapped for the generic button, link and focus ring, and as fallbacks.
- */
+/* The shared evidence and status pieces use the navy --ink-* palette in explain.css. */
 .recap__story {
-  --text: var(--paper-text);
-  --muted: var(--paper-muted);
-  --line: var(--paper-line);
-  --surface-2: var(--paper);
-  --surface-3: var(--paper-line);
-  --accent: var(--paper-accent);
-  --focus: #1d5fbf;
   display: flex;
   flex-direction: column;
   padding: 24px 32px;
   border-radius: 14px;
-  background: var(--paper-2);
-  color: var(--paper-text);
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--text);
 }
 
 .recap__story h3 {
@@ -258,13 +248,13 @@
   margin-top: 8px;
   font-size: 19px;
   line-height: 1.5;
-  color: var(--ink-body, var(--paper-text));
+  color: var(--ink-body, var(--text));
 }
 
 .recap__story .recap__headline {
   margin-top: 10px;
   font-weight: 700;
-  color: var(--paper-text);
+  color: var(--text);
 }
 
 .recap__story .recap__headline + p {
@@ -273,17 +263,18 @@
 
 .recap__story .recap__status {
   font-size: 15px;
-  color: var(--ink-muted, var(--paper-muted));
+  color: var(--ink-muted, var(--muted));
 }
 
 .recap__story .btn {
   align-self: flex-start;
   margin-top: 12px;
-  color: var(--paper-text);
+  color: var(--text);
 }
 
 .recap__story .explain__error {
   font-size: 15px;
+  color: var(--ink-error-text);
 }
 
 .recap__check {
@@ -329,7 +320,7 @@
   left: -16px;
   top: 6px;
   bottom: 6px;
-  border-left: 1px solid var(--ink-line, var(--paper-line));
+  border-left: 1px solid var(--ink-line, var(--line));
 }
 
 .recap__check .link .icon {
@@ -357,6 +348,7 @@
 .recap__story .explain__disclaimer {
   margin-top: 10px;
   font-size: 12px;
+  color: var(--ink-muted, var(--muted));
 }
 
 .recap__snapshot {
@@ -424,7 +416,7 @@
   border-radius: 4px;
 }
 
-/* Moments you explained: back to the match at that moment, answer showing. */
+/* Explained moments: back to the match at that moment, answer showing. */
 .recap__asked {
   margin-top: 20px;
   padding: 18px 20px;

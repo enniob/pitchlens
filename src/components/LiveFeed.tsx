@@ -13,8 +13,8 @@ interface LiveFeedProps {
 }
 
 /**
- * Short broadcast-style feed of recent moments. It is shown over the pitch
- * only with Tactics (Pro data) on, listing every touch with its data chips;
+ * Short broadcast-style feed of recent moments. It is shown
+ * in the dock's Tactics tab, listing every touch with its data chips;
  * otherwise it stays visually hidden but still announces new key moments to
  * screen readers.
  */

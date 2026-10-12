@@ -48,7 +48,7 @@ npm run dev        # http://localhost:3000
 
 The viewer has two views, chosen in the bar at the top:
 
-- **Match**: the 3D pitch with the score over it, the control bar, a strip of the key moments reached so far, and the docked **Understand this moment** panel (see [docs/explain-service.md](docs/explain-service.md)).
+- **Match**: the 3D pitch with the score over it, the control bar, a strip of the key moments reached so far, and the docked **Live insights** panel, where insight cards appear as key moments happen (see [docs/explain-service.md](docs/explain-service.md)).
 - **Recap**: unlocks at full time. Shows the defining moments (chosen by rules in `src/playback/recap.ts`), an AI summary of how the match unfolded, and the final statistics. **Replay moment** goes back to the match three seconds before it.
 
 - On first visit, **Kick off the demo** plays the scripted demo. **Set up your own match** opens the set-up drawer, as does **New match** in the top bar.
@@ -107,7 +107,8 @@ src/
     SampleMatchViewer.tsx App shell: loaded match, set-up drawer, Pro data preference, first-visit card
     MatchViewer.tsx       Runs the one requestAnimationFrame loop and connects engine → scene → overlays; lays out the Match and Recap views
     AppBar.tsx            Brand, Match / Recap switch, Synthetic match note and New match
-    ExplanationPanel.tsx  "Understand this moment": request, cancellation, time boundaries and the answer
+    ExplanationPanel.tsx  "Live insights" panel: asking about any moment, cancellation, time boundaries and the answer
+    LiveInsights.tsx      Automatic insight cards at key moments: trigger, one-at-a-time queue, time boundaries
     Evidence.tsx          Evidence cards, cited claims and limits shared by the panel and the recap
     Recap.tsx             "The match, explained.": defining moments, full-time summary and final numbers
     MomentStrip.tsx, MiniPitch.tsx  Key-moment cards and the small top-down position drawings they use
@@ -850,7 +851,7 @@ fixtures without tactics, invalid input, payload bounds and invalid responses.
 
 `POST /api/explain` explains a paused moment with a model deployed on
 **Microsoft Foundry**, called through Foundry's OpenAI-compatible v1 chat
-completions API from the Next.js server. The viewer calls it from the **Understand this moment** panel.
+completions API from the Next.js server. The viewer calls it from the **Live insights** panel.
 
 - **Request:** a match reference, a time and an audience (`casual` or
   `analyst`). The browser never sends match data. The scripted demo is named
@@ -977,12 +978,14 @@ Every Pro figure is read or computed from fixture data in
   the earlier formation, and restart restores the starting one.
 - The scripted demo and fixtures from schema 1.0.0 to 1.3.0 still load.
   Without formation data, the score bug omits the shapes.
-- *Explain this moment* in the **Understand this moment** panel calls the Foundry-backed service.
-  Select a moment, choose Casual Fan or Analyst, and press **Pause and explain**.
+- The **Live insights** panel calls the Foundry-backed service. When play
+  reaches a goal, shot result, foul near goal or formation change, an insight
+  card appears without pausing, cut off at that moment's time. To ask about any
+  other moment, select it, choose Casual Fan or Analyst, and press **Pause and explain**.
   Facts, tactical interpretation and limitations are shown separately, with
   replay buttons for cited evidence. Every answer is kept for the match under
-  **Your explanations**, and the recap lists them under **Moments you
-  explained**. Seeking back hides answers asked later than the current time;
+  **Your explanations**, and the recap lists them under **Explained
+  moments**. Seeking back hides answers asked later than the current time;
   seeking or changing the audience cancels a pending request. See
   [the local testing guide](docs/explain-service.md#testing-from-the-viewer).
 

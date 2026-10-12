@@ -6,18 +6,19 @@ explanations written by a model on Microsoft Foundry. It describes the HTTP
 contract the viewer will call, how a match is named safely, the analyst and
 verifier steps, their limits, and how to set up and evaluate it.
 
-The viewer calls the service from the **Understand this moment** panel
-docked beside the pitch. No Azure resources are created by this code.
+The viewer calls the service from the **Live insights** panel (the **Game
+moments** tab) docked beside the pitch. No Azure resources are created by this code.
 
 ## Testing from the viewer
 
 1. Fill in the server-only Foundry settings in `.env` or `.env.local` and run
    `npm run dev`. Use the resource root endpoint, without `/api/projects/...`.
-2. Open `http://localhost:3000` and play or seek to a moment. The
-   **Understand this moment** panel is docked beside the pitch.
+2. Open `http://localhost:3000` and play. The **Live insights** panel is
+   docked beside the pitch. When play reaches a key moment, an insight card
+   for it appears there on its own (see [Live insights](#live-insights)).
 3. Select a moment in the strip under the controls to pause at its timestamp,
-   or use the current playback time. Choose **Casual Fan** or **Analyst**, then
-   **Pause and explain** (while playing) or **Explain this moment** (when paused
+   or use the current playback time. Choose **Casual Fan** or **Analyst**, then,
+   under **Ask about any moment**, **Pause and explain** (while playing) or **Explain this moment** (when paused
    or at full time).
 4. The request calls the live Foundry deployment. The answer shows a headline,
    a short explanation and **See the evidence**: one card per cited event or
@@ -26,13 +27,49 @@ docked beside the pitch. No Azure resources are created by this code.
    evidence limitations stay separate under **Facts, reading and limits**.
 5. At full time the **Recap** view unlocks. It requests one full-time summary
    (`focus: "match"`, below) and shows it as **How the match unfolded**, beside
-   the defining moments and final statistics, which are computed in code.
+   up to three defining moments and final statistics, which are computed in code.
+   The highlights favor goals and other significant events, combine events within
+   three seconds into one passage, and appear in match order. They are a selected
+   recap, rather than a list of every key event. The summary and supporting evidence
+   share the viewer's navy palette.
 
-Moment requests are explicit, never automatic; the recap summary is requested
+### Live insights
+
+Automatic insight cards use the same request, server workflow, checks and
+client validation as an explicit request; only the trigger differs
+(`src/components/LiveInsights.tsx`):
+
+- **Which moments.** Goals, shot results (a shot that is scored is covered by
+  its goal), fouls within 30 m of the fouling team's own goal line, and
+  formation changes (`isInsightMoment` in `src/playback/moments.ts`). Each is
+  judged from the event alone, so choosing it needs nothing later in the match.
+- **Cut-off.** Each request uses the moment's own time as `timeMs`, so the
+  answer can only cite evidence up to that moment, wherever playback is when it
+  arrives. A card shows only once playback has reached its moment.
+- **Only during play.** A moment triggers when the clock runs into it while
+  playing, in steps of at most 2 s. Moments skipped by seeking, or reached
+  while paused or by selecting them, are not explained automatically.
+- **Bounded.** One automatic request at a time, with at most one waiting (the
+  newest); a moment passed over while busy keeps a card with an explicit
+  **Explain for …** button. The service's own rate limits still apply; a
+  refused request shows a safe error with **Try again**.
+- **Late by design.** Answers take roughly 10–20 s, so they arrive after the
+  moment and are labelled with its time. Play is never paused for them.
+- **Backward seeks.** Seeking back before a moment abandons its request (or its
+  place in the queue) and hides its card; reaching it again shows the saved
+  card, or asks again if none was saved.
+- **Audiences.** New moments are explained for the selected audience. Switching
+  shows the saved version for that audience, or an **Explain for …** button
+  for the same moment, so both versions use the same evidence.
+
+The newest card is open, with evidence replay and the check row; older cards
+show their headline and open on click.
+
+Explicit moment requests (under **Ask about any moment**) are never automatic; the recap summary is requested
 the first time the recap opens for each audience and reused after that.
 Changing the audience or match cancels a pending browser request. Every answer
-is kept for the current match: the panel lists earlier ones under **Your
-explanations**, and the recap lists them all under **Moments you explained**,
+is kept for the current match: the panel lists earlier ones asked for explicitly under **Your
+explanations**, and the recap lists them, with automatic insights, under **Explained moments**,
 each opening back in the match at its time. Playing on keeps an answer, marked
 as out of date. Seeking back before the explained time hides it, and the list
 leaves out any answer asked later than the current time, except while

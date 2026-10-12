@@ -221,6 +221,8 @@ export class MatchScene {
     const textures = new Set<THREE.Texture>();
     this.scene.traverse((obj) => {
       if (obj instanceof THREE.DirectionalLight) obj.shadow.dispose();
+      // PlayerSquad owns its instance buffers; static goal furniture is owned here.
+      if (obj instanceof THREE.InstancedMesh && obj.parent !== this.players.object) obj.dispose();
       const mesh = obj as Partial<THREE.Mesh>;
       if (mesh.geometry) geometries.add(mesh.geometry);
       const mat = mesh.material;

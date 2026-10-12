@@ -96,7 +96,7 @@ export function Recap({ fixture, audience, onAudience, onReplayFrom, explained =
       </div>
       {explained.length > 0 && onOpenExplanation && (
         <section className="recap__asked" aria-labelledby="recap-asked-title">
-          <h3 id="recap-asked-title">Moments you explained</h3>
+          <h3 id="recap-asked-title">Explained moments</h3>
           <ol>
             {[...explained].sort((a, b) => a.atMs - b.atMs).map((s) => (
               <li key={s.id}>
@@ -155,10 +155,10 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
   }, [fixture, audience, supported, attempt]);
 
   if (!supported)
-    return <article className="recap__story paper"><h3>How the match unfolded</h3><p>Summaries are unavailable for this match. Try the demo or generate a new match.</p></article>;
+    return <article className="recap__story"><h3>How the match unfolded</h3><p>Summaries are unavailable for this match. Try the demo or generate a new match.</p></article>;
   if (state.kind === "loading")
     return (
-      <article className="recap__story paper" aria-busy="true">
+      <article className="recap__story" aria-busy="true">
         <h3>How the match unfolded</h3>
         <p role="status" className="recap__status">Reading the whole match and checking the summary…</p>
         <div className="skeleton" aria-hidden="true"><span /><span /><span /></div>
@@ -166,7 +166,7 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
     );
   if (state.kind === "error")
     return (
-      <article className="recap__story paper">
+      <article className="recap__story">
         <h3>How the match unfolded</h3>
         <p role="alert" className="explain__error"><Icon name="warning" size={16} />{state.message}</p>
         <button type="button" className="btn btn--small" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
@@ -176,7 +176,7 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
   const { explanation, verification } = state.result;
   const fallback = verification?.outcome === "fallback";
   return (
-    <article className="recap__story paper" aria-live="polite">
+    <article className="recap__story" aria-live="polite">
       <h3>How the match unfolded</h3>
       {fallback ? (
         <>

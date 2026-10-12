@@ -9,7 +9,7 @@ scenarios. All match data is synthetic. Fictional teams and players only.
 | Evaluated commit | `7bf89c8` (branch `feature/ai-evaluation`, on top of `fbe4c50`) |
 | Scenarios | 18 scenarios × 2 audiences = 36 cases |
 | Offline (mocked) results | Every case passes. No release blocker found after the three grounding fixes below |
-| Live (Microsoft Foundry) results | **Not run**: the owner has not authorised paid calls for this change |
+| Live (Microsoft Foundry) results | **Partial follow-up, October 12:** 36-case run returned 2 answers and 34 rate-limit errors; paced demo-goal checks passed for both audiences. Manual review found a remaining citation concern. See [live results](live-ai-evaluation-2026-10-12.md) |
 | Model and deployment settings | Not applicable without a live run. The workflow limits are unchanged (`WORKFLOW_LIMITS` in `src/server/analyst.ts`) |
 
 Model verification does not prove that an explanation is factually correct.
@@ -144,8 +144,10 @@ The evaluation found three defects in the deterministic grounding checks
 | Secrets exposed | None found. Errors and reports never contain the key or endpoint, and the live report redacts error text. No environment files are committed |
 | Responses shown for the wrong match/time/audience | Refused by the client in all 36 cases. The cache is separated by audience and time |
 
-**Remaining blocker for release sign-off:** run the live evaluation with
-owner authorisation and review its flagged answers.
+**Remaining blocker for release sign-off:** complete the live evaluation and
+resolve flagged answers. The authorised [October 12 follow-up](live-ai-evaluation-2026-10-12.md)
+confirmed the demo-goal workflow for both audiences, but rate limits prevented
+broad coverage and manual review found a remaining citation concern.
 
 ## Running the live evaluation
 

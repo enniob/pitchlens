@@ -3,14 +3,14 @@
  * Markings are painted onto one canvas texture at 20 px per metre.
  */
 import * as THREE from "three";
-import { GOAL_HEIGHT, GOAL_WIDTH, PITCH_LENGTH, PITCH_WIDTH, POST_RADIUS } from "@/match/contract";
+import { PITCH_LENGTH, PITCH_WIDTH } from "@/match/contract";
 import { HALF_LENGTH } from "./coords";
+import { createGoal } from "./Goal";
 
 /** Grass beyond the lines, in metres. */
 const APRON = 6;
 const PX_PER_M = 20;
 const LINE_WIDTH = 0.12;
-const GOAL_DEPTH = 2;
 
 function paintGrass(): HTMLCanvasElement {
   const totalL = PITCH_LENGTH + APRON * 2;
@@ -132,59 +132,6 @@ function paintGrass(): HTMLCanvasElement {
   return canvas;
 }
 
-function netPanel(width: number, height: number, material: THREE.LineBasicMaterial): THREE.LineSegments {
-  const vertices: number[] = [];
-  const columns = Math.ceil(width / 0.18);
-  const rows = Math.ceil(height / 0.18);
-  for (let i = 0; i <= columns; i++) {
-    const x = -width / 2 + width * i / columns;
-    vertices.push(x, -height / 2, 0, x, height / 2, 0);
-  }
-  for (let i = 0; i <= rows; i++) {
-    const y = -height / 2 + height * i / rows;
-    vertices.push(-width / 2, y, 0, width / 2, y, 0);
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
-  return new THREE.LineSegments(geometry, material);
-}
-
-function buildGoal(material: THREE.Material, netMaterial: THREE.LineBasicMaterial, side: -1 | 1): THREE.Group {
-  const goal = new THREE.Group();
-  const half = GOAL_WIDTH / 2;
-
-  const postGeo = new THREE.CylinderGeometry(POST_RADIUS, POST_RADIUS, GOAL_HEIGHT, 12);
-  for (const z of [-half, half]) {
-    const post = new THREE.Mesh(postGeo, material);
-    post.position.set(0, GOAL_HEIGHT / 2, z);
-    post.castShadow = true;
-    goal.add(post);
-  }
-  const bar = new THREE.Mesh(new THREE.CylinderGeometry(POST_RADIUS, POST_RADIUS, GOAL_WIDTH + POST_RADIUS * 2, 12), material);
-  bar.rotation.x = Math.PI / 2;
-  bar.position.set(0, GOAL_HEIGHT, 0);
-  bar.castShadow = true;
-  goal.add(bar);
-
-  // Square net cells rather than the diagonals of triangulated wireframes.
-  const back = netPanel(GOAL_WIDTH, GOAL_HEIGHT, netMaterial);
-  back.position.set(side * GOAL_DEPTH, GOAL_HEIGHT / 2, 0);
-  back.rotation.y = Math.PI / 2;
-  goal.add(back);
-  const roof = netPanel(GOAL_DEPTH, GOAL_WIDTH, netMaterial);
-  roof.position.set((side * GOAL_DEPTH) / 2, GOAL_HEIGHT, 0);
-  roof.rotation.x = Math.PI / 2;
-  goal.add(roof);
-  for (const z of [-half, half]) {
-    const wall = netPanel(GOAL_DEPTH, GOAL_HEIGHT, netMaterial);
-    wall.position.set((side * GOAL_DEPTH) / 2, GOAL_HEIGHT / 2, z);
-    goal.add(wall);
-  }
-
-  goal.position.set(side * HALF_LENGTH, 0, 0);
-  return goal;
-}
-
 /** Builds the pitch group. Disposal is handled by MatchScene traversing the scene. */
 export function createPitch(maxAnisotropy: number): THREE.Group {
   const group = new THREE.Group();
@@ -210,13 +157,10 @@ export function createPitch(maxAnisotropy: number): THREE.Group {
   surround.position.y = -0.02;
   group.add(surround);
 
-  const frame = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.4 });
-  const net = new THREE.LineBasicMaterial({
-    color: "#e2e8f0",
-    transparent: true,
-    opacity: 0.48,
-  });
-  group.add(buildGoal(frame, net, -1));
-  group.add(buildGoal(frame, net, 1));
+  for (const side of [-1, 1] as const) {
+    const goal = createGoal(side);
+    goal.position.x = side * HALF_LENGTH;
+    group.add(goal);
+  }
   return group;
 }

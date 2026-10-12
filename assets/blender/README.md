@@ -14,3 +14,9 @@ asset, or preserve this contract when authoring a replacement.
 Add `-- --preview` to the Blender build command to render a close-up
 `footballer-preview.png` alongside the source. The preview uses a cyan kit;
 runtime colours continue to come from the fixture.
+
+`node scripts/preview-field-assets.mjs` creates goal and ball preview `.blend`
+files and PNG close-ups from the actual Three.js geometry. Their authoritative
+sources are `src/scene/Goal.ts` and `src/scene/footballGeometry.ts`; editing these
+inspection files does not change the runtime meshes. `BLENDER_PATH` overrides
+the default Blender 5.2 executable, and `--ball` renders only the ball.
