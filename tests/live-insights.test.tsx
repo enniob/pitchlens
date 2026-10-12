@@ -26,7 +26,7 @@ function Harness({ fixture, timeMs, playback }: { fixture: MatchFixture; timeMs:
   const [shownId, setShownId] = useState<string | null>(null);
   savedList = saved;
   return <ExplanationPanel fixture={fixture} timeMs={timeMs} playback={playback} audience={audience} onAudience={setAudience}
-    onPause={pause} onReplayFrom={replay} saved={saved} shownId={shownId} onSaved={(x) => setSaved((list) => [...list, x])} onShow={setShownId} />;
+    onPause={pause} onReplayFrom={replay} saved={saved} shownId={shownId} onSaved={(x) => setSaved((list) => [...list.filter((y) => y.id !== x.id), x])} onShow={setShownId} />;
 }
 const render = (timeMs: number, playback: PlaybackPhase = "playing", fixture: MatchFixture = sampleFixture) =>
   act(async () => { root.render(<Harness fixture={fixture} timeMs={timeMs} playback={playback} />); });
@@ -168,6 +168,40 @@ describe("live insights", () => {
     expect(container.querySelector(".insights [role=alert]")?.textContent).toContain("Too many requests");
     await click("Try again");
     expect(feedText()).toContain(`Insight at ${goal.t}`);
+  });
+
+  it("offers a retry on an insight that failed its checks and replaces it with the new answer", async () => {
+    const fallback = { ...response(sampleFixture, goal.t, "casual"), verification: { outcome: "fallback" } };
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(fallback)))
+      .mockImplementation(answering());
+    vi.stubGlobal("fetch", fetcher);
+    await play(8_000, 10_000);
+    expect(feedText()).toContain("didn't pass our checks");
+    await click("Try again");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(requestOf(fetcher.mock.calls[1]!).timeMs).toBe(goal.t);
+    expect(feedText()).toContain(`Insight at ${goal.t}`);
+    expect(feedText()).not.toContain("didn't pass our checks");
+    expect(savedList).toHaveLength(1);
+    expect(() => button("Try again")).toThrow();
+  });
+
+  it("collapses an open card when its title is clicked, and opens it again", async () => {
+    vi.stubGlobal("fetch", answering());
+    await play(8_000, 10_000);
+    const head = () => container.querySelector<HTMLButtonElement>(".insight__head")!;
+    expect(head().getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(".insight__answer")).not.toBeNull();
+    await act(async () => head().click());
+    expect(head().getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".insight__answer")).toBeNull();
+    expect(container.querySelector(".insight__headline")?.textContent).toContain(`Insight at ${goal.t}`);
+    // Stays collapsed as play moves on.
+    await play(10_000, 11_000);
+    expect(container.querySelector(".insight__answer")).toBeNull();
+    await act(async () => head().click());
+    expect(container.querySelector(".insight__answer")).not.toBeNull();
   });
 
   it("keeps a card on screen while replaying its cited evidence", async () => {

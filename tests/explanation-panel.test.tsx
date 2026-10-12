@@ -114,7 +114,7 @@ describe("explanation panel interaction", () => {
     const body = { ...response(), verification: { outcome: "fallback" } };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(body))));
     await render(); await click("Pause and explain");
-    expect(container.textContent).toContain("The explanation could not be verified");
+    expect(container.textContent).toContain("This explanation didn't pass our checks");
     expect(container.textContent).not.toContain("Not enough evidence");
     expect(button("Try again").disabled).toBe(false);
   });

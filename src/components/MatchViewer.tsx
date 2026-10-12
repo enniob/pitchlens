@@ -168,7 +168,8 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
   const [explained, setExplained] = useState<SavedExplanation[]>([]);
   const [shownExplanation, setShownExplanation] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Partial<Record<Audience, ExplainSuccess>>>({});
-  const onSavedExplanation = useCallback((s: SavedExplanation) => setExplained((list) => [...list, s]), []);
+  // A retried insight keeps its id, so its new answer replaces the old one.
+  const onSavedExplanation = useCallback((s: SavedExplanation) => setExplained((list) => [...list.filter((x) => x.id !== s.id), s]), []);
   const onSummary = useCallback((a: Audience, result: ExplainSuccess) => setSummaries((m) => ({ ...m, [a]: result })), []);
   // The recap describes the whole match: it unlocks once play reaches full time and stays open after.
   const [recapReady, setRecapReady] = useState(false);

@@ -5,7 +5,7 @@ import type { Audience } from "@/explain/api";
 import { requestExplanation } from "@/explain/client";
 import { insightMomentsBetween } from "@/playback/moments";
 import { eventCopy } from "./eventCopy";
-import { audienceName, ExplanationBody, type SavedExplanation } from "./ExplanationPanel";
+import { audienceName, ExplanationBody, FALLBACK_TITLE, type SavedExplanation } from "./ExplanationPanel";
 import { formatClock, shortClock } from "./format";
 import { Icon } from "./Icon";
 import type { PlaybackPhase } from "./ScoreBug";
@@ -35,6 +35,7 @@ interface Job {
 }
 
 export const insightId = (eventId: string, audience: Audience) => `auto-${audience}-${eventId}`;
+const isFallback = (s: SavedExplanation | undefined) => s?.result.verification?.outcome === "fallback";
 const sameJob = (a: Job | null, b: Job) => a !== null && a.eventId === b.eventId && a.audience === b.audience;
 
 /**
@@ -56,8 +57,8 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
   const queued = useRef<Job | null>(null);
   const [queuedJob, setQueuedJob] = useState<Job | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  // Which card is open; null means the newest one shown.
-  const [openId, setOpenId] = useState<string | null>(null);
+  // Which card is open: undefined means the newest one shown, null means all are collapsed.
+  const [openId, setOpenId] = useState<string | null | undefined>(undefined);
   // Replaying a card's cited evidence may rewind before its moment without hiding it.
   const [replay, setReplay] = useState<{ eventId: string; floor: number } | null>(null);
   const savedRef = useRef(saved);
@@ -75,7 +76,9 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
   }
 
   function start(job: Job) {
-    if (savedRef.current.some((s) => s.id === insightId(job.eventId, job.audience)) || sameJob(runningRef.current, job)) return;
+    // A checked answer is kept; one that failed its checks may be asked for again, and replaces it.
+    const done = savedRef.current.find((s) => s.id === insightId(job.eventId, job.audience));
+    if ((done && !isFallback(done)) || sameJob(runningRef.current, job)) return;
     // Busy: wait, replacing anything older that was waiting.
     if (controller.current) { setQueue(job); return; }
     const c = new AbortController();
@@ -125,7 +128,7 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
     const reached = insightMomentsBetween(fixture, from, timeMs);
     if (reached.length === 0) return;
     setMoments((list) => [...list, ...reached.filter((e) => !list.some((m) => m.id === e.id)).map((e) => ({ id: e.id, t: e.t }))]);
-    setOpenId(null);
+    setOpenId(undefined);
     // Only the latest moment reached in one step is explained automatically.
     const latest = reached.at(-1)!;
     start({ eventId: latest.id, atMs: latest.t, audience });
@@ -135,7 +138,7 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
   const visible = moments
     .filter((m) => m.t <= timeMs || (replay?.eventId === m.id && timeMs >= replay.floor))
     .reverse();
-  const openEventId = openId && visible.some((m) => m.id === openId) ? openId : visible[0]?.id;
+  const openEventId = openId === null ? null : openId && visible.some((m) => m.id === openId) ? openId : visible[0]?.id;
 
   return (
     <section className="insights" aria-labelledby="insights-title">
@@ -159,22 +162,12 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
           };
           return (
             <li key={m.id} className={`insight insight--${copy.tone}${open ? " insight--open" : ""}`}>
-              <button type="button" className="insight__head" aria-expanded={open} onClick={() => setOpenId(m.id)}>
+              <button type="button" className="insight__head" aria-expanded={open} onClick={() => setOpenId(open ? null : m.id)}>
                 <Icon name={copy.icon} size={16} />
                 <span className="insight__title">{copy.title.replace(/!$/, "")}</span>
                 <time className="insight__time">{shortClock(m.t)}</time>
               </button>
-              {result ? (
-                open ? (
-                  <article className="insight__answer">
-                    <p className="explain__meta"><span>{audienceName(audience)} · evidence up to {formatClock(m.t)}</span></p>
-                    {replay?.eventId === m.id && <p className="explain__notice">Replaying cited evidence up to {formatClock(m.t)}.</p>}
-                    <ExplanationBody fixture={fixture} result={result.result} audience={audience} onReplay={replayFrom} />
-                  </article>
-                ) : (
-                  <p className="insight__headline">{result.result.verification?.outcome === "fallback" ? "Insight could not be verified" : result.result.explanation.headline}</p>
-                )
-              ) : sameJob(running, job) ? (
+              {sameJob(running, job) ? (
                 <p className="insight__status" role="status"><span className="spinner spinner--small" aria-hidden="true" />Reading the evidence up to {formatClock(m.t)} and checking the answer…</p>
               ) : sameJob(queuedJob, job) ? (
                 <p className="insight__status">Waiting for the previous insight…</p>
@@ -183,6 +176,17 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
                   <p className="explain__error" role="alert"><Icon name="warning" size={16} />{error}</p>
                   <button type="button" className="btn btn--ghost btn--small" onClick={() => start(job)}>Try again</button>
                 </div>
+              ) : result ? (
+                open ? (
+                  <article className="insight__answer">
+                    <p className="explain__meta"><span>{audienceName(audience)} · evidence up to {formatClock(m.t)}</span></p>
+                    {replay?.eventId === m.id && <p className="explain__notice">Replaying cited evidence up to {formatClock(m.t)}.</p>}
+                    <ExplanationBody fixture={fixture} result={result.result} audience={audience} onReplay={replayFrom}
+                      onRetry={isFallback(result) ? () => start(job) : undefined} />
+                  </article>
+                ) : (
+                  <p className="insight__headline">{isFallback(result) ? FALLBACK_TITLE : result.result.explanation.headline}</p>
+                )
               ) : (
                 <button type="button" className="btn btn--ghost btn--small insight__ask" onClick={() => start(job)}>
                   <Icon name="spark" size={14} />Explain for {audienceName(audience)}

@@ -231,16 +231,22 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
 }
 
 /** One checked answer: headline, text, the evidence to replay, how it was checked and its limits. */
-export function ExplanationBody({ fixture, result, audience, onReplay }:
-  { fixture: MatchFixture; result: ExplainSuccess; audience: Audience; onReplay: (timeMs: number) => void }) {
+export function ExplanationBody({ fixture, result, audience, onReplay, onRetry }:
+  { fixture: MatchFixture; result: ExplainSuccess; audience: Audience; onReplay: (timeMs: number) => void;
+    /** Shown on an unverified answer when the surrounding view has no retry of its own. */
+    onRetry?: () => void }) {
   const { explanation } = result;
   const outcome = result.verification?.outcome;
   const fallback = outcome === "fallback";
   const evidence = fallback ? [] : citedEvidence(fixture, explanation);
   return <>
     {fallback ? <>
-      <h3 className="explain__headline">The explanation could not be verified</h3>
-      <p className="explain__body">We could not produce a checked explanation for this moment. Please try again.</p>
+      <h3 className="explain__headline">{FALLBACK_TITLE}</h3>
+      <p className="explain__body">
+        Every explanation is checked against what has happened in the match so far. This one included
+        claims the match data could not back up, so it is not shown. Trying again gives a fresh answer.
+      </p>
+      {onRetry && <button type="button" className="btn btn--ghost btn--small" onClick={onRetry}>Try again</button>}
     </> : <>
       <h3 className="explain__headline">{explanation.headline}</h3>
       <p className="explain__body">{explanation.explanation}</p>
@@ -258,16 +264,19 @@ export function ExplanationBody({ fixture, result, audience, onReplay }:
   </>;
 }
 
+/** What an answer that failed its checks is called wherever it is listed or shown. */
+export const FALLBACK_TITLE = "This explanation didn't pass our checks";
+
 /** The headline to list a saved explanation by; an unverified one gets a plain label instead of its text. */
 export const savedTitle = (s: SavedExplanation) =>
-  s.result.verification?.outcome === "fallback" ? "Explanation could not be verified" : s.result.explanation.headline;
+  s.result.verification?.outcome === "fallback" ? FALLBACK_TITLE : s.result.explanation.headline;
 
 /** "Evidence checked · Based on events up to …", or why it is not. */
 export function CheckRow({ outcome, status, atMs, label }:
   { outcome: ExplainSuccess["verification"]["outcome"] | undefined; status: string; atMs: number; label?: string }) {
   return (
     <div className="check-row">
-      {outcome === "fallback" ? <span className="check check--warn"><Icon name="warning" size={16} />Not verified</span>
+      {outcome === "fallback" ? <span className="check check--warn"><Icon name="warning" size={16} />Not shown: failed checks</span>
         : outcome === "insufficient-evidence" || status === "insufficient-evidence"
           ? <span className="check check--info"><Icon name="info" size={16} />Not enough evidence</span>
           : <span className="check"><span className="check__badge"><Icon name="check" size={14} /></span>Evidence checked</span>}
