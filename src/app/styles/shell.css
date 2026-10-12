@@ -185,6 +185,8 @@
 
 /* Level with the top of the stage. */
 .dock {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   margin-top: 6px;
   overflow: auto;
@@ -193,4 +195,45 @@
   border-width: 1px 0 0 1px;
   background: var(--surface-1);
   color: var(--text);
+}
+
+/* Game moments / Tactics tabs along the top of the dock. */
+.dock__tabs {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  padding: 12px 24px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.dock__tabs button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dock__tabs button:hover {
+  color: var(--text);
+}
+
+.dock__tabs button[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+.dock__panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.dock__panel[hidden] {
+  display: none;
 }

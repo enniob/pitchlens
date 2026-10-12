@@ -127,19 +127,6 @@
     font-size: 14px;
   }
 
-  /* Tactics on: under the pitch. Off, the visually hidden feed stays clipped. */
-  .tactics {
-    position: static;
-    width: auto;
-    max-height: none;
-    margin: 10px 8px 0;
-  }
-
-  .feed__empty,
-  .feed--empty .feed__head {
-    display: block;
-  }
-
   .strip {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -192,22 +179,10 @@
   }
 }
 
-/* Phones: landscape — compact feed and pop-ups -------------------------------------- */
+/* Phones: landscape — compact pop-ups --------------------------------------------- */
 
 @media (max-height: 500px) and (orientation: landscape) {
   .btn__label {
-    display: none;
-  }
-
-  .tactics {
-    left: 10px;
-    bottom: 10px;
-    width: 300px;
-  }
-
-  .feed__head,
-  .fc__desc,
-  .fc:nth-child(n + 3) {
     display: none;
   }
 

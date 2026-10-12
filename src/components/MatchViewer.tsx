@@ -2,10 +2,9 @@
 
 /**
  * Top-level match view: the 3D pitch with its overlays (current moment,
- * scoreline, camera and Tactics switches, zoom, moment pop-ups and, with
- * Tactics on, the numbers so far and a live feed), the playback bar and the
- * moment strip, with
- * the explanation panel docked beside them. Owns the one requestAnimationFrame
+ * scoreline, camera switch, zoom and moment pop-ups), the playback bar and the
+ * moment strip, with a tabbed dock beside them: Game moments (the explanation
+ * panel) and Tactics (the numbers so far and a live feed of every touch). Owns the one requestAnimationFrame
  * loop: each frame it advances the playback engine by real elapsed time,
  * pushes the resulting frame into the 3D scene, and syncs the React UI when
  * displayed values change.
@@ -15,7 +14,7 @@
  * Seeking and restarting never show future events. Playback works without
  * WebGL — only the 3D view is replaced by a message.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { MatchEvent, MatchFixture, Score } from "@/match/contract";
 import { validateFixture } from "@/match/validate";
 import type { ActiveFormation } from "@/playback/derive";
@@ -59,7 +58,7 @@ interface UiState {
 
 export interface MatchViewerProps {
   fixture: MatchFixture;
-  /** Tactics (Pro data): every touch with data chips in a live feed over the pitch, extra numbers. */
+  /** Tactics (Pro data) tab: every touch with data chips in a live feed in the dock, extra numbers. */
   pro?: boolean;
   onTogglePro?: () => void;
   /** Opens the "Set up match" drawer; the button is hidden without it. */
@@ -426,7 +425,7 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
               possessionTeamId={ui.possessionTeamId}
               formations={ui.formations}
             />
-            <StageControls view={view} sceneAvailable={sceneState.kind === "ready"} pro={pro} onView={onView} onTogglePro={() => onTogglePro?.()} />
+            <StageControls view={view} sceneAvailable={sceneState.kind === "ready"} onView={onView} />
           </div>
 
           <div className="stage__pitch">
@@ -463,12 +462,6 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
               <button type="button" className="btn btn--primary" onClick={onTogglePlay}>Continue</button>
             </div>
           )}
-          {/* Tactics on: the numbers so far and every touch; off, the feed is a hidden live region. */}
-          <div className={`tactics${pro ? "" : " tactics--off"}`}>
-            {stats && proStats && <TacticsNumbers teams={fixture.teams} stats={stats} extra={proStats} />}
-            <LiveFeed fixture={fixture} events={feed} pro={pro} />
-          </div>
-
           {showWelcome && (
             <div className="stage__scrim">
               <div className="card card--welcome" role="dialog" aria-labelledby="welcome-title">
@@ -567,7 +560,10 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
         </PlaybackControls>
         <MomentStrip fixture={fixture} moments={stripMoments} selectedId={selected} onSelect={onSelectMoment} />
         </div>
-        <aside className="dock" aria-label="Explanations">
+        <aside className="dock" aria-label="Match panel">
+          <DockTabs tab={pro ? "tactics" : "moments"} onTab={(next) => { if ((next === "tactics") !== pro) onTogglePro?.(); }} />
+          {/* Hidden, not unmounted, on the Tactics tab so a pending explanation survives. */}
+          <div className="dock__panel" id="dock-panel-moments" role="tabpanel" aria-labelledby="dock-tab-moments" hidden={pro}>
           <ExplanationPanel
             fixture={fixture}
             timeMs={t}
@@ -586,8 +582,56 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
             onSaved={onSavedExplanation}
             onShow={setShownExplanation}
           />
+          </div>
+          {/* Tactics tab: the numbers so far and every touch; on Game moments, the feed is a hidden live region. */}
+          <div
+            className={`dock__panel tactics${pro ? "" : " tactics--off"}`}
+            id="dock-panel-tactics"
+            role={pro ? "tabpanel" : undefined}
+            aria-labelledby={pro ? "dock-tab-tactics" : undefined}
+          >
+            {stats && proStats && <TacticsNumbers teams={fixture.teams} stats={stats} extra={proStats} />}
+            <LiveFeed fixture={fixture} events={feed} pro={pro} />
+          </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+type DockTab = "moments" | "tactics";
+
+const DOCK_TABS: readonly (readonly [DockTab, string])[] = [
+  ["moments", "Game moments"],
+  ["tactics", "Tactics"],
+];
+
+/** Tabs at the top of the dock; arrow keys move between them. */
+function DockTabs({ tab, onTab }: { tab: DockTab; onTab: (tab: DockTab) => void }) {
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const index = DOCK_TABS.findIndex(([id]) => id === tab);
+    const next = DOCK_TABS[(index + (e.key === "ArrowRight" ? 1 : DOCK_TABS.length - 1)) % DOCK_TABS.length]![0];
+    onTab(next);
+    document.getElementById(`dock-tab-${next}`)?.focus();
+  };
+  return (
+    <div className="dock__tabs" role="tablist" aria-label="Match panel" onKeyDown={onKeyDown}>
+      {DOCK_TABS.map(([id, label]) => (
+        <button
+          type="button"
+          key={id}
+          id={`dock-tab-${id}`}
+          role="tab"
+          aria-selected={tab === id}
+          aria-controls={`dock-panel-${id}`}
+          tabIndex={tab === id ? 0 : -1}
+          onClick={() => onTab(id)}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

@@ -55,18 +55,17 @@ describe("playback bar", () => {
 
 describe("pitch overlays", () => {
   it("maps 3D and Top view to the camera views and disables them without a scene", () => {
-    const off = renderToStaticMarkup(<StageControls view="angled" sceneAvailable={false} pro={false} onView={noop} onTogglePro={noop} />);
+    const off = renderToStaticMarkup(<StageControls view="angled" sceneAvailable={false} onView={noop} />);
     expect(off).toMatch(/aria-pressed="true" disabled="">3D</);
     expect(off).toMatch(/aria-pressed="false" disabled="">Top view</);
-    const on = renderToStaticMarkup(<StageControls view="overhead" sceneAvailable pro onView={noop} onTogglePro={noop} />);
+    const on = renderToStaticMarkup(<StageControls view="overhead" sceneAvailable onView={noop} />);
     expect(on).toMatch(/aria-pressed="true">Top view</);
   });
 
-  it("exposes Tactics as a described switch", () => {
-    const html = renderToStaticMarkup(<StageControls view="angled" sceneAvailable pro={false} onView={noop} onTogglePro={noop} />);
-    expect(html).toContain('role="switch" aria-checked="false" aria-describedby="tactics-desc"');
-    expect(html).toContain('id="tactics-desc"');
-    expect(html).toContain("Tactics");
+  it("keeps Tactics off the pitch: it is a dock tab, not a switch", () => {
+    const html = renderToStaticMarkup(<StageControls view="angled" sceneAvailable onView={noop} />);
+    expect(html).not.toContain("Tactics");
+    expect(html).not.toContain('role="switch"');
   });
 
   it("labels the zoom buttons", () => {
@@ -84,20 +83,31 @@ describe("pitch overlays", () => {
     expect(html).not.toContain("scorerow");
   });
 
-  it("shows the Tactics numbers with the feed only with Tactics on", () => {
+  it("docks Game moments and Tactics as tabs, Game moments first", () => {
     const off = renderToStaticMarkup(<MatchViewer fixture={sampleFixture} />);
-    expect(off).toContain('class="tactics tactics--off"');
+    const tabs = off.slice(off.indexOf('role="tablist"'));
+    expect(tabs.indexOf(">Game moments<")).toBeLessThan(tabs.indexOf(">Tactics<"));
+    expect(off).toContain('id="dock-tab-moments" role="tab" aria-selected="true"');
+    expect(off).toContain('id="dock-tab-tactics" role="tab" aria-selected="false"');
+    expect(off).not.toContain('role="switch"');
+  });
+
+  it("shows the Tactics numbers with the feed only on the Tactics tab, keeping the explanation panel mounted", () => {
+    const off = renderToStaticMarkup(<MatchViewer fixture={sampleFixture} />);
+    expect(off).toContain('class="dock__panel tactics tactics--off"');
     expect(off).not.toContain("Tactics data so far");
+    expect(off).toMatch(/id="dock-panel-moments" role="tabpanel" aria-labelledby="dock-tab-moments">/);
     const on = renderToStaticMarkup(<MatchViewer fixture={sampleFixture} pro />);
-    expect(on).toContain('class="tactics"');
+    expect(on).toContain('class="dock__panel tactics"');
     expect(on).toContain('aria-label="Tactics data so far"');
-    expect(on).toContain('role="switch" aria-checked="true"');
+    expect(on).toContain('id="dock-tab-tactics" role="tab" aria-selected="true"');
+    expect(on).toMatch(/id="dock-panel-moments" role="tabpanel" aria-labelledby="dock-tab-moments" hidden="">/);
+    expect(on).toContain('id="explain-title"');
   });
 
   it("names no moment on the pitch before any is reached", () => {
     const html = renderToStaticMarkup(<MatchViewer fixture={sampleFixture} />);
     expect(html).not.toContain("hud__moment");
-    expect(html).toContain('role="switch"');
   });
 });
 
