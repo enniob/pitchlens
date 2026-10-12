@@ -4,16 +4,26 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 export const PLAYER_PARTS = ["torso", "shorts", "head", "hair", "sleeve", "upperArm", "forearm", "thigh", "shin", "boot"] as const;
 export type PlayerPart = typeof PLAYER_PARTS[number];
 export type PlayerGeometry = Record<PlayerPart, THREE.BufferGeometry>;
+export const KEEPER_PARTS = [...PLAYER_PARTS, "gloveLeft", "gloveRight"] as const;
+export type KeeperGeometry = PlayerGeometry & Record<"gloveLeft" | "gloveRight", THREE.BufferGeometry>;
 
 /** Convert Blender's assembled neutral pose into joint-local geometry.
  * The exporter converts the axes; world translation is removed because the
  * playback rig supplies each joint's position. No model animation clock runs.
  */
 export function extractPlayerGeometry(scene: THREE.Group): PlayerGeometry {
-  const geometries: Partial<PlayerGeometry> = {};
+  return extractParts(scene, PLAYER_PARTS);
+}
+
+export function extractKeeperGeometry(scene: THREE.Group): KeeperGeometry {
+  return extractParts(scene, KEEPER_PARTS);
+}
+
+function extractParts<T extends string>(scene: THREE.Group, names: readonly T[]): Record<T, THREE.BufferGeometry> {
+  const geometries: Partial<Record<T, THREE.BufferGeometry>> = {};
   scene.updateMatrixWorld(true);
   try {
-    for (const name of PLAYER_PARTS) {
+    for (const name of names) {
       const mesh = scene.getObjectByName(name);
       if (!(mesh instanceof THREE.Mesh) || !(mesh.geometry instanceof THREE.BufferGeometry)
         || !mesh.geometry.getAttribute("position") || !mesh.geometry.getAttribute("normal")
@@ -26,9 +36,9 @@ export function extractPlayerGeometry(scene: THREE.Group): PlayerGeometry {
       geometry.computeBoundingSphere();
       geometries[name] = geometry;
     }
-    return geometries as PlayerGeometry;
+    return geometries as Record<T, THREE.BufferGeometry>;
   } catch (error) {
-    Object.values(geometries).forEach((geometry) => geometry.dispose());
+    for (const name of names) geometries[name]?.dispose();
     throw error;
   }
 }
@@ -38,12 +48,20 @@ export function disposePlayerGeometry(geometries: PlayerGeometry): void {
 }
 
 export async function loadPlayerGeometry(signal: AbortSignal): Promise<PlayerGeometry> {
-  const response = await fetch("/models/footballer.glb", { signal });
+  return loadGeometry(signal, "/models/footballer.glb", extractPlayerGeometry);
+}
+
+export async function loadKeeperGeometry(signal: AbortSignal): Promise<KeeperGeometry> {
+  return loadGeometry(signal, "/models/goalkeeper.glb", extractKeeperGeometry);
+}
+
+async function loadGeometry<T>(signal: AbortSignal, url: string, extract: (scene: THREE.Group) => T): Promise<T> {
+  const response = await fetch(url, { signal });
   if (!response.ok) throw new Error("Footballer asset unavailable");
   const model = await new GLTFLoader().parseAsync(await response.arrayBuffer(), "");
   try {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    return extractPlayerGeometry(model.scene);
+    return extract(model.scene);
   } finally {
     const geometries = new Set<THREE.BufferGeometry>();
     const materials = new Set<THREE.Material>();

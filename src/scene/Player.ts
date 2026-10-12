@@ -3,8 +3,8 @@
  * Procedural geometry renders immediately and remains if the GLB cannot load.
  *
  * To keep 22 animated players cheap on phones, each body part is one
- * InstancedMesh shared by all players (eleven draw calls for every body on the
- * pitch) with per-instance colours for kits and skin. Per frame the rig solves
+ * InstancedMesh shared within the outfield or goalkeeper group, with colours
+ * for kits and skin. Per frame the rig solves
  * one matrix per part from the recorded player state and its derived pose.
  *
  * Shirt numbers appear twice: on the back of the shirt, and on a camera-facing
@@ -16,7 +16,7 @@ import type { MatchFixture, Player, PlayerState, Team } from "@/match/contract";
 import type { PlayerMotion } from "@/playback/animation";
 import { facingToRotationY, toScene } from "./coords";
 import { poseFor } from "./pose";
-import { disposePlayerGeometry, loadPlayerGeometry, PLAYER_PARTS } from "./playerAsset";
+import { disposePlayerGeometry, loadKeeperGeometry, loadPlayerGeometry, PLAYER_PARTS, type KeeperGeometry } from "./playerAsset";
 import {
   ANKLE_HEIGHT,
   FOREARM_LENGTH,
@@ -88,7 +88,7 @@ interface Member {
   backNumber: THREE.Mesh;
 }
 
-export class PlayerSquad {
+class PlayerGroup {
   readonly object = new THREE.Group();
   private readonly members = new Map<string, Member>();
   private readonly order: Member[] = [];
@@ -105,13 +105,15 @@ export class PlayerSquad {
   private readonly thigh: THREE.InstancedMesh;
   private readonly shin: THREE.InstancedMesh;
   private readonly boot: THREE.InstancedMesh;
+  private readonly gloveLeft?: THREE.InstancedMesh;
+  private readonly gloveRight?: THREE.InstancedMesh;
   private readonly ground = new THREE.Matrix4();
   private readonly assetRequest = new AbortController();
   private disposed = false;
 
-  constructor(fixture: MatchFixture) {
-    this.object.name = "players";
-    const count = fixture.roster.length;
+  constructor(fixture: MatchFixture, roster: Player[], goalkeeper: boolean) {
+    this.object.name = goalkeeper ? "goalkeepers" : "outfield";
+    const count = roster.length;
     const cloth = new THREE.MeshStandardMaterial({ roughness: 0.88 });
     const part = (geometry: THREE.BufferGeometry, perPlayer: number, material: THREE.Material = cloth) => {
       const mesh = new THREE.InstancedMesh(geometry, material, count * perPlayer);
@@ -151,12 +153,21 @@ export class PlayerSquad {
     this.shin = part(limb(0.068, SHIN_LENGTH), 2);
     this.boot = part(bootGeo, 2);
 
+    if (goalkeeper) {
+      const glove = () => part(new THREE.BoxGeometry(.1, .16, .13).translate(0, -.32, 0), 1);
+      this.gloveLeft = glove();
+      this.gloveRight = glove();
+      this.gloveLeft.name = "gloveLeft";
+      this.gloveRight.name = "gloveRight";
+    }
+    for (const name of PLAYER_PARTS) this[name].name = name;
+
     // Number on the back of the shirt: a small plane just behind the torso, facing backwards.
     const backGeo = new THREE.PlaneGeometry(0.26, 0.26).rotateY(-Math.PI / 2).translate(-0.145, SHOULDER_HEIGHT - 0.2, 0);
 
     const teams = new Map(fixture.teams.map((t) => [t.id, t]));
     const color = new THREE.Color();
-    fixture.roster.forEach((player, i) => {
+    roster.forEach((player, i) => {
       const team = teams.get(player.teamId)!;
       const look = hash(player.id);
       const keeper = player.role === "GK";
@@ -205,7 +216,8 @@ export class PlayerSquad {
       this.object.add(badge, backNumber);
     });
     this.object.userData.playerAsset = "loading";
-    void loadPlayerGeometry(this.assetRequest.signal).then((geometries) => {
+    const load = goalkeeper ? loadKeeperGeometry : loadPlayerGeometry;
+    void load(this.assetRequest.signal).then((geometries) => {
       if (this.disposed) {
         disposePlayerGeometry(geometries);
         return;
@@ -214,6 +226,13 @@ export class PlayerSquad {
         const mesh = this[name];
         mesh.geometry.dispose();
         mesh.geometry = geometries[name];
+      }
+      if (goalkeeper) {
+        const keeper = geometries as KeeperGeometry;
+        for (const name of ["gloveLeft", "gloveRight"] as const) {
+          this[name]!.geometry.dispose();
+          this[name]!.geometry = keeper[name];
+        }
       }
       cloth.vertexColors = true;
       cloth.needsUpdate = true;
@@ -246,6 +265,8 @@ export class PlayerSquad {
       this.head.setMatrixAt(i, rig.head);
       this.hair.setMatrixAt(i, rig.head);
       // Under the hips, so a diving or fallen player's shadow stays under their body.
+      this.gloveLeft?.setMatrixAt(i, rig.forearm[0]);
+      this.gloveRight?.setMatrixAt(i, rig.forearm[1]);
       this.shadow.setMatrixAt(i, this.ground.makeTranslation(rig.pelvis.elements[12]!, 0.02, rig.pelvis.elements[14]!));
       for (const side of [0, 1] as const) {
         this.upperArm.setMatrixAt(i * 2 + side, rig.upperArm[side]);
@@ -269,6 +290,35 @@ export class PlayerSquad {
   }
 
   private get instanced(): THREE.InstancedMesh[] {
-    return [this.torso, this.shorts, this.head, this.hair, this.shadow, this.sleeve, this.upperArm, this.forearm, this.thigh, this.shin, this.boot];
+    return [this.torso, this.shorts, this.head, this.hair, this.shadow, this.sleeve, this.upperArm, this.forearm, this.thigh, this.shin, this.boot,
+      ...this.gloveLeft ? [this.gloveLeft] : [], ...this.gloveRight ? [this.gloveRight] : []];
+  }
+}
+
+
+/** Separate instanced libraries keep goalkeeper geometry exclusive to GK roles. */
+export class PlayerSquad {
+  readonly object = new THREE.Group();
+  private readonly groups: PlayerGroup[];
+
+  constructor(fixture: MatchFixture) {
+    this.object.name = "players";
+    this.groups = [false, true].flatMap((keeper) => {
+      const roster = fixture.roster.filter((player) => (player.role === "GK") === keeper);
+      return roster.length ? [new PlayerGroup(fixture, roster, keeper)] : [];
+    });
+    this.object.add(...this.groups.map((group) => group.object));
+  }
+
+  setLabelsVisible(visible: boolean): void {
+    for (const group of this.groups) group.setLabelsVisible(visible);
+  }
+
+  update(states: readonly PlayerState[], motions: readonly PlayerMotion[], timeMs: number): void {
+    for (const group of this.groups) group.update(states, motions, timeMs);
+  }
+
+  dispose(): void {
+    for (const group of this.groups) group.dispose();
   }
 }

@@ -10,6 +10,7 @@ import { motionAt } from "@/playback/animation";
 import type { PlaybackFrame } from "@/playback/derive";
 import type { OffsideReview } from "@/playback/offsideReview";
 import { BallModel } from "./Ball";
+import { CornerFlags } from "./CornerFlags";
 import { pitchCameraDistance } from "./camera";
 import { completedPassAt } from "./evidence";
 import { HALF_LENGTH, HALF_WIDTH } from "./coords";
@@ -50,6 +51,7 @@ export class MatchScene {
   private readonly camera = new THREE.PerspectiveCamera(FOV, 1, 0.5, 1000);
   private readonly players: PlayerSquad;
   private readonly ball = new BallModel();
+  private readonly cornerFlags = new CornerFlags();
   private readonly carrierRing = new THREE.Mesh(
     new THREE.RingGeometry(0.82, 0.94, 64),
     new THREE.MeshBasicMaterial({ color: "#48ffcf", transparent: true, opacity: 0.88, depthWrite: false }),
@@ -128,6 +130,7 @@ export class MatchScene {
     this.scene.add(sun);
 
     this.scene.add(createPitch(this.renderer.capabilities.getMaxAnisotropy()));
+    this.scene.add(this.cornerFlags.object);
 
     this.players = new PlayerSquad(fixture);
     this.scene.add(this.players.object);
@@ -215,6 +218,7 @@ export class MatchScene {
     this.disposed = true;
     this.listeners.abort();
     this.resizeObserver.disconnect();
+    this.cornerFlags.dispose();
 
     const geometries = new Set<THREE.BufferGeometry>();
     const materials = new Set<THREE.Material>();
@@ -222,7 +226,7 @@ export class MatchScene {
     this.scene.traverse((obj) => {
       if (obj instanceof THREE.DirectionalLight) obj.shadow.dispose();
       // PlayerSquad owns its instance buffers; static goal furniture is owned here.
-      if (obj instanceof THREE.InstancedMesh && obj.parent !== this.players.object) obj.dispose();
+      if (obj instanceof THREE.InstancedMesh && !this.players.object.getObjectById(obj.id)) obj.dispose();
       const mesh = obj as Partial<THREE.Mesh>;
       if (mesh.geometry) geometries.add(mesh.geometry);
       const mat = mesh.material;

@@ -15,6 +15,16 @@ club logos, likenesses, or textures are included.
   & 'C:/Program Files/Blender Foundation/Blender 5.2/blender.exe' --background --factory-startup --python scripts/build-football-assets.py
   ```
 
+- `scripts/build-goalkeeper.py` builds `assets/blender/goalkeeper.blend` and
+  `public/models/goalkeeper.glb`. It uses the same part contract, adds long
+  sleeves and per-hand gloves, and is loaded for players with the `GK` role.
+  Separate left and right glove meshes follow the existing forearm joints with their authored colours.
+- `scripts/build-corner-flag.py` builds `assets/blender/corner-flag.blend` and
+  `public/models/corner-flag.glb`: a 1.5 m pole with a 40 × 30 cm
+  recolourable cloth. Four copies share geometry and materials at the pitch
+  corners, with cloth pointing away from the playing area. Flag dimensions
+  stay at physical scale; the existing player display scale is unchanged.
+
 The model follows the player reference's faceted silhouette, shaped jaw and
 facial features, swept hair, short sleeves, individual fingers, and studded boots.
 Ten named joint-local mesh types share instanced geometry across the squad.
@@ -25,8 +35,9 @@ This is an articulated model, not a skinned character with motion-capture clips.
 The existing rig and poses still animate running, kicks, tackles, dives and
 restarts directly from recorded motion and selected playback time. Loading a
 new mesh does not change joint matrices, player positions, or the clock. The
-procedural player geometry displays immediately and remains on fetch or parse
-failure. Disposal aborts pending requests and frees late-arriving geometry.
+procedural player and corner-flag geometry displays immediately and remains
+on fetch or parse failure. Outfield and goalkeeper assets load independently.
+Disposal aborts pending requests and frees late-arriving geometry.
 
 Blender's glTF export and Three.js GLTFLoader are compatible for this asset's
 positions, normals, vertex colours, and transforms. No compression decoder or
@@ -81,6 +92,9 @@ event feed and does not reveal the outcome of a pass or shot.
 
 Tests parse the actual exported GLB, check axes and joint-local dimensions,
 bound its triangle count, and exercise missing/malformed/cancelled asset loads.
+Runtime integration tests check GK-only mesh selection, per-hand glove attachment,
+backward-seek reconstruction, four-corner placement, shared flag resources,
+independent load failures, and cancellation cleanup.
 Field asset tests check 32-panel topology, outward surface winding, net geometry
 budgets, goal mirroring, the open mouth, and ball placement/spin after seeking.
 Camera tests project pitch corners and goal height across screen shapes. Trail
