@@ -45,6 +45,16 @@ removed in Blender 6; the script currently targets Blender 5.2.
   closer broadcast view. Zoom out/reset reaches full-pitch framing, including
   the rotated portrait view. A continuous grass surround fills the background.
 - Turf blade streaks and worn goal mouths add surface detail.
+- Goal frames keep the simulation's 7.32 m post-centre spacing and 2.44 m
+  crossbar-centre height. The reference's 2 m depth, sloped rear uprights,
+  base rails, dark mounts and gently sagging square cord net replace box nets.
+  Four instanced meshes per goal keep the extra detail to four draw calls;
+  net cords use fewer than 30,000 triangles per goal and skip shadow casting.
+- The ball has 12 charcoal pentagons and 20 warm-white hexagons, curved panels,
+  inset seams and generated leather grain. Its 22 cm physical diameter and
+  existing camera-dependent enlargement are preserved. Position-derived spin
+  is a visual approximation that reconstructs identically after seeking;
+  it does not change the simulated ball or infer angular momentum.
 - Number badges appear in Top view and when Tactics is enabled.
 - A mint ring identifies the current recorded ball carrier. Tactics shows a
   brief dashed trail of the latest completed pass, after reception. Later
@@ -71,9 +81,19 @@ event feed and does not reveal the outcome of a pass or shot.
 
 Tests parse the actual exported GLB, check axes and joint-local dimensions,
 bound its triangle count, and exercise missing/malformed/cancelled asset loads.
+Field asset tests check 32-panel topology, outward surface winding, net geometry
+budgets, goal mirroring, the open mouth, and ball placement/spin after seeking.
 Camera tests project pitch corners and goal height across screen shapes. Trail
 tests check event-time boundaries, expiry, and backward seeking. Existing
 animation, playback, offside and evidence tests cover match behavior.
+
+Run `node scripts/preview-field-assets.mjs` to inspect the procedural runtime
+meshes in Blender. It writes `goal-preview.blend`, `ball-preview.blend` and PNG
+close-ups under `assets/blender`; use `--ball` to render only the ball. Set
+`BLENDER_PATH` for a different executable. These are inspection files; Three.js
+constructs the runtime goal and ball directly without asset downloads. The
+preview uses the same geometry, colours and normals; Blender adds its own
+lighting and a procedural leather grain rather than the runtime bump texture.
 
 Run `npm run typecheck`, `npx vitest run --maxWorkers=2 --testTimeout=60000`, and
 `npm run build` before handoff. The longer test timeout accommodates the

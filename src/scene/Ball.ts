@@ -8,6 +8,7 @@ import * as THREE from "three";
 import type { Vec3 } from "@/match/contract";
 import { toScene } from "./coords";
 import { MODEL_SCALE } from "./rig";
+import { createFootballGeometry, footballGrain } from "./footballGeometry";
 
 /** Radius of a real ball, used by the fixture for "on the ground" z. */
 const REAL_RADIUS = 0.11;
@@ -36,9 +37,12 @@ export class BallModel {
     this.object.name = "ball";
     // Unit-radius geometry, scaled to the current render radius.
     this.ball = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(1, 2),
-      new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.35, emissive: "#6b6b55", flatShading: true }),
+      createFootballGeometry(),
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .82,
+        bumpMap: footballGrain(), bumpScale: .004, emissive: "#171710", emissiveIntensity: .08 }),
     );
+    this.ball.name = "football-panels";
+    this.ball.castShadow = true;
     this.shadowMaterial = new THREE.MeshBasicMaterial({
       color: "#000000",
       transparent: true,
@@ -72,6 +76,9 @@ export class BallModel {
     const [x, , z] = toScene(p.x, p.y);
     this.ball.scale.setScalar(this.radius);
     this.ball.position.set(x, this.radius + height, z);
+    // Presentation-only spin from absolute recorded coordinates: no accumulated
+    // render state, so pausing, changing zoom and backward seeking stay stable.
+    this.ball.rotation.set(z / REAL_RADIUS, 0, -x / REAL_RADIUS);
     this.shadow.position.set(x, 0.025, z);
     const fade = Math.max(0.15, 1 - height / 6);
     this.shadow.scale.setScalar(this.radius * (1 + height * 0.12));
