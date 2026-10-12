@@ -96,7 +96,7 @@ export function Recap({ fixture, audience, onAudience, onReplayFrom, explained =
       </div>
       {explained.length > 0 && onOpenExplanation && (
         <section className="recap__asked" aria-labelledby="recap-asked-title">
-          <h3 id="recap-asked-title">Moments you explained</h3>
+          <h3 id="recap-asked-title">Explained moments</h3>
           <ol>
             {[...explained].sort((a, b) => a.atMs - b.atMs).map((s) => (
               <li key={s.id}>

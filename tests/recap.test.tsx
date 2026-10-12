@@ -158,7 +158,7 @@ describe("recap view", () => {
   it("is locked until play reaches full time", () => {
     const html = renderToStaticMarkup(<MatchViewer fixture={sampleFixture} />);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="The recap opens at full time"[^>]*>Recap/);
-    expect(html).toContain("Understand this moment");
+    expect(html).toContain("Live insights");
   });
 
   it("shows the defining moments and final numbers, and summarises the match from full-time evidence", async () => {

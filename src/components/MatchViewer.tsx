@@ -3,8 +3,8 @@
 /**
  * Top-level match view: the 3D pitch with its overlays (current moment,
  * scoreline, camera switch, zoom and moment pop-ups), the playback bar and the
- * moment strip, with a tabbed dock beside them: Game moments (the explanation
- * panel) and Tactics (the numbers so far and a live feed of every touch). Owns the one requestAnimationFrame
+ * moment strip, with a tabbed dock beside them: Game moments (live insights
+ * that appear as key moments happen, and asking about any moment) and Tactics (the numbers so far and a live feed of every touch). Owns the one requestAnimationFrame
  * loop: each frame it advances the playback engine by real elapsed time,
  * pushes the resulting frame into the 3D scene, and syncs the React UI when
  * displayed values change.
@@ -387,8 +387,9 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
           explained={explained}
           onOpenExplanation={(s) => {
             // Back to the moment it was asked at, paused, with the answer showing.
+            // An automatic insight is the newest card in the feed at its moment.
             setAudience(s.audience);
-            setShownExplanation(s.id);
+            if (!s.eventId) setShownExplanation(s.id);
             setAppView("match");
             act((e) => {
               e.pause();
