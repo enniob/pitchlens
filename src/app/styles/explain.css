@@ -709,3 +709,70 @@
     animation: none;
   }
 }
+
+/*
+ * Recorded match facts shown in place of an AI answer that failed its checks:
+ * a different kind of card everywhere it appears. Dashed edges, a muted title
+ * and the list icon (never the AI spark) keep it from reading as an AI answer.
+ */
+.facts-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--ink-info, var(--notice));
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.6;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.facts-chip--block {
+  width: fit-content;
+  margin: 0 0 10px;
+}
+
+.facts-chip--lead {
+  margin-inline-end: 8px;
+}
+
+.facts-chip--trail {
+  margin-inline-start: 8px;
+}
+
+.insight--facts,
+.explain__saved--facts,
+.recap__asked-item--facts,
+.recap__story--facts {
+  border-style: dashed;
+}
+
+.insight--facts .insight__headline,
+.explain__saved--facts .explain__saved-title,
+.recap__asked-item--facts .recap__asked-title {
+  font-weight: 500;
+  color: var(--ink-muted, var(--muted));
+}
+
+.explain__facts-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--ink-line, var(--line));
+  border-radius: 10px;
+}
+
+.explain__facts-note .explain__facts-text {
+  flex: 1 1 220px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink-muted, var(--muted));
+}

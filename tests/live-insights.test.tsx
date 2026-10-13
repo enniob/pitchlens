@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Audience } from "@/explain/api";
 import { extractMatchContext } from "@/explain/context";
+import { recordedSummary } from "@/explain/recorded";
 import { insufficientEvidence } from "@/explain/response";
 import { ExplanationPanel, type SavedExplanation } from "@/components/ExplanationPanel";
 import { formatClock } from "@/components/format";
@@ -213,6 +214,29 @@ describe("live insights", () => {
     expect(feedText()).not.toContain("didn't pass our checks");
     expect(savedList).toHaveLength(1);
     expect(() => button("Try again")).toThrow();
+  });
+
+  it("shows recorded match facts as a separate kind of card, not an AI insight, until an AI answer replaces them", async () => {
+    const facts = { ...response(sampleFixture, goal.t, "casual"), verification: { outcome: "fallback" },
+      recordedSummary: recordedSummary(extractMatchContext(sampleFixture, goal.t))! };
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(facts)))
+      .mockImplementation(answering());
+    vi.stubGlobal("fetch", fetcher);
+    await play(8_000, 10_000);
+    const card = () => container.querySelector(".insights .insight")!;
+    expect(card().classList.contains("insight--facts")).toBe(true);
+    expect(feedText()).toContain("Match facts, not AI");
+    expect(feedText()).not.toContain("didn't pass our checks");
+    // Collapsed, the card still says it is match facts, not an AI headline.
+    await act(async () => card().querySelector<HTMLButtonElement>(".insight__head")!.click());
+    expect(card().querySelector(".insight__headline")?.textContent).toBe(`Match facts, not AI${facts.recordedSummary.headline}`);
+    await act(async () => card().querySelector<HTMLButtonElement>(".insight__head")!.click());
+    await click("Get AI explanation");
+    expect(requestOf(fetcher.mock.calls[1]!).timeMs).toBe(goal.t);
+    expect(feedText()).toContain(`Insight at ${goal.t}`);
+    expect(feedText()).not.toContain("Match facts, not AI");
+    expect(card().classList.contains("insight--facts")).toBe(false);
   });
 
   it("collapses an open card when its title is clicked, and opens it again", async () => {

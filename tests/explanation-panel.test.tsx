@@ -120,20 +120,25 @@ describe("explanation panel interaction", () => {
     expect(button("Try again").disabled).toBe(false);
   });
 
-  it("shows recorded facts and replay evidence when AI checks fail, and keeps retry available", async () => {
+  it("shows recorded facts as match facts, not AI, with replay evidence and a way to get an AI explanation", async () => {
     const summary = recordedSummary(extractMatchContext(sampleFixture, 9_400))!;
     const body = { ...response(), verification: { outcome: "fallback" }, recordedSummary: summary };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(body))));
     await render(); await click("Pause and explain");
-    expect(answerText()).toContain("Match data summary");
+    expect(answerText()).toContain("Match facts, not AI");
     expect(answerText()).toContain(summary.explanation);
-    expect(answerText()).toContain("AI interpretation is unavailable");
+    expect(answerText()).toContain("No AI explanation passed the checks for this moment");
     expect(answerText()).not.toContain("AI explanation.");
     expect(answerText()).not.toContain("Not shown: failed checks");
-    expect(button("Try again").disabled).toBe(false);
+    expect(container.querySelector(".explain__answer--facts")).not.toBeNull();
+    expect(button("Get AI explanation").disabled).toBe(false);
     const event = sampleFixture.events.find(e => e.id === (summary.facts[0]!.evidence[0] as { id: string }).id)!;
     await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="Replay event at ${formatClock(event.t)}"]`)!.click());
     expect(replay).toHaveBeenCalledWith(Math.max(0, event.t - 3_000));
+    // Once closed, it is listed under Your explanations as match facts, never as an AI answer.
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close explanation"]')!.click());
+    expect(container.querySelector(".explain__saved--facts")?.textContent).toContain("Match facts, not AI");
+    expect(historyText()).toContain(summary.headline);
   });
 
   it("replays a cited event and keeps interpretation separate from facts", async () => {

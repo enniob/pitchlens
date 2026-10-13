@@ -202,7 +202,9 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
   const fallback = visible?.result.verification?.outcome === "fallback";
   const stale = visible !== null && Math.floor(timeMs) > Math.floor(visible.atMs) && replayFloor === null;
   // Only offer to pause when there is something to pause.
-  const label = loading ? "Explaining…" : error || fallback ? "Try again" : playback === "playing" ? "Pause and explain" : "Explain this moment";
+  const label = loading ? "Explaining…" : error ? "Try again"
+    : fallback ? (showsMatchFacts(visible!.result) ? "Get AI explanation" : "Try again")
+    : playback === "playing" ? "Pause and explain" : "Explain this moment";
   const explanation = visible?.result.explanation;
   const history = explanationsUpTo(asked, timeMs).filter((s) => s.id !== visible?.id);
 
@@ -226,7 +228,7 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
       <p className="explain__empty">Stop on any other moment and ask why it matters. Explanations only use what has happened so far.</p>
     )}
 
-    {visible && explanation && <article className="explain__answer" aria-live="polite">
+    {visible && explanation && <article className={`explain__answer${showsMatchFacts(visible.result) ? " explain__answer--facts" : ""}`} aria-live="polite">
       <div className="explain__meta">
         <span>{audienceName(audience)} · explained at {formatClock(visible.atMs)}</span>
         <button className="btn btn--ghost btn--icon btn--small" type="button" aria-label="Close explanation"
@@ -245,8 +247,9 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
       <ul>
         {history.map((s) => (
           <li key={s.id}>
-            <button type="button" className="explain__saved" onClick={() => open(s)}>
-              <span className="explain__saved-meta"><time>{formatClock(s.atMs)}</time> · {audienceName(s.audience)}</span>
+            <button type="button" className={`explain__saved${showsMatchFacts(s.result) ? " explain__saved--facts" : ""}`} onClick={() => open(s)}>
+              <span className="explain__saved-meta"><time>{formatClock(s.atMs)}</time> · {audienceName(s.audience)}
+                {showsMatchFacts(s.result) && <MatchFactsChip />}</span>
               <span className="explain__saved-title">{savedTitle(s)}</span>
             </button>
           </li>
@@ -276,13 +279,14 @@ export function ExplanationBody({ fixture, result, audience, onReplay, onRetry }
       </p>
       {onRetry && <button type="button" className="btn btn--ghost btn--small" disabled={!allowed} onClick={onRetry}>Try again</button>}
     </> : <>
-      {recorded && <p className="explain__section">Match data summary</p>}
+      {recorded && <MatchFactsChip placement="block" />}
       <h3 className="explain__headline">{explanation.headline}</h3>
       <p className="explain__body">{explanation.explanation}</p>
-      {recorded && <>
-        <p className="explain__body">AI interpretation is unavailable. These facts come directly from the recorded match events.</p>
-        {onRetry && <button type="button" className="btn btn--ghost btn--small" disabled={!allowed} onClick={onRetry}>Try again</button>}
-      </>}
+      {recorded && <div className="explain__facts-note">
+        <p className="explain__facts-text">{MATCH_FACTS_NOTE}</p>
+        {onRetry && <button type="button" className="btn btn--accent btn--small" disabled={!allowed} onClick={onRetry}>
+          <Icon name="spark" size={14} />Get AI explanation</button>}
+      </div>}
       {evidence.length > 0 && <>
         <h4 className="explain__section">See the evidence</h4>
         <EvidenceCards fixture={fixture} items={evidence} onReplay={onReplay} />
@@ -295,6 +299,21 @@ export function ExplanationBody({ fixture, result, audience, onReplay, onRetry }
     </details>}
     <p className="explain__disclaimer">{recorded ? "Built from synthetic match events; no AI interpretation." : "AI explanation. Automated checks reduce mistakes; citations identify evidence and do not prove a claim."}</p>
   </>;
+}
+
+/** True when a result shows recorded match facts in place of an AI answer that failed its checks. */
+export const showsMatchFacts = (result: ExplainSuccess) =>
+  result.verification?.outcome === "fallback" && result.recordedSummary !== undefined;
+
+/** Why recorded match facts are shown, said the same way wherever they appear. */
+export const MATCH_FACTS_NOTE = "No AI explanation passed the checks for this moment. These facts come straight from the recorded match events.";
+
+/**
+ * Marks recorded match facts wherever they are listed or shown, with the list
+ * icon rather than the AI spark, so they never read as an AI explanation.
+ */
+export function MatchFactsChip({ placement = "trail" }: { placement?: "block" | "lead" | "trail" }) {
+  return <span className={`facts-chip facts-chip--${placement}`}><Icon name="list" size={12} />Match facts, not AI</span>;
 }
 
 /** What an answer that failed its checks is called wherever it is listed or shown. */

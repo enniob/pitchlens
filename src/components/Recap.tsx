@@ -12,7 +12,7 @@ import { ExplanationDetails } from "./Evidence";
 import { LOCKED_HINT, useExplanationAccess } from "./ExplanationAccessGate";
 import { ExplanationSchedulerScope, useExplanationScheduler } from "./ExplanationScheduler";
 import { eventCopy, plainDescription } from "./eventCopy";
-import { AudienceSwitch, audienceName, CheckRow, savedTitle, type SavedExplanation } from "./ExplanationPanel";
+import { AudienceSwitch, audienceName, CheckRow, MATCH_FACTS_NOTE, MatchFactsChip, savedTitle, showsMatchFacts, type SavedExplanation } from "./ExplanationPanel";
 import { formatClock } from "./format";
 import { ALL_MATCH, eventMatchesFocus, normalizeFocus, type MatchFocus as Focus } from "@/playback/focus";
 import { MatchFocus } from "./MatchFocus";
@@ -113,8 +113,9 @@ export function Recap({ fixture, audience, onAudience, onReplayFrom, explained =
           <ol>
             {[...explained].sort((a, b) => a.atMs - b.atMs).map((s) => (
               <li key={s.id}>
-                <button type="button" className="recap__asked-item" onClick={() => onOpenExplanation(s)}>
-                  <span className="recap__asked-meta"><time>{formatClock(s.atMs)}</time> · {audienceName(s.audience)}</span>
+                <button type="button" className={`recap__asked-item${showsMatchFacts(s.result) ? " recap__asked-item--facts" : ""}`} onClick={() => onOpenExplanation(s)}>
+                  <span className="recap__asked-meta"><time>{formatClock(s.atMs)}</time> · {audienceName(s.audience)}
+                    {showsMatchFacts(s.result) && <MatchFactsChip />}</span>
                   <span className="recap__asked-title">{savedTitle(s)}</span>
                   <span className="recap__asked-go">Open in match<Icon name="arrow" size={16} /></span>
                 </button>
@@ -207,8 +208,10 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
   const explanation = recorded ?? state.result.explanation;
   const fallback = verification?.outcome === "fallback" && !recorded;
   const retry = <button type="button" className="btn btn--small" disabled={!allowed} onClick={() => setAttempt((n) => n + 1)}>Try again</button>;
+  const getAi = <button type="button" className="btn btn--accent btn--small" disabled={!allowed} onClick={() => setAttempt((n) => n + 1)}>
+    <Icon name="spark" size={14} />Get AI explanation</button>;
   return (
-    <article className="recap__story" aria-live="polite">
+    <article className={`recap__story${recorded ? " recap__story--facts" : ""}`} aria-live="polite">
       <h3>How the match unfolded</h3>
       {fallback ? (
         <>
@@ -218,13 +221,13 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
         </>
       ) : (
         <>
-          {recorded && <p className="recap__status">Match data summary</p>}
+          {recorded && <MatchFactsChip placement="block" />}
           <p className="recap__headline">{explanation.headline}</p>
           <p>{explanation.explanation}</p>
-          {recorded && <>
-            <p>AI interpretation is unavailable. These facts come directly from the recorded match events.</p>
-            {retry}
-          </>}
+          {recorded && <div className="explain__facts-note">
+            <p className="explain__facts-text">{MATCH_FACTS_NOTE}</p>
+            {getAi}
+          </div>}
         </>
       )}
       <div className="recap__check">

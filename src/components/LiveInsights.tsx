@@ -8,7 +8,7 @@ import { ALL_MATCH, eventMatchesFocus, normalizeFocus, type MatchFocus } from "@
 import { eventCopy } from "./eventCopy";
 import { useExplanationAccess } from "./ExplanationAccessGate";
 import { ExplanationSchedulerScope, useExplanationScheduler } from "./ExplanationScheduler";
-import { audienceName, ExplanationBody, savedTitle, type SavedExplanation } from "./ExplanationPanel";
+import { audienceName, ExplanationBody, MatchFactsChip, savedTitle, showsMatchFacts, type SavedExplanation } from "./ExplanationPanel";
 import { formatClock, shortClock } from "./format";
 import { Icon } from "./Icon";
 import type { PlaybackPhase } from "./ScoreBug";
@@ -232,7 +232,7 @@ function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onRepla
             onReplayFrom(floor);
           };
           return (
-            <li key={m.id} className={`insight insight--${copy.tone}${open ? " insight--open" : ""}`}>
+            <li key={m.id} className={`insight insight--${copy.tone}${open ? " insight--open" : ""}${result && showsMatchFacts(result.result) ? " insight--facts" : ""}`}>
               <button type="button" className="insight__head" aria-expanded={open} onClick={() => setOpenId(open ? null : m.id)}>
                 <Icon name={copy.icon} size={16} />
                 <span className="insight__title">{copy.title.replace(/!$/, "")}</span>
@@ -258,7 +258,7 @@ function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onRepla
                       onRetry={isFallback(result) ? () => start(job) : undefined} />
                   </article>
                 ) : (
-                  <p className="insight__headline">{savedTitle(result)}</p>
+                  <p className="insight__headline">{showsMatchFacts(result.result) && <MatchFactsChip placement="lead" />}{savedTitle(result)}</p>
                 )
               ) : (
                 <button type="button" className="btn btn--ghost btn--small insight__ask" disabled={!allowed} onClick={() => start(job)}>

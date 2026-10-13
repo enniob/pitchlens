@@ -162,9 +162,12 @@ Linked shots are cited alongside their result; goal scores use the existing
 bounded score. The analyst receives this account as a factual starting point.
 The browser independently recomputes it; one that differs (an altered summary,
 or a server on another build) is dropped and the ordinary fallback is shown.
-The viewer and the recap label it **Match data summary**, offers **Try again**, and explicitly says AI
-interpretation is unavailable. It never displays rejected model prose or
-describes this summary as model-reviewed. The AI `explanation`, verification
+It is shown as a separate kind of card wherever it appears: the open answer,
+the collapsed insight card, **Your explanations** and the recap's **Explained
+moments**. Each carries a **Match facts, not AI** chip with the list icon
+(never the AI spark), dashed edges and a muted title, with a note that no AI
+explanation passed the checks and a **Get AI explanation** button. It never
+displays rejected model prose or describes this summary as model-reviewed. The AI `explanation`, verification
 failure and trace remain unchanged for diagnostics. Without a supported event,
 the existing failed-check card remains. Provider errors retain their existing
 behavior. This path is covered by scripted tests, not a live model
