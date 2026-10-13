@@ -1,5 +1,17 @@
 # AI evaluation of "Explain this moment"
 
+**Latest follow-up (October 12–13, 2026):** the unchanged final working-tree
+fingerprint `80f04c5471b14542664ee809de551e0127dca1bfea7cde0f9c43e83c1dc8f1d5`
+on base `482a824dee7585a0f2911c0f6c1908b271558ad7` completed all 36 live cases:
+26 reviewed explanations, eight fallbacks and two errors. The strict gate
+failed, and manual review flagged eight accepted matrix answers. Offline
+verification passed 1,314 tests, type checking and build with the documented
+runner allowance. Local independent-session and admission-recovery checks
+completed; deployed verification remains outstanding.
+See [complete results, exact revision and limitations](replay-reliability-2026-10-12.md).
+The earlier evaluation below is historical and does not establish current
+release readiness.
+
 This report covers the evaluation of the explanation service
 ([explain-service.md](explain-service.md)) on reproducible synthetic
 scenarios. All match data is synthetic. Fictional teams and players only.

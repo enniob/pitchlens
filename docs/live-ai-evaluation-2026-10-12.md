@@ -1,5 +1,11 @@
 # Live AI evaluation — October 12, 2026
 
+**Superseded by the [October 12–13 final-revision evaluation](replay-reliability-2026-10-12.md).**
+That evaluation attempted all 36 cases on one unchanged implementation
+fingerprint, retained redacted answers, and exercised local HTTP sessions and
+recovery. Its strict release gate failed; manual review found further
+unsupported claims. The runs below remain historical evidence only.
+
 ## Conclusion
 
 Partial confirmation only. The live Microsoft Foundry integration produces reviewed explanations, but the broad evaluation is not complete enough for release sign-off. The 36-case run returned two answers and 34 rate-limit errors. A subsequent two-case demo-goal smoke check, with a 65-second gap between workflows, returned two explanations that passed the automated safety and quality checks.

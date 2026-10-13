@@ -185,9 +185,8 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
   // A retried insight keeps its id, so its new answer replaces the old one.
   const onSavedExplanation = useCallback((s: SavedExplanation) => setExplained((list) => [...list.filter((x) => x.id !== s.id), s]), []);
   const onSummary = useCallback((a: Audience, result: ExplainSuccess) => setSummaries((m) => ({ ...m, [a]: result })), []);
-  // The recap describes the whole match: it unlocks once play reaches full time and stays open after.
-  const [recapReady, setRecapReady] = useState(false);
-  if (ui.status.ended && !recapReady) setRecapReady(true);
+  // Full-time content is available only at full time, including after a replay.
+  const recapReady = ui.status.ended;
 
   const t = ui.status.timeMs;
   // Tactics numbers, only computed while Tactics is on.
@@ -367,6 +366,7 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
   const home = fixture.teams.find((x) => x.side === "home")!;
   const away = fixture.teams.find((x) => x.side === "away")!;
   const openView = (next: AppView) => {
+    if (next === "recap" && !recapReady) return;
     if (next === "recap") act((e) => e.pause());
     setAppView(next);
   };
@@ -392,7 +392,7 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
           is used.
         </p>
       )}
-      {appView === "recap" && (
+      {appView === "recap" && recapReady && (
         <Recap
           fixture={fixture}
           audience={audience}

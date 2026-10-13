@@ -76,8 +76,6 @@ function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onRepla
   const [errors, setErrors] = useState<Record<string, string>>({});
   // Which card is open: undefined means the newest one shown, null means all are collapsed.
   const [openId, setOpenId] = useState<string | null | undefined>(undefined);
-  // Replaying a card's cited evidence may rewind before its moment without hiding it.
-  const [replay, setReplay] = useState<{ eventId: string; floor: number } | null>(null);
   const savedRef = useRef(saved);
   savedRef.current = saved;
   const prevTime = useRef(timeMs);
@@ -130,7 +128,7 @@ function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onRepla
     scheduler.schedule({ priority: "automatic", signal: c.signal, wanted, onStart: () => markSent(true) },
       () => requestExplanation(fixture, sampleFixture.matchId, job.atMs, job.audience, c.signal, fetch, "moment", delay => scheduler.defer(delay)))
       .then((result) => {
-        if (!c.signal.aborted) onSaved({ id: insightId(job.eventId, job.audience), atMs: job.atMs, audience: job.audience, eventId: job.eventId, result });
+        if (!c.signal.aborted && timeRef.current >= job.atMs && allowedRef.current) onSaved({ id: insightId(job.eventId, job.audience), atMs: job.atMs, audience: job.audience, eventId: job.eventId, result });
       })
       .catch((e: unknown) => {
         if (c.signal.aborted) return;
@@ -187,10 +185,6 @@ function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onRepla
       abandonRunning();
       startNext();
     }
-    if (replay) {
-      const t = moments.find((m) => m.id === replay.eventId)?.t ?? 0;
-      if (timeMs < replay.floor || timeMs >= t) setReplay(null);
-    }
     if (playback !== "playing" || timeMs <= from || timeMs - from > NATURAL_STEP_MS) return;
     const reached = insightMomentsBetween(fixture, from, timeMs);
     if (reached.length === 0) return;
@@ -207,7 +201,7 @@ function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onRepla
 
   const visible = moments
     .filter((m) => { const event = fixture.events.find((e) => e.id === m.id); return event && eventMatchesFocus(event, validFocus); })
-    .filter((m) => m.t <= timeMs || (replay?.eventId === m.id && timeMs >= replay.floor))
+    .filter((m) => m.t <= timeMs)
     .reverse();
   const openEventId = openId === null ? null : openId && visible.some((m) => m.id === openId) ? openId : visible[0]?.id;
 
@@ -228,7 +222,6 @@ function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onRepla
           const replayFrom = (t: number) => {
             const floor = Math.max(0, t - 3_000);
             setOpenId(m.id);
-            setReplay({ eventId: m.id, floor });
             onReplayFrom(floor);
           };
           return (
@@ -253,7 +246,6 @@ function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onRepla
                 open ? (
                   <article className="insight__answer">
                     <p className="explain__meta"><span>{audienceName(audience)} · evidence up to {formatClock(m.t)}</span></p>
-                    {replay?.eventId === m.id && <p className="explain__notice">Replaying cited evidence up to {formatClock(m.t)}.</p>}
                     <ExplanationBody fixture={fixture} result={result.result} audience={audience} onReplay={replayFrom}
                       onRetry={isFallback(result) ? () => start(job) : undefined} />
                   </article>
