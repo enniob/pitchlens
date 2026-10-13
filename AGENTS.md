@@ -36,8 +36,13 @@ The intended experience covers:
 
 ## Architecture direction
 
-- Microsoft Foundry is the planned model platform.
-- Evaluate Microsoft Agent Framework for bounded agent orchestration.
+- Microsoft Foundry is the model platform. The server calls it through the
+  Azure OpenAI-compatible v1 chat completions API; Foundry cloud evaluations
+  score live evaluation runs.
+- Microsoft Agent Framework was evaluated and not adopted (see
+  `docs/explain-service.md`). The analyst, tool, verifier and revision steps
+  are TypeScript in `src/server/analyst.ts`; revisit the framework only with a
+  documented reason.
 - Verify current official documentation and SDK compatibility before choosing
   implementation details; document any incompatibility.
 - Give agents distinct responsibilities and bounded tool access.
@@ -53,10 +58,25 @@ The intended experience covers:
   evidence references, failure handling, and backward seeking.
 - Run relevant tests, type checking, and the production build before handoff.
 - Clearly distinguish mocked behavior from live integration.
-- Do not publish secrets, private planning, coding-session URLs, or
-  assistant/model attribution in issues, PRs, or documentation.
-- Do not merge or deploy unless explicitly requested.
+- Do not publish secrets, access codes, endpoints or private planning in
+  commits, issues, PRs or documentation.
+- Assistant attribution is allowed: commits and PRs may say Claude wrote or
+  co-authored the work.
+- Do not merge or deploy unless explicitly requested. Merging to `main`
+  deploys it to the public app.
 - Document the Microsoft/Azure technologies actually used.
+
+## Hosting
+
+- The public app runs on one Azure App Service instance (Linux, Node.js 22).
+  `.github/workflows/main_pitchlens.yml` builds, tests and deploys every push
+  to `main`.
+- Foundry credentials, the judge access code and the session secret are App
+  Service application settings. Never commit them; docs use placeholders.
+- Allowances and the answer cache are in memory, so the app must stay on a
+  single instance.
+- Keep `README.md`, `docs/submission.md` and `docs/security-controls.md`
+  consistent with how the app is actually hosted.
 
 ## Hackathon reference
 
@@ -65,4 +85,7 @@ https://github.com/microsoft/insidethegamehackathon/blob/main/OFFICIAL%20RULES.m
 
 The submission needs a public GitHub repository, a working project accessible
 to judges, an elevator pitch, and a demonstration video under two minutes.
-Consult the current official rules before submission.
+Registration closes October 20, 2026 (noon Pacific); submissions close
+October 27, 2026 (11:59 p.m. Pacific); judges need access until November 10,
+2026. `docs/submission.md` holds the pitch, judge testing instructions and
+checklist. Consult the current official rules before submission.
