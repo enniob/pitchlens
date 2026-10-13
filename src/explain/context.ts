@@ -35,6 +35,18 @@ import type {
 import { formationSlot } from "@/match/formations";
 import { validateFixture } from "@/match/validate";
 import { eventsAt, formationsAt, lastAtOrBefore, scoreAt } from "@/playback/derive";
+import {
+  DERIVED_LIMITS,
+  measureFormationChanges,
+  measureMovement,
+  measurePossessionSpells,
+  measureProximity,
+  type FormationChangeMeasurement,
+  type MovementMeasurement,
+  type MovementSubject,
+  type PossessionSpell,
+  type ProximityMeasurement,
+} from "@/playback/derivedEvidence";
 import { measureEvents, type EventMeasurements } from "@/playback/patterns";
 
 export const CONTEXT_VERSION = "1.0.0" as const;
@@ -117,6 +129,24 @@ export type LimitationCode =
   | "snapshots-truncated"
   | "events-filtered";
 
+/**
+ * Event measurements plus measurements from positions (see
+ * src/playback/derivedEvidence.ts). Each cites events and snapshots in this
+ * same package, and none uses anything after the selected time.
+ */
+export interface ContextMeasurements extends EventMeasurements {
+  /** Formation changes announced by the supplied events; never scheduled ones. */
+  formationChanges: FormationChangeMeasurement[];
+  /** Team possession spells in the window, read from every snapshot in it. */
+  possessionSpells: PossessionSpell[];
+  /** Spells left out: older ones beyond the limit, and ones no supplied event or snapshot falls inside. */
+  possessionSpellsOmitted: { older: number; uncitable: number };
+  /** Movement of the ball and the most recently involved players across the supplied snapshots. */
+  movement: MovementMeasurement[];
+  /** Opponents near the player controlling the ball at the selected time, or null when nobody controls it. */
+  proximity: ProximityMeasurement | null;
+}
+
 export interface Limitation {
   code: LimitationCode;
   message: string;
@@ -155,8 +185,8 @@ export interface MatchContext {
   formations: ContextFormation[] | null;
   /** Revealed events in the window, oldest first. */
   events: ContextEvent[];
-  /** Deterministic counts and patterns from these retained events only. */
-  measurements: EventMeasurements;
+  /** Deterministic counts, patterns and measurements from these retained events and snapshots only. */
+  measurements: ContextMeasurements;
   /** Oldest first; the last one is at `time.positionsAtMs`. */
   snapshots: ContextSnapshot[];
   ball: {
@@ -285,6 +315,35 @@ export function extractMatchContext(fixture: MatchFixture, t: number, options: C
       return { teamId: f.teamId, formation: f.formation, since: f.since, ...(change ? { changeEventId: change.eventId } : {}) };
     }) ?? null;
 
+  // Position measurements read snapshots up to the anchor only, and resets up to the selected time.
+  const samples = snaps.slice(0, anchorIndex + 1);
+  const resetTimes = samples.filter((s) => s.discontinuity).map((s) => s.t);
+  const teamOf = new Map(fixture.roster.map((p) => [p.id, p.teamId]));
+  const measure = (): ContextMeasurements => {
+    const complete = filteredEvents === 0 && truncatedEvents === 0;
+    const citable = { events, snapshotTimes: snapshots.map((s) => s.t) };
+    const possession = measurePossessionSpells(samples, windowStartMs, selectedMs, citable);
+    // The ball, then the player on it, then the players in the latest supplied events.
+    const players: string[] = [];
+    const involve = (id: string | null | undefined) => {
+      if (id && teamOf.has(id) && !players.includes(id) && players.length < DERIVED_LIMITS.movementPlayers) players.push(id);
+    };
+    involve(anchor.possession?.playerId);
+    for (const e of [...events].reverse()) {
+      involve(e.playerId);
+      involve(e.recipientId);
+    }
+    const subjects: MovementSubject[] = [{ kind: "ball" }, ...players.map((playerId) => ({ kind: "player" as const, playerId }))];
+    return {
+      ...measureEvents(events, fixture.teams, selectedMs, windowStartMs, complete),
+      formationChanges: measureFormationChanges(events, fixture.tactics?.applied, selectedMs),
+      possessionSpells: possession.spells,
+      possessionSpellsOmitted: { older: possession.omittedOlder, uncitable: possession.omittedUncitable },
+      movement: measureMovement(snapshots, resetTimes, subjects),
+      proximity: measureProximity(snapshots[snapshots.length - 1]!, teamOf),
+    };
+  };
+
   const home = fixture.teams.find((team) => team.side === "home")!;
   const away = fixture.teams.find((team) => team.side === "away")!;
 
@@ -349,7 +408,7 @@ export function extractMatchContext(fixture: MatchFixture, t: number, options: C
       }),
       formations,
       events,
-      measurements: measureEvents(events, fixture.teams, selectedMs, windowStartMs, filteredEvents === 0 && truncatedEvents === 0),
+      measurements: measure(),
       snapshots,
       ball: { control, lastControl },
       limitations,

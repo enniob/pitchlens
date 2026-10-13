@@ -256,8 +256,10 @@ build) on pull requests and pushes to `main`. Live model quality is measured sep
   simplified.
 - Explanations depend on a live model. Some answers fail the checks; you then
   see the recorded match facts, marked as not AI, rather than an AI explanation.
-- Measured patterns cover recent windows of recorded events. They do not
-  measure pressure, intent or chance quality.
+- Measured patterns and derived measurements (pass distance and travel time,
+  pass completion, possession spells, movement, nearby opponents) cover recent
+  windows of recorded data. They do not measure pressure, intent or chance
+  quality.
 - Players are drawn larger than life so they stay readable from the
   full-pitch camera.
 - Hosting for judges is not set up yet; the app runs locally.

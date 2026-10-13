@@ -1,4 +1,5 @@
 import { PENALTY_AREA_DEPTH, PENALTY_AREA_HALF_WIDTH, PITCH_LENGTH, PITCH_WIDTH, type MatchEvent, type Team } from "@/match/contract";
+import { measurePasses, type PassMeasurement } from "./derivedEvidence";
 
 /** Measurements describe recorded events, never pressure, intention or cause. */
 export interface MeasuredPattern {
@@ -17,9 +18,31 @@ export interface EventMeasurements {
   fromMs: number;
   toMs: number;
   coverage: "complete-window" | "retained-events-only";
-  statistics: { teamId: string; shots: number; completedPasses: number; goals: number; eventIds: string[] }[];
+  statistics: TeamWindowStatistics[];
   patterns: MeasuredPattern[];
   shotLocations: ShotLocation[];
+  /** Geometry and timing of the latest resolved passes; see ./derivedEvidence.ts. */
+  passes: PassMeasurement[];
+  /** Resolved passes in the window not measured in `passes`, to bound the payload. */
+  passesOmittedOlder: number;
+}
+
+/** Counts of resolved events in [fromMs, toMs], never whole-match totals unless the window starts at 0. */
+export interface TeamWindowStatistics {
+  teamId: string;
+  shots: number;
+  /** Resolved passes of any outcome (complete, intercepted, missed). A pass still in flight is not counted. */
+  passesPlayed: number;
+  completedPasses: number;
+  /**
+   * completedPasses / passesPlayed as a whole percentage, over this window only.
+   * `null` without attempts, or for `retained-events-only` coverage, where missing
+   * passes would make the ratio wrong.
+   */
+  completionPercent: number | null;
+  goals: number;
+  /** Every shot, goal and pass counted above. */
+  eventIds: string[];
 }
 
 /** Strike-position geometry only; never shot outcome, destination or quality. */
@@ -56,10 +79,12 @@ export function measureEvents(
   selectedMs: number, fromMs = Math.max(0, selectedMs - 30_000), complete = true,
 ): EventMeasurements {
   const events = input.filter((e) => e.t >= fromMs && e.t <= selectedMs);
-  const statistics = teams.map(({ id }) => {
-    const counted = events.filter((e) => e.teamId === id && (e.type === "shot" || e.type === "goal" || (e.type === "pass" && e.outcome === "complete")));
-    return { teamId: id, shots: counted.filter((e) => e.type === "shot").length,
-      completedPasses: counted.filter((e) => e.type === "pass").length,
+  const statistics = teams.map(({ id }): TeamWindowStatistics => {
+    const counted = events.filter((e) => e.teamId === id && (e.type === "shot" || e.type === "goal" || e.type === "pass"));
+    const passesPlayed = counted.filter((e) => e.type === "pass").length;
+    const completedPasses = counted.filter((e) => e.type === "pass" && e.outcome === "complete").length;
+    return { teamId: id, shots: counted.filter((e) => e.type === "shot").length, passesPlayed, completedPasses,
+      completionPercent: complete && passesPlayed > 0 ? Math.round(completedPasses / passesPlayed * 100) : null,
       goals: counted.filter((e) => e.type === "goal").length, eventIds: counted.map((e) => e.id) };
   });
   const patterns: MeasuredPattern[] = [];
@@ -116,5 +141,7 @@ export function measureEvents(
     const team = teams.find((x) => x.id === e.teamId);
     return e.type === "shot" && e.start && team ? [shotLocation({ ...e, start: e.start }, team.attacksTowards)] : [];
   });
-  return { fromMs, toMs: selectedMs, coverage: complete ? "complete-window" : "retained-events-only", statistics, patterns, shotLocations };
+  // Like shot locations, each pass is measured from its own event alone.
+  const { passes, omittedOlder: passesOmittedOlder } = measurePasses(events, teams);
+  return { fromMs, toMs: selectedMs, coverage: complete ? "complete-window" : "retained-events-only", statistics, patterns, shotLocations, passes, passesOmittedOlder };
 }

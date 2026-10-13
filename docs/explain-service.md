@@ -726,6 +726,8 @@ offline regression coverage and do not establish a live deployment's capacity.
 Claim-level grounding now checks numeric timestamps against the claim's own
 event/snapshot citations. Elapsed durations require two cited endpoints; whole
 seconds may round by half a second. Explicit activity windows must match a
-supplied measurement and cite all of its supporting events. These checks catch
+supplied measurement and cite all of its supporting events. A possession
+duration must match a supplied possession spell and cite both entries of its
+`cite` list, because the spell is read from snapshots between them. These checks catch
 the previously observed missing goal citation for a seven-second interval,
 but remain heuristics rather than proof of every natural-language claim.
