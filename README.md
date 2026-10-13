@@ -141,6 +141,12 @@ The design, limits and failure handling are documented in
 - **Microsoft Foundry** hosts the model deployment used for live explanations.
 - The Next.js server calls it through the **Azure OpenAI-compatible v1 chat
   completions API**, with structured JSON output and server-only credentials.
+- **Microsoft Foundry cloud evaluations** score retained live explanations
+  with the built-in groundedness, relevance and coherence evaluators (with a
+  `gpt-5-mini` judge), plus content-safety and indirect-attack evaluators for
+  the planted-instruction scenarios, through `@azure/ai-projects` and
+  `DefaultAzureCredential`. The scores are informational and sit beside the
+  deterministic checks; see [AI evaluation](docs/ai-evaluation.md#microsoft-foundry-cloud-evaluation-informational).
 - The analyst, tool, verifier and revision steps are implemented in
   TypeScript. **Microsoft Agent Framework** was evaluated but is not used; see
   [why](docs/explain-service.md#why-not-microsoft-agent-framework).
