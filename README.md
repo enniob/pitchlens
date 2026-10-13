@@ -93,7 +93,7 @@ The viewer has two views, chosen in the bar at the top:
   gives its window and supporting events, with replay controls. See
   [the definitions and coverage limits](docs/match-patterns.md).
 
-- On first visit, **Kick off the demo** plays the scripted demo. **Set up your own match** opens the set-up drawer, as does **New match** in the top bar.
+- On every page load, the startup choices stay visible until you choose a match. **Kick off the demo** loads and plays the scripted demo. **Set up your own match** opens the set-up drawer without loading a match, as does **New match** in the top bar once a match is loaded.
 - Each team's set-up uses a tactics board: select a starting formation beside a pitch schematic with default shirt numbers and team kit colors. Teal marks the selection, matching the viewer theme. The diagram is a starting-shape illustration, not live tracking; scheduled changes still apply only when generating a new match.
 - The **control bar** under the pitch has:
   - restart, previous and next moment, play/pause, the clock, speed (0.5×, 1×, 2× or 4×) and full screen
@@ -146,7 +146,7 @@ src/
     Ball.ts               Ball and its height shadow; sized to the camera zoom
     MatchScene.ts         Puts the scene together: lights, cameras, zoom/pan, resize, dispose
   components/             React UI
-    SampleMatchViewer.tsx App shell: loaded match, set-up drawer, Pro data preference, first-visit card
+    SampleMatchViewer.tsx App shell: explicit match selection, set-up drawer, Pro data preference, startup choices
     MatchViewer.tsx       Runs the one requestAnimationFrame loop and connects engine → scene → overlays; lays out the Match and Recap views
     AppBar.tsx            Brand, Match / Recap switch, Synthetic match note and New match
     ExplanationPanel.tsx  "Live insights" panel: asking about any moment, cancellation, time boundaries and the answer

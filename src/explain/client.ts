@@ -4,6 +4,32 @@ import { EvidenceSession, EVENT_TYPES } from "./evidence";
 import { matchReferenceOf } from "./matchRef";
 import { validateExplanation } from "./response";
 
+/** Waits without keeping a cancelled moment's retry alive. */
+function waitForRetry(delayMs: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    signal.throwIfAborted();
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** Honor the service cooldown; long waits are left to an explicit retry. */
+function modelRetryDelay(response: Response, body: unknown): number {
+  const ms = (body as { error?: { retryAfterMs?: unknown } })?.error?.retryAfterMs;
+  const header = response.headers.get("retry-after");
+  const headerMs = header === null ? 0 : Number.isFinite(Number(header))
+    ? Number(header) * 1000 : Date.parse(header) - Date.now();
+  return Math.max(1_000, typeof ms === "number" && Number.isFinite(ms) ? ms : 0,
+    Number.isFinite(headerMs) ? headerMs : 0, ms === undefined && header === null ? 10_000 : 0);
+}
+
 /** Browser transport only. Credentials and model calls stay on the server. */
 export async function requestExplanation(
   fixture: MatchFixture,
@@ -16,14 +42,27 @@ export async function requestExplanation(
 ): Promise<ExplainSuccess> {
   const match = matchReferenceOf(fixture, sampleMatchId);
   if (!match) throw new Error("Explanations are unavailable for this match. Try the demo or generate a new match.");
-  const response = await fetchImpl(EXPLAIN_PATH, {
+  const init: RequestInit = {
     method: "POST",
     headers: { "content-type": "application/json" },
     // `focus` is only sent when it is not the default, so moment requests are unchanged.
     body: JSON.stringify({ match, timeMs: Math.floor(timeMs), audience, ...(focus === "moment" ? {} : { focus }) }),
     signal,
-  });
-  const body = await response.json();
+  };
+  signal.throwIfAborted();
+  let response = await fetchImpl(EXPLAIN_PATH, init);
+  let body = await response.json();
+  // One retry for exhausted provider throttling retries, using exactly the same
+  // request and scheduler slot. Access, quotas and evidence checks still apply.
+  if ((!response.ok || body?.ok !== true) && body?.error?.code === "upstream-rate-limited" && body.error.retryable !== false) {
+    const delayMs = modelRetryDelay(response, body);
+    if (delayMs <= 60_000) {
+      await waitForRetry(delayMs, signal);
+      signal.throwIfAborted();
+      response = await fetchImpl(EXPLAIN_PATH, init);
+      body = await response.json();
+    }
+  }
   // Never display arbitrary HTTP/provider error bodies.
   if (!response.ok || body?.ok !== true) {
     const code = body?.error?.code;

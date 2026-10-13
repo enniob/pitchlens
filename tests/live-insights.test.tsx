@@ -61,7 +61,7 @@ beforeEach(() => {
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   pause.mockClear(); replay.mockClear(); savedList = [];
 });
-afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
+afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("insight moments", () => {
   const home = sampleFixture.teams.find((t) => t.attacksTowards === "increasing-x")!;
@@ -168,6 +168,36 @@ describe("live insights", () => {
     expect(container.querySelector(".insights [role=alert]")?.textContent).toContain("Too many requests");
     await click("Try again");
     expect(feedText()).toContain(`Insight at ${goal.t}`);
+  });
+
+  it("automatically retries a busy model while keeping the card loading at its original moment", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false, error: { code: "upstream-rate-limited", retryAfterMs: 2_000 } }), { status: 503 }))
+      .mockImplementation(answering());
+    vi.stubGlobal("fetch", fetcher);
+    await play(8_000, 10_000);
+    expect(feedText()).toContain("Reading the evidence");
+    expect(container.querySelector(".insights [role=alert]")).toBeNull();
+    await render(11_000);
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(requestOf(fetcher.mock.calls[1]!)).toEqual(requestOf(fetcher.mock.calls[0]!));
+    expect(feedText()).toContain(`Insight at ${goal.t}`);
+  });
+
+  it("drops an automatic retry when seeking backward before the moment", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false, error: { code: "upstream-rate-limited", retryAfterMs: 2_000 } }), { status: 503 }))
+      .mockImplementation(answering());
+    vi.stubGlobal("fetch", fetcher);
+    await play(8_000, 10_000);
+    await render(5_000);
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(savedList).toEqual([]);
+    expect(feedText()).not.toContain("Goal");
   });
 
   it("offers a retry on an insight that failed its checks and replaces it with the new answer", async () => {

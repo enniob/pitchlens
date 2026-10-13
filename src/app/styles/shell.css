@@ -1,5 +1,16 @@
 /* App shell: app bar, match workspace and the docked explanation panel ---------- */
 
+.shell__welcome {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.shell__welcome > .card {
+  width: min(100%, 560px);
+}
+
 .app {
   position: relative;
   display: flex;

@@ -91,7 +91,13 @@ as out of date. Seeking back before the explained time hides it, and the list
 leaves out any answer asked later than the current time, except while
 replaying that answer's own cited evidence; it shows again once playback
 reaches that time. Late responses cannot replace the new moment's explanation.
-Cancel is also available during loading. Errors offer an explicit retry;
+Cancel is also available during loading. A model-service busy error gets one
+automatic browser retry after the server's cooldown (ten seconds if none is
+provided, and no automatic retry for waits longer than one minute). The retry
+keeps the original moment, audience and scheduler slot, and is cancelled with
+the original request, including when an automatic insight is hidden by seeking
+back before its moment. Quota, access and other errors are not automatically
+retried. Errors remaining after the retry offer an explicit retry;
 insufficient evidence is displayed as a valid outcome. Both audiences use the
 same evidence rules. Browser-side validation repeats the response contract and
 checks citations against evidence reachable at the selected time; server-side
