@@ -8,6 +8,10 @@ offline run passed 1,314 tests, type checking and build; it required a
 15-second test-runner timeout on this host. Default-timeout stability under
 load remains a limitation.
 
+The fix was later committed as `5e3384c` and merged to `main` with PR #25 on
+October 13; the GitHub Actions checks passed on the merge commit. Statements
+below about uncommitted changes describe the working tree at evaluation time.
+
 Live release readiness is **not established**. All 36 cases were attempted
 on base `482a824dee7585a0f2911c0f6c1908b271558ad7`, working-tree fingerprint
 `80f04c5471b14542664ee809de551e0127dca1bfea7cde0f9c43e83c1dc8f1d5`:
