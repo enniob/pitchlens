@@ -125,7 +125,7 @@ export function MatchViewer(props: MatchViewerProps) {
   // Keyed by fixture so a new fixture gets a fresh engine and scene, and a fresh
   // explanation scheduler shared by the insight feed, the panel and the recap.
   return (
-    <ExplanationSchedulerScope key={props.fixture.matchId}>
+    <ExplanationSchedulerScope key={props.fixture.matchId} minGapMs={3_000}>
       <PlaybackViewer {...props} />
     </ExplanationSchedulerScope>
   );

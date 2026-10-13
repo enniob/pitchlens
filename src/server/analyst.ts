@@ -33,6 +33,7 @@ import {
   VERIFIER_INSTRUCTIONS,
   verifierMessage,
 } from "@/explain/prompts";
+import { recordedAccount } from "@/explain/recorded";
 import { insufficientEvidence, parseExplanation, type ExplanationResponse } from "@/explain/response";
 import { ModelError, type ChatMessage, type ChatRequest, type ChatResult, type ModelClient } from "./foundry";
 import { abortableDelay } from "./modelScheduler";
@@ -75,6 +76,8 @@ export interface ExplainOutput {
   explanation: ExplanationResponse;
   verification: VerificationSummary;
   trace: ExplainTrace;
+  /** On a fallback only: the deterministic account built from the same evidence the analyst was given, when one passes the checks. */
+  recordedSummary?: ExplanationResponse;
 }
 
 /** The workflow ran out of model calls or tokens; ends in the fallback, not an error. */
@@ -221,7 +224,15 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
     if (text === null) return { response: null, schema: false, grounding: null, modelReview: null, issues: ["no answer: the analyst kept calling tools"] };
     const context = session.context();
     const parsed = parseExplanation(text, context);
-    if (!parsed.ok) return { response: null, schema: false, grounding: null, modelReview: null, issues: parsed.errors };
+    if (!parsed.ok) return {
+      response: null, schema: false, grounding: null, modelReview: null,
+      // Give the one revision all detectable problems, even when a length or
+      // citation-contract error prevents this draft from being accepted. The
+      // grounding problems go first: they carry the citation hints, and the
+      // revision request keeps only the first few problems.
+      issues: [...(parsed.diagnosticCandidate
+        ? checkGrounding(parsed.diagnosticCandidate, context, input.audience, focus) : []), ...parsed.errors],
+    };
     const response = parsed.response;
     const grounding = checkGrounding(response, context, input.audience, focus);
     if (grounding.length > 0) return { response, schema: true, grounding: false, modelReview: null, issues: grounding };
@@ -303,9 +314,11 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
     };
   }
 
+  const recorded = verification.outcome === "fallback" ? recordedAccount(session.base, focus) : null;
   return {
     explanation,
     verification,
+    ...(recorded ? { recordedSummary: recorded } : {}),
     trace: { totalMs: Math.round(now() - started), modelCalls, toolCalls, tokens, chargedTokens: charged, steps },
   };
 }

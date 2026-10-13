@@ -31,7 +31,9 @@ interface Task {
  * only one explanation per session, so overlapping requests from the insight
  * feed, the panel and the recap would be refused as busy; this sends them one
  * at a time instead. Waiting manual requests go before waiting automatic ones,
- * but a running request is never interrupted for priority.
+ * but a running request is never interrupted for priority. A configured gap
+ * starts when a request finishes or is cancelled. Provider cooldowns can extend
+ * that wait, including after the caller has exhausted its retry.
  *
  * A convenience, not a control: the server still enforces concurrency,
  * access, quotas and budgets on every request.
@@ -39,6 +41,17 @@ interface Task {
 export class ExplanationScheduler {
   private active: Task | null = null;
   private queue: Task[] = [];
+  private nextAllowedMs = 0;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(private readonly minGapMs = 0, private readonly now = Date.now) {}
+
+  /** A provider cooldown applies to every caller sharing this queue. */
+  defer(delayMs: number): void {
+    if (!Number.isFinite(delayMs) || delayMs <= 0) return;
+    this.nextAllowedMs = Math.max(this.nextAllowedMs, this.now() + delayMs);
+    this.pump();
+  }
 
   /** Sends once every earlier request has finished. A request aborted while waiting is never sent. */
   schedule<T>({ priority, signal, onStart, wanted = () => true }: ScheduleOptions, send: () => Promise<T>): Promise<T> {
@@ -64,7 +77,7 @@ export class ExplanationScheduler {
       const onAbort = () => {
         task.drop(signal.reason);
         if (this.active === task) this.release(task);
-        else this.queue = this.queue.filter((t) => t !== task);
+        else { this.queue = this.queue.filter((t) => t !== task); this.pump(); }
       };
       signal.addEventListener("abort", onAbort, { once: true });
       this.enqueue(task);
@@ -76,6 +89,8 @@ export class ExplanationScheduler {
   cancelQueued(reason: unknown = new DOMException("Explanation request cancelled.", "AbortError")): void {
     const waiting = this.queue;
     this.queue = [];
+    clearTimeout(this.timer);
+    this.timer = undefined;
     for (const task of waiting) task.drop(reason);
   }
 
@@ -94,13 +109,21 @@ export class ExplanationScheduler {
   private release(task: Task) {
     if (this.active !== task) return;
     this.active = null;
+    this.nextAllowedMs = Math.max(this.nextAllowedMs, this.now() + this.minGapMs);
     this.pump();
   }
 
   private pump() {
+    clearTimeout(this.timer);
+    this.timer = undefined;
     if (this.active) return;
     const next = this.queue.find((t) => t.wanted());
     if (!next) return;
+    const delay = this.nextAllowedMs - this.now();
+    if (delay > 0) {
+      this.timer = setTimeout(() => this.pump(), Math.min(delay, 60_000));
+      return;
+    }
     this.queue = this.queue.filter((t) => t !== next);
     this.active = next;
     next.start();

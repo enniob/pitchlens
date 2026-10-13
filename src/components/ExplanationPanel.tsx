@@ -171,7 +171,7 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
       // Not sent once playback is back before its time or access is locked; the effects above then cancel it.
       const wanted = () => allowedRef.current && timeRef.current >= atMs;
       const result = await scheduler.schedule({ priority: "manual", signal: controller.signal, wanted, onStart: () => setSent(true) },
-        () => requestExplanation(fixture, sampleFixture.matchId, atMs, audience, controller.signal));
+        () => requestExplanation(fixture, sampleFixture.matchId, atMs, audience, controller.signal, fetch, "moment", delay => scheduler.defer(delay)));
       if (!controller.signal.aborted) {
         const id = `${audience}-${Math.floor(atMs)}-${asked.length}`;
         onSaved({ id, atMs, audience, result });
@@ -216,7 +216,7 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
     {pendingAt !== null && <div className="explain__loading" role="status">
       <div className="explain__status">
         <span>{sent ? `Reading the evidence up to ${formatClock(pendingAt)} and checking the answer…`
-          : `Waiting for the current insight, then explaining ${formatClock(pendingAt)}…`}</span>
+          : `Queued to explain ${formatClock(pendingAt)}. Waiting for the next request slot…`}</span>
         <button className="btn btn--ghost btn--small" type="button" onClick={cancel}>Cancel</button>
       </div>
       <div className="skeleton" aria-hidden="true"><span /><span /><span /><span /></div>
@@ -261,13 +261,14 @@ export function ExplanationBody({ fixture, result, audience, onReplay, onRetry }
   { fixture: MatchFixture; result: ExplainSuccess; audience: Audience; onReplay: (timeMs: number) => void;
     /** Shown on an unverified answer when the surrounding view has no retry of its own. */
     onRetry?: () => void }) {
-  const { explanation } = result;
+  const recorded = result.verification?.outcome === "fallback" ? result.recordedSummary : undefined;
+  const explanation = recorded ?? result.explanation;
   const allowed = useExplanationAccess();
   const outcome = result.verification?.outcome;
   const fallback = outcome === "fallback";
-  const evidence = fallback ? [] : citedEvidence(fixture, explanation);
+  const evidence = fallback && !recorded ? [] : citedEvidence(fixture, explanation);
   return <>
-    {fallback ? <>
+    {fallback && !recorded ? <>
       <h3 className="explain__headline">{FALLBACK_TITLE}</h3>
       <p className="explain__body">
         Every explanation is checked against what has happened in the match so far. This one included
@@ -275,19 +276,24 @@ export function ExplanationBody({ fixture, result, audience, onReplay, onRetry }
       </p>
       {onRetry && <button type="button" className="btn btn--ghost btn--small" disabled={!allowed} onClick={onRetry}>Try again</button>}
     </> : <>
+      {recorded && <p className="explain__section">Match data summary</p>}
       <h3 className="explain__headline">{explanation.headline}</h3>
       <p className="explain__body">{explanation.explanation}</p>
+      {recorded && <>
+        <p className="explain__body">AI interpretation is unavailable. These facts come directly from the recorded match events.</p>
+        {onRetry && <button type="button" className="btn btn--ghost btn--small" disabled={!allowed} onClick={onRetry}>Try again</button>}
+      </>}
       {evidence.length > 0 && <>
         <h4 className="explain__section">See the evidence</h4>
         <EvidenceCards fixture={fixture} items={evidence} onReplay={onReplay} />
       </>}
     </>}
-    <CheckRow outcome={outcome} status={explanation.status} atMs={result.timeMs} />
-    {!fallback && <details className="explain__details" open={audience === "analyst"}>
+    <CheckRow outcome={outcome} status={explanation.status} atMs={result.timeMs} recorded={!!recorded} />
+    {(!fallback || recorded) && <details className="explain__details" open={audience === "analyst"}>
       <summary>Facts, reading and limits<Icon name="chevron" size={16} className="explain__chevron" /></summary>
       <ExplanationDetails explanation={explanation} fixture={fixture} onReplay={onReplay} />
     </details>}
-    <p className="explain__disclaimer">AI explanation. Automated checks reduce mistakes; citations identify evidence and do not prove a claim.</p>
+    <p className="explain__disclaimer">{recorded ? "Built from synthetic match events; no AI interpretation." : "AI explanation. Automated checks reduce mistakes; citations identify evidence and do not prove a claim."}</p>
   </>;
 }
 
@@ -296,14 +302,17 @@ export const FALLBACK_TITLE = "This explanation didn't pass our checks";
 
 /** The headline to list a saved explanation by; an unverified one gets a plain label instead of its text. */
 export const savedTitle = (s: SavedExplanation) =>
-  s.result.verification?.outcome === "fallback" ? FALLBACK_TITLE : s.result.explanation.headline;
+  s.result.verification?.outcome === "fallback" ? s.result.recordedSummary?.headline ?? FALLBACK_TITLE : s.result.explanation.headline;
 
 /** "Evidence checked · Based on events up to …", or why it is not. */
-export function CheckRow({ outcome, status, atMs, label }:
-  { outcome: ExplainSuccess["verification"]["outcome"] | undefined; status: string; atMs: number; label?: string }) {
+export function CheckRow({ outcome, status, atMs, label, recorded = false }:
+  { outcome: ExplainSuccess["verification"]["outcome"] | undefined; status: string; atMs: number; label?: string;
+    /** Showing the recorded match summary in place of an unverified AI answer. */
+    recorded?: boolean }) {
   return (
     <div className="check-row">
-      {outcome === "fallback" ? <span className="check check--warn"><Icon name="warning" size={16} />Not shown: failed checks</span>
+      {recorded ? <span className="check check--info"><Icon name="info" size={16} />Recorded match facts</span>
+        : outcome === "fallback" ? <span className="check check--warn"><Icon name="warning" size={16} />Not shown: failed checks</span>
         : outcome === "insufficient-evidence" || status === "insufficient-evidence"
           ? <span className="check check--info"><Icon name="info" size={16} />Not enough evidence</span>
           : <span className="check"><span className="check__badge"><Icon name="check" size={14} /></span>Evidence checked</span>}

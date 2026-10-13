@@ -207,6 +207,7 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
       audience,
       focus,
       explanation: result.explanation,
+      ...(result.recordedSummary ? { recordedSummary: result.recordedSummary } : {}),
       verification: result.verification,
       trace: result.trace,
     };

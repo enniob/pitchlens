@@ -8,7 +8,7 @@ import { ALL_MATCH, eventMatchesFocus, normalizeFocus, type MatchFocus } from "@
 import { eventCopy } from "./eventCopy";
 import { useExplanationAccess } from "./ExplanationAccessGate";
 import { ExplanationSchedulerScope, useExplanationScheduler } from "./ExplanationScheduler";
-import { audienceName, ExplanationBody, FALLBACK_TITLE, type SavedExplanation } from "./ExplanationPanel";
+import { audienceName, ExplanationBody, savedTitle, type SavedExplanation } from "./ExplanationPanel";
 import { formatClock, shortClock } from "./format";
 import { Icon } from "./Icon";
 import type { PlaybackPhase } from "./ScoreBug";
@@ -128,7 +128,7 @@ function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onRepla
     // Not sent once playback is back before the moment or access is locked; the effects below then drop it.
     const wanted = () => allowedRef.current && timeRef.current >= job.atMs;
     scheduler.schedule({ priority: "automatic", signal: c.signal, wanted, onStart: () => markSent(true) },
-      () => requestExplanation(fixture, sampleFixture.matchId, job.atMs, job.audience, c.signal))
+      () => requestExplanation(fixture, sampleFixture.matchId, job.atMs, job.audience, c.signal, fetch, "moment", delay => scheduler.defer(delay)))
       .then((result) => {
         if (!c.signal.aborted) onSaved({ id: insightId(job.eventId, job.audience), atMs: job.atMs, audience: job.audience, eventId: job.eventId, result });
       })
@@ -239,7 +239,7 @@ function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onRepla
                 <time className="insight__time">{shortClock(m.t)}</time>
               </button>
               {sameJob(running, job) && !sent ? (
-                <p className="insight__status">Waiting for another explanation to finish…</p>
+                <p className="insight__status">Queued. Waiting for the next explanation slot…</p>
               ) : sameJob(running, job) ? (
                 <p className="insight__status" role="status"><span className="spinner spinner--small" aria-hidden="true" />Reading the evidence up to {formatClock(m.t)} and checking the answer…</p>
               ) : sameJob(queuedJob, job) ? (
@@ -258,7 +258,7 @@ function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onRepla
                       onRetry={isFallback(result) ? () => start(job) : undefined} />
                   </article>
                 ) : (
-                  <p className="insight__headline">{isFallback(result) ? FALLBACK_TITLE : result.result.explanation.headline}</p>
+                  <p className="insight__headline">{savedTitle(result)}</p>
                 )
               ) : (
                 <button type="button" className="btn btn--ghost btn--small insight__ask" disabled={!allowed} onClick={() => start(job)}>

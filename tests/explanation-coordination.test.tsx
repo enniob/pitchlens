@@ -97,7 +97,7 @@ describe("shared explanation scheduling", () => {
     await explainAt(12_000);
     // Not sent alongside the insight, so the server never answers "busy".
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(text()).toContain("Waiting for the current insight");
+    expect(text()).toContain("Waiting for the next request slot");
     calls[0]!.answer();
     await flush();
     expect(calls.map((c) => c.body)).toEqual([{ timeMs: goal.t, audience: "casual" }, { timeMs: 12_000, audience: "casual" }]);
@@ -114,7 +114,7 @@ describe("shared explanation scheduling", () => {
     await play(8_000, 10_000);
     // The insight for the goal is waiting, not sent.
     expect(calls).toHaveLength(1);
-    expect(text()).toContain("Waiting for another explanation to finish");
+    expect(text()).toContain("Waiting for the next explanation slot");
     await render({ recap: true });
     expect(calls).toHaveLength(1);
     // The running request is never interrupted for priority.

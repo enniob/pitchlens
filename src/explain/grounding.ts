@@ -57,7 +57,7 @@ const EVENT_WORDS: { label: string; pattern: RegExp; supports: (e: ContextEvent)
   },
   { label: "an offside", pattern: /\b(flagged\s+)?offside\b(?!\s+(line|trap|position))/i, supports: (e) => e.type === "offside" },
   { label: "a foul", pattern: /\bfoul(ed|s)?\b/i, supports: (e) => e.type === "foul" || e.type === "free-kick" || e.type === "penalty" },
-  { label: "a penalty", pattern: /\bpenalty\b(?!\s+(area|box|spot))/i, supports: (e) => e.type === "penalty" },
+  { label: "a penalty", pattern: /\bpenalty\b(?![\s-]+(?:areas?|box(?:es)?|spots?)\b)/i, supports: (e) => e.type === "penalty" },
   { label: "a corner", pattern: /\bcorner(\s+kick)?s?\b(?!\s+(of|flag))/i, supports: (e) => e.type === "corner" },
   { label: "a throw-in", pattern: /\bthrow-?ins?\b/i, supports: (e) => e.type === "throw-in" },
   {
@@ -176,7 +176,7 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
         const windowClaim = /(?:last|previous)\s+$/.test(prefix);
         const measuredWindow = windowClaim && context.measurements?.patterns.some((p) => p.kind === "activity-change" && p.eventIds.length > 0 && p.eventIds.every((id) => citedIds.has(id)) && p.values.windowMs === ms);
         if (windowClaim ? !measuredWindow : !times.some((a) => times.some((b) => a !== b && Math.abs(Math.abs(a - b) - ms) <= tolerance)))
-          issues.push(`${where} gives the duration ${m[0].trim()}, which is not supported by two cited time endpoints`);
+          issues.push(`${where} gives the duration ${m[0].trim()}, which is not supported by two cited time endpoints${windowClaim ? "" : durationHint(context, scope, ms, tolerance)}`);
       } else if (!times.some((t) => Math.abs(t - ms) <= tolerance)) {
         issues.push(`${where} gives the time ${m[0].trim()}, which matches nothing it cites`);
       }
@@ -216,8 +216,43 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
     // cannot be cited, but only the headline and explanation may rely on it.
     // Facts and interpretation must cite the goal itself.
     if (w.label === "a goal" && summary && home + away > 0) continue;
-    issues.push(`${where} says "${m[0]}", but the evidence it ${summary ? "has" : "cites"} contains no ${w.label.replace(/^an? /, "")}`);
+    issues.push(`${where} says "${m[0]}", but the evidence it ${summary ? "has" : "cites"} contains no ${w.label.replace(/^an? /, "")}${summary ? "" : shotHint(w.label, scope, context)}`);
   }
+}
+
+/*
+ * Hints for the revision request: which supplied events would support the
+ * wording if cited. They only name events already in the context (so never
+ * anything after the selected time) and do not change what passes.
+ */
+const clock = (t: number) => `${Number((t / 1000).toFixed(2))} s`;
+
+/** A shot result or goal cites its outcome; the shot itself starts at its startT, by the same player. */
+function shotHint(label: string, scope: Scope, context: MatchContext): string {
+  if (label !== "a shot") return "";
+  const shots = context.events.filter((e) => e.type === "shot" && e.t <= context.time.selectedMs &&
+    scope.events.some((c) => c.startT === e.t && c.playerId === e.playerId));
+  return shots.length ? `; also cite the shot event ${shots.map((e) => e.id).join(", ")} in this claim, or do not mention the shot` : "";
+}
+
+/**
+ * The one supplied event that, with an event the claim already cites, spans
+ * the duration. Never a pair the claim does not anchor, nor a guess between
+ * several candidates: either could fit the number by coincidence.
+ */
+function durationHint(context: MatchContext, scope: Scope, ms: number, tolerance: number): string {
+  const generic = "; cite both events it is measured between in this claim, or remove the duration";
+  const points = context.events.flatMap((e) => (e.startT !== undefined ? [{ id: e.id, t: e.t }, { id: e.id, t: e.startT }] : [{ id: e.id, t: e.t }]))
+    .filter((p) => p.t <= context.time.selectedMs);
+  const cited = new Set(scope.events.map((e) => e.id));
+  const pairs: { anchor: (typeof points)[number]; other: (typeof points)[number] }[] = [];
+  for (const anchor of points.filter((p) => cited.has(p.id)))
+    for (const other of points)
+      if (!cited.has(other.id) && Math.abs(Math.abs(other.t - anchor.t) - ms) <= tolerance) pairs.push({ anchor, other });
+  // Exactly one pair: one uncited event fitting several cited anchors is as ambiguous as several events.
+  if (pairs.length !== 1) return generic;
+  const { anchor, other } = pairs[0]!;
+  return `; it matches ${anchor.id} (${clock(anchor.t)}) to ${other.id} (${clock(other.t)}): also cite ${other.id} in this claim, or remove the duration`;
 }
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

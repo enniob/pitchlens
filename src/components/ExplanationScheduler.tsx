@@ -11,9 +11,9 @@ const ExplanationSchedulerContext = createContext<ExplanationScheduler | null>(n
  * panel and the recap take turns; rendered on its own it makes its own.
  * Waiting requests are dropped when the scope that made it goes away.
  */
-export function ExplanationSchedulerScope({ children }: { children: ReactNode }) {
+export function ExplanationSchedulerScope({ children, minGapMs = 0 }: { children: ReactNode; minGapMs?: number }) {
   const parent = useContext(ExplanationSchedulerContext);
-  const [own] = useState(() => (parent ? null : new ExplanationScheduler()));
+  const [own] = useState(() => (parent ? null : new ExplanationScheduler(minGapMs)));
   useEffect(() => () => { own?.cancelQueued(); }, [own]);
   if (parent) return <>{children}</>;
   return <ExplanationSchedulerContext.Provider value={own}>{children}</ExplanationSchedulerContext.Provider>;

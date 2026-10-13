@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExplanationScheduler, type RequestPriority } from "@/explain/scheduler";
 
 /** A request whose answer the test controls. */
@@ -13,8 +13,71 @@ function held(scheduler: ExplanationScheduler, name: string, priority: RequestPr
   return { result, controller, finish: (v = name) => finish(v), fail: (e: unknown) => fail(e) };
 }
 const settle = () => new Promise((r) => setTimeout(r, 0));
+afterEach(() => vi.useRealTimers());
 
 describe("explanation scheduler", () => {
+  it("spaces nearby explanations from completion while preserving manual priority", async () => {
+    vi.useFakeTimers();
+    const scheduler = new ExplanationScheduler(3_000);
+    const sent: string[] = [];
+    const first = held(scheduler, "first", "automatic", sent);
+    const automatic = held(scheduler, "auto", "automatic", sent);
+    first.finish();
+    await vi.advanceTimersByTimeAsync(2_999);
+    const manual = held(scheduler, "manual", "manual", sent);
+    expect(sent).toEqual(["first"]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sent).toEqual(["first", "manual"]);
+    manual.finish();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(sent).toEqual(["first", "manual", "auto"]);
+    automatic.finish();
+    await automatic.result;
+  });
+
+  it("keeps a shared provider cooldown after a failed or cancelled request", async () => {
+    vi.useFakeTimers();
+    const scheduler = new ExplanationScheduler(3_000);
+    const sent: string[] = [];
+    const first = held(scheduler, "first", "automatic", sent);
+    const queued = held(scheduler, "queued", "manual", sent);
+    scheduler.defer(9_000);
+    first.fail(new Error("model busy"));
+    await expect(first.result).rejects.toThrow("model busy");
+    await vi.advanceTimersByTimeAsync(8_999);
+    expect(sent).toEqual(["first"]);
+    scheduler.defer(4_000);
+    await vi.advanceTimersByTimeAsync(3_999);
+    expect(sent).toEqual(["first"]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sent).toEqual(["first", "queued"]);
+    scheduler.defer(9_000);
+    queued.controller.abort();
+    const next = held(scheduler, "next", "manual", sent);
+    await vi.advanceTimersByTimeAsync(8_999);
+    expect(sent).toEqual(["first", "queued"]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sent).toEqual(["first", "queued", "next"]);
+    next.finish(); await next.result;
+  });
+
+  it("cancels stale or unmounted work during pacing without sending it or retaining a timer", async () => {
+    vi.useFakeTimers();
+    const scheduler = new ExplanationScheduler(3_000);
+    const sent: string[] = [];
+    const first = held(scheduler, "first", "automatic", sent);
+    const stale = held(scheduler, "stale", "automatic", sent);
+    first.finish(); await vi.advanceTimersByTimeAsync(1);
+    stale.controller.abort();
+    expect(scheduler.pending).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    const waiting = held(scheduler, "waiting", "manual", sent);
+    scheduler.cancelQueued();
+    await expect(waiting.result).rejects.toMatchObject({ name: "AbortError" });
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sent).toEqual(["first"]);
+  });
   it("sends one request at a time; a manual request waits for a running automatic one", async () => {
     const scheduler = new ExplanationScheduler();
     const sent: string[] = [];

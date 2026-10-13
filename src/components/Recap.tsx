@@ -162,7 +162,7 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
     setState({ kind: "loading" });
     // Not sent once access is locked; this effect's cleanup then abandons it.
     scheduler.schedule({ priority: "manual", signal: controller.signal, wanted: () => allowedRef.current },
-      () => requestExplanation(fixture, sampleFixture.matchId, fixture.durationMs, audience, controller.signal, fetch, "match"))
+      () => requestExplanation(fixture, sampleFixture.matchId, fixture.durationMs, audience, controller.signal, fetch, "match", delay => scheduler.defer(delay)))
       .then((result) => {
         if (controller.signal.aborted) return;
         answered.current = attempt;
@@ -200,8 +200,13 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
       </article>
     );
 
-  const { explanation, verification } = state.result;
-  const fallback = verification?.outcome === "fallback";
+  const { verification } = state.result;
+  // When the AI summary fails its checks, show the recorded full-time account
+  // (built from the match events and re-checked in the browser) if there is one.
+  const recorded = verification?.outcome === "fallback" ? state.result.recordedSummary : undefined;
+  const explanation = recorded ?? state.result.explanation;
+  const fallback = verification?.outcome === "fallback" && !recorded;
+  const retry = <button type="button" className="btn btn--small" disabled={!allowed} onClick={() => setAttempt((n) => n + 1)}>Try again</button>;
   return (
     <article className="recap__story" aria-live="polite">
       <h3>How the match unfolded</h3>
@@ -209,16 +214,21 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
         <>
           <p>We could not produce a checked summary of this match.</p>
           {!allowed && <p className="recap__status">{LOCKED_HINT}</p>}
-          <button type="button" className="btn btn--small" disabled={!allowed} onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+          {retry}
         </>
       ) : (
         <>
+          {recorded && <p className="recap__status">Match data summary</p>}
           <p className="recap__headline">{explanation.headline}</p>
           <p>{explanation.explanation}</p>
+          {recorded && <>
+            <p>AI interpretation is unavailable. These facts come directly from the recorded match events.</p>
+            {retry}
+          </>}
         </>
       )}
       <div className="recap__check">
-        <CheckRow outcome={verification?.outcome} status={explanation.status} atMs={fixture.durationMs} label="Whole match, up to full time" />
+        <CheckRow outcome={verification?.outcome} status={explanation.status} atMs={fixture.durationMs} label="Whole match, up to full time" recorded={!!recorded} />
         {!fallback && (explanation.facts.length > 0 || explanation.limitations.length > 0) && (
           <button type="button" className="link" aria-expanded={showEvidence} aria-controls="recap-evidence" onClick={() => setShowEvidence(!showEvidence)}>
             {showEvidence ? "Hide supporting events" : "View supporting events"}
@@ -227,7 +237,7 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
         )}
       </div>
       {showEvidence && !fallback && <div className="recap__evidence" id="recap-evidence"><ExplanationDetails explanation={explanation} fixture={fixture} onReplay={onReplay} /></div>}
-      <p className="explain__disclaimer">AI summary. Automated checks reduce mistakes; citations identify evidence and do not prove a claim.</p>
+      <p className="explain__disclaimer">{recorded ? "Built from synthetic match events; no AI interpretation." : "AI summary. Automated checks reduce mistakes; citations identify evidence and do not prove a claim."}</p>
     </article>
   );
 }

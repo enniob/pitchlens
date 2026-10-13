@@ -215,7 +215,8 @@ context)` does the same for raw JSON text. A response is rejected when:
   `context.events`, or a snapshot time not in `context.snapshots`. This rejects
   invented IDs, real events after the selected time, events outside the
   lookback window, and interpolated or future snapshot times
-- a reference is malformed or duplicated within a claim
+- a reference is malformed or duplicated within a claim (on the server, exact
+  repeats in the model's output are dropped before this check)
 - `status` is `explained` with no facts
 - `status` is `insufficient-evidence` with any interpretation, or with no
   limitation saying what is missing

@@ -96,6 +96,8 @@ export interface ExplainSuccess {
   audience: Audience;
   focus: Focus;
   explanation: ExplanationResponse;
+  /** Optional deterministic facts when AI checks failed; not an AI-verified interpretation. */
+  recordedSummary?: ExplanationResponse;
   verification: VerificationSummary;
   trace: ExplainTrace;
   /** True when served from the service's short-lived cache of identical requests. */

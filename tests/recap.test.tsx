@@ -9,7 +9,8 @@ import { extractMatchContext } from "@/explain/context";
 import { EvidenceSession } from "@/explain/evidence";
 import { checkGrounding } from "@/explain/grounding";
 import { analystInstructions } from "@/explain/prompts";
-import type { ExplanationResponse } from "@/explain/response";
+import { recordedMatchSummary } from "@/explain/recorded";
+import { insufficientEvidence, type ExplanationResponse } from "@/explain/response";
 import { sampleFixture } from "@/match/fixture";
 import { recapMoments } from "@/playback/recap";
 import { statisticsAt } from "@/playback/statistics";
@@ -180,6 +181,28 @@ describe("recap view", () => {
     const goal = sampleFixture.events.find((e) => e.id === "e6-goal")!;
     await act(async () => [...container.querySelectorAll("button")].filter((b) => b.textContent?.includes("Replay moment"))[1]!.click());
     expect(replay).toHaveBeenCalledWith(goal.t - 3_000);
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("shows the recorded full-time account, labelled as not AI, when the AI summary fails its checks", async () => {
+    const base = new EvidenceSession(sampleFixture, END, "match").base;
+    const recorded = recordedMatchSummary(base)!;
+    expect(recorded).not.toBeNull();
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({
+      apiVersion: "1.0.0", ok: true, matchId: sampleFixture.matchId, timeMs: END, audience: "casual", focus: "match",
+      explanation: insufficientEvidence(base, "The explanation could not be checked against the match data, so none is shown."),
+      recordedSummary: recorded, verification: { outcome: "fallback" },
+    }))));
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(<Recap fixture={sampleFixture} audience="casual" onAudience={() => {}} onReplayFrom={() => {}} />));
+    expect(container.textContent).toContain("Match data summary");
+    expect(container.textContent).toContain(recorded.headline);
+    expect(container.textContent).toContain("Recorded match facts");
+    expect(container.textContent).toContain("no AI interpretation");
+    expect(container.textContent).not.toContain("We could not produce a checked summary");
     await act(async () => root.unmount());
     container.remove();
   });
