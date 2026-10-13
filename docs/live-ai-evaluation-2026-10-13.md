@@ -238,6 +238,38 @@ The three fallbacks:
 Most first drafts were marked explained with an empty facts list and needed
 a revision. Commit `583e367` adds the required verified facts to such a
 draft in code (then checks and reviews it as usual) and tells the verifier
-when it reviews a full-time summary. These two changes have offline tests
-only; they have not been measured live. A full 36-case run on the merged
-revision is still needed to establish release readiness.
+when it reviews a full-time summary. Both were then measured live, below.
+
+### Remaining cases and rechecks on `583e367`
+
+A 16-case run on `583e367` covered the 12 cases the stopped run never
+reached and rechecked its 4 fallbacks, with the same model settings and
+pacing. It completed in 19.7 minutes. The release gate failed on the cases
+below.
+
+| Result (16 cases) | Cases |
+| --- | ---: |
+| Usable explanations | 14 |
+| Flagged for review | 1 |
+| Fallbacks | 1 |
+| Timeouts | 0 |
+
+All four rechecked fallbacks were usable: both `demo-recap` answers (one
+verified on its first draft) and both `seed9-formation-before` answers.
+`seed16-second-goal` (Casual), a timeout in the earlier runs, was usable.
+
+- `seed3-zero-goal-moment` (Analyst) fell back: its headline mentioned a
+  shot in a window with no shot, in the draft and again in the revision.
+  Grounding rejected it both times. The Casual answer was explained, so the
+  pair counts as an audience conflict.
+- `seed3-zero-goal-recap` (Casual) was flagged by the evaluation, not by the
+  production checks: "no goals were scored by either side" was read as a
+  stated goal. The answer is correct. The assessment now treats negated
+  wording as no claim, with a regression test.
+
+Taken together, 35 of 36 cases have a usable answer on one of the two
+revisions (21 of 24 on `4aea640`, then the 12 remaining and 4 rechecks on
+`583e367`), with one model error caught by grounding. This combines two
+revisions and two runs; it is not a single complete release evaluation. A
+full 36-case run on the merged revision is still needed to establish
+release readiness.

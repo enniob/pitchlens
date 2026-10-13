@@ -76,3 +76,21 @@ describe("October 13 live regressions", () => {
       .toContainEqual(expect.stringContaining("possession duration"));
   });
 });
+
+describe("October 13 verified-facts run", () => {
+  const recap = scenarioById("seed3-zero-goal-recap");
+  const context = new EvidenceSession(recap.fixture, recap.timeMs, recap.focus).base;
+  const change = context.events.find((e) => e.type === "formation-change")!;
+  const answer = (explanation: string): ExplanationResponse => ({
+    explanationVersion: "1.0.0", matchId: recap.fixture.matchId, timeMs: recap.timeMs, status: "explained",
+    headline: "Northvale Rovers change shape but 0–0 draw stands", explanation,
+    facts: [{ text: "Northvale Rovers changed formation from 4-3-3 to 4-2-3-1 at 30.0 s.", evidence: [{ kind: "event", id: change.id }] }],
+    interpretation: [], limitations: [],
+  });
+  it("reads 'no goals were scored' in a goalless recap as no goal, but still flags a stated one", () => {
+    const fine = assess({ scenario: recap, audience: "casual", explanation: answer("The match ended 0–0. Northvale Rovers switched from 4-3-3 to 4-2-3-1 at 30.0 s, but no goals were scored by either side.") });
+    expect(fine).toMatchObject({ leaks: [], unsupported: [], quality: "usable" });
+    const wrong = assess({ scenario: recap, audience: "casual", explanation: answer("Northvale Rovers switched to 4-2-3-1 at 30.0 s and then scored.") });
+    expect(wrong.leaks.length + wrong.unsupported.length).toBeGreaterThan(0);
+  });
+});
