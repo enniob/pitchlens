@@ -10,8 +10,9 @@ import { recapMoments } from "@/playback/recap";
 import { statisticsAt } from "@/playback/statistics";
 import { ExplanationDetails } from "./Evidence";
 import { LOCKED_HINT, useExplanationAccess } from "./ExplanationAccessGate";
+import { ExplanationSchedulerScope, useExplanationScheduler } from "./ExplanationScheduler";
 import { eventCopy, plainDescription } from "./eventCopy";
-import { AudienceSwitch, audienceName, CheckRow, savedTitle, type SavedExplanation } from "./ExplanationPanel";
+import { AudienceSwitch, audienceName, CheckRow, MATCH_FACTS_NOTE, MatchFactsChip, savedTitle, showsMatchFacts, type SavedExplanation } from "./ExplanationPanel";
 import { formatClock } from "./format";
 import { ALL_MATCH, eventMatchesFocus, normalizeFocus, type MatchFocus as Focus } from "@/playback/focus";
 import { MatchFocus } from "./MatchFocus";
@@ -100,7 +101,9 @@ export function Recap({ fixture, audience, onAudience, onReplayFrom, explained =
       )}
 
       <div className="recap__lower">
-        <Story key={audience} fixture={fixture} audience={audience} onReplay={replay} cached={summaries[audience]} onSummary={onSummary} />
+        <ExplanationSchedulerScope>
+          <Story key={audience} fixture={fixture} audience={audience} onReplay={replay} cached={summaries[audience]} onSummary={onSummary} />
+        </ExplanationSchedulerScope>
         <Snapshot fixture={fixture} home={home} away={away} />
       </div>
       {explained.length > 0 && onOpenExplanation && (
@@ -110,8 +113,9 @@ export function Recap({ fixture, audience, onAudience, onReplayFrom, explained =
           <ol>
             {[...explained].sort((a, b) => a.atMs - b.atMs).map((s) => (
               <li key={s.id}>
-                <button type="button" className="recap__asked-item" onClick={() => onOpenExplanation(s)}>
-                  <span className="recap__asked-meta"><time>{formatClock(s.atMs)}</time> · {audienceName(s.audience)}</span>
+                <button type="button" className={`recap__asked-item${showsMatchFacts(s.result) ? " recap__asked-item--facts" : ""}`} onClick={() => onOpenExplanation(s)}>
+                  <span className="recap__asked-meta"><time>{formatClock(s.atMs)}</time> · {audienceName(s.audience)}
+                    {showsMatchFacts(s.result) && <MatchFactsChip />}</span>
                   <span className="recap__asked-title">{savedTitle(s)}</span>
                   <span className="recap__asked-go">Open in match<Icon name="arrow" size={16} /></span>
                 </button>
@@ -143,6 +147,9 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
   { fixture: MatchFixture; audience: Audience; onReplay: (t: number) => void; cached?: ExplainSuccess; onSummary?: (a: Audience, r: ExplainSuccess) => void }) {
   const supported = matchReferenceOf(fixture, sampleFixture.matchId) !== null;
   const allowed = useExplanationAccess();
+  const allowedRef = useRef(allowed);
+  allowedRef.current = allowed;
+  const scheduler = useExplanationScheduler();
   const [state, setState] = useState<{ kind: "loading" } | { kind: "error"; message: string } | { kind: "done"; result: ExplainSuccess }>(
     cached ? { kind: "done", result: cached } : { kind: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -154,7 +161,9 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
     if (!supported || !allowed || answered.current === attempt) return;
     const controller = new AbortController();
     setState({ kind: "loading" });
-    requestExplanation(fixture, sampleFixture.matchId, fixture.durationMs, audience, controller.signal, fetch, "match")
+    // Not sent once access is locked; this effect's cleanup then abandons it.
+    scheduler.schedule({ priority: "manual", signal: controller.signal, wanted: () => allowedRef.current },
+      () => requestExplanation(fixture, sampleFixture.matchId, fixture.durationMs, audience, controller.signal, fetch, "match", delay => scheduler.defer(delay)))
       .then((result) => {
         if (controller.signal.aborted) return;
         answered.current = attempt;
@@ -168,7 +177,7 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
       });
     return () => controller.abort();
     // `answered` is read as it is when an attempt starts, and onSummary is a stable callback from the viewer.
-  }, [fixture, audience, supported, attempt, allowed]);
+  }, [fixture, audience, supported, attempt, allowed, scheduler]);
 
   if (!supported)
     return <article className="recap__story"><h3>How the match unfolded</h3><p>Summaries are unavailable for this match. Try the demo or generate a new match.</p></article>;
@@ -192,25 +201,37 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
       </article>
     );
 
-  const { explanation, verification } = state.result;
-  const fallback = verification?.outcome === "fallback";
+  const { verification } = state.result;
+  // When the AI summary fails its checks, show the recorded full-time account
+  // (built from the match events and re-checked in the browser) if there is one.
+  const recorded = verification?.outcome === "fallback" ? state.result.recordedSummary : undefined;
+  const explanation = recorded ?? state.result.explanation;
+  const fallback = verification?.outcome === "fallback" && !recorded;
+  const retry = <button type="button" className="btn btn--small" disabled={!allowed} onClick={() => setAttempt((n) => n + 1)}>Try again</button>;
+  const getAi = <button type="button" className="btn btn--accent btn--small" disabled={!allowed} onClick={() => setAttempt((n) => n + 1)}>
+    <Icon name="spark" size={14} />Get AI explanation</button>;
   return (
-    <article className="recap__story" aria-live="polite">
+    <article className={`recap__story${recorded ? " recap__story--facts" : ""}`} aria-live="polite">
       <h3>How the match unfolded</h3>
       {fallback ? (
         <>
           <p>We could not produce a checked summary of this match.</p>
           {!allowed && <p className="recap__status">{LOCKED_HINT}</p>}
-          <button type="button" className="btn btn--small" disabled={!allowed} onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+          {retry}
         </>
       ) : (
         <>
+          {recorded && <MatchFactsChip placement="block" />}
           <p className="recap__headline">{explanation.headline}</p>
           <p>{explanation.explanation}</p>
+          {recorded && <div className="explain__facts-note">
+            <p className="explain__facts-text">{MATCH_FACTS_NOTE}</p>
+            {getAi}
+          </div>}
         </>
       )}
       <div className="recap__check">
-        <CheckRow outcome={verification?.outcome} status={explanation.status} atMs={fixture.durationMs} label="Whole match, up to full time" />
+        <CheckRow outcome={verification?.outcome} status={explanation.status} atMs={fixture.durationMs} label="Whole match, up to full time" recorded={!!recorded} />
         {!fallback && (explanation.facts.length > 0 || explanation.limitations.length > 0) && (
           <button type="button" className="link" aria-expanded={showEvidence} aria-controls="recap-evidence" onClick={() => setShowEvidence(!showEvidence)}>
             {showEvidence ? "Hide supporting events" : "View supporting events"}
@@ -219,7 +240,7 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
         )}
       </div>
       {showEvidence && !fallback && <div className="recap__evidence" id="recap-evidence"><ExplanationDetails explanation={explanation} fixture={fixture} onReplay={onReplay} /></div>}
-      <p className="explain__disclaimer">AI summary. Automated checks reduce mistakes; citations identify evidence and do not prove a claim.</p>
+      <p className="explain__disclaimer">{recorded ? "Built from synthetic match events; no AI interpretation." : "AI summary. Automated checks reduce mistakes; citations identify evidence and do not prove a claim."}</p>
     </article>
   );
 }

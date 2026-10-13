@@ -7,7 +7,8 @@ import { insightMomentsBetween } from "@/playback/moments";
 import { ALL_MATCH, eventMatchesFocus, normalizeFocus, type MatchFocus } from "@/playback/focus";
 import { eventCopy } from "./eventCopy";
 import { useExplanationAccess } from "./ExplanationAccessGate";
-import { audienceName, ExplanationBody, FALLBACK_TITLE, type SavedExplanation } from "./ExplanationPanel";
+import { ExplanationSchedulerScope, useExplanationScheduler } from "./ExplanationScheduler";
+import { audienceName, ExplanationBody, MatchFactsChip, savedTitle, showsMatchFacts, type SavedExplanation } from "./ExplanationPanel";
 import { formatClock, shortClock } from "./format";
 import { Icon } from "./Icon";
 import type { PlaybackPhase } from "./ScoreBug";
@@ -47,18 +48,28 @@ const sameJob = (a: Job | null, b: Job) => a !== null && a.eventId === b.eventId
  * checks and client validation as "Explain this moment", without pausing.
  * Bounded: one request at a time and at most one waiting, the newest; a moment
  * passed over while busy keeps a card with an explicit "Explain" instead.
+ * Requests share the viewer's scheduler, so an insight waits for a manual
+ * explanation or the recap and, while it waits, a newer moment replaces it.
  * Answers arrive after the moment (typically 10–20 s) and are labelled with
  * its time. A card only shows once playback has reached its moment, so a
  * backward seek hides it again (and abandons a request for it).
  * While AI access is locked nothing is requested and pending work is dropped;
  * the newest moment missed that way is explained once access returns.
  */
-export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSaved, onReplayFrom, focus = ALL_MATCH }: Props) {
+export function LiveInsights(props: Props) {
+  return <ExplanationSchedulerScope><Insights {...props} /></ExplanationSchedulerScope>;
+}
+
+function Insights({ fixture, timeMs, playback, audience, saved, onSaved, onReplayFrom, focus = ALL_MATCH }: Props) {
+  const scheduler = useExplanationScheduler();
   const validFocus = normalizeFocus(fixture, focus);
   // Key moments that got, or were offered, an insight, oldest first.
   const [moments, setMoments] = useState<{ id: string; t: number }[]>([]);
   const [running, setRunning] = useState<Job | null>(null);
   const runningRef = useRef<Job | null>(null);
+  // Whether the running job has been sent, or is still waiting for the scheduler.
+  const [sent, setSent] = useState(false);
+  const sentRef = useRef(false);
   const controller = useRef<AbortController | null>(null);
   const queued = useRef<Job | null>(null);
   const [queuedJob, setQueuedJob] = useState<Job | null>(null);
@@ -70,6 +81,8 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
   const savedRef = useRef(saved);
   savedRef.current = saved;
   const prevTime = useRef(timeMs);
+  const timeRef = useRef(timeMs);
+  timeRef.current = timeMs;
   const allowed = useExplanationAccess();
   const allowedRef = useRef(allowed);
   allowedRef.current = allowed;
@@ -85,7 +98,10 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
     controller.current = null;
     runningRef.current = null;
     setRunning(null);
+    markSent(false);
   }
+
+  function markSent(value: boolean) { sentRef.current = value; setSent(value); }
 
   function startNext() {
     const next = queued.current;
@@ -97,8 +113,10 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
     // A checked answer is kept; one that failed its checks may be asked for again, and replaces it.
     const done = savedRef.current.find((s) => s.id === insightId(job.eventId, job.audience));
     if (!allowedRef.current || (done && !isFallback(done)) || sameJob(runningRef.current, job)) return;
-    // Busy: wait, replacing anything older that was waiting.
-    if (controller.current) { setQueue(job); return; }
+    // Busy: wait, replacing anything older that was waiting. A job the scheduler
+    // has not sent yet is waiting too, so the newer one takes its place.
+    if (controller.current && sentRef.current) { setQueue(job); return; }
+    if (controller.current) abandonRunning();
     const c = new AbortController();
     controller.current = c;
     runningRef.current = job;
@@ -107,7 +125,10 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
       const { [insightId(job.eventId, job.audience)]: _cleared, ...rest } = m;
       return rest;
     });
-    requestExplanation(fixture, sampleFixture.matchId, job.atMs, job.audience, c.signal)
+    // Not sent once playback is back before the moment or access is locked; the effects below then drop it.
+    const wanted = () => allowedRef.current && timeRef.current >= job.atMs;
+    scheduler.schedule({ priority: "automatic", signal: c.signal, wanted, onStart: () => markSent(true) },
+      () => requestExplanation(fixture, sampleFixture.matchId, job.atMs, job.audience, c.signal, fetch, "moment", delay => scheduler.defer(delay)))
       .then((result) => {
         if (!c.signal.aborted) onSaved({ id: insightId(job.eventId, job.audience), atMs: job.atMs, audience: job.audience, eventId: job.eventId, result });
       })
@@ -122,6 +143,7 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
         controller.current = null;
         runningRef.current = null;
         setRunning(null);
+        markSent(false);
         startNext();
       });
   }
@@ -193,7 +215,7 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
     <section className="insights" aria-labelledby="insights-title">
       <h3 id="insights-title" className="visually-hidden">Automatic insights</h3>
       {visible.length === 0 && (
-        <p className="explain__empty">{validFocus.teamId || validFocus.playerId ? "No insights for this favorite yet. Open Preferences in the header and choose Show whole match to see other moments." : "Insights appear here as goals, shots, fouls near goal and tactical changes happen. They only use what has happened so far."}</p>
+        <p className="explain__empty">{validFocus.teamId || validFocus.playerId ? "No insights for this favorite yet. Open Preferences in the header and choose Show whole match to see other moments." : "Insights appear here as goals, shots, fouls, offsides and tactical changes happen. They only use what has happened so far."}</p>
       )}
       <ol className="insights__list" aria-live="polite" aria-relevant="additions">
         {visible.map((m) => {
@@ -210,13 +232,15 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
             onReplayFrom(floor);
           };
           return (
-            <li key={m.id} className={`insight insight--${copy.tone}${open ? " insight--open" : ""}`}>
+            <li key={m.id} className={`insight insight--${copy.tone}${open ? " insight--open" : ""}${result && showsMatchFacts(result.result) ? " insight--facts" : ""}`}>
               <button type="button" className="insight__head" aria-expanded={open} onClick={() => setOpenId(open ? null : m.id)}>
                 <Icon name={copy.icon} size={16} />
                 <span className="insight__title">{copy.title.replace(/!$/, "")}</span>
                 <time className="insight__time">{shortClock(m.t)}</time>
               </button>
-              {sameJob(running, job) ? (
+              {sameJob(running, job) && !sent ? (
+                <p className="insight__status">Queued. Waiting for the next explanation slot…</p>
+              ) : sameJob(running, job) ? (
                 <p className="insight__status" role="status"><span className="spinner spinner--small" aria-hidden="true" />Reading the evidence up to {formatClock(m.t)} and checking the answer…</p>
               ) : sameJob(queuedJob, job) ? (
                 <p className="insight__status">Waiting for the previous insight…</p>
@@ -234,7 +258,7 @@ export function LiveInsights({ fixture, timeMs, playback, audience, saved, onSav
                       onRetry={isFallback(result) ? () => start(job) : undefined} />
                   </article>
                 ) : (
-                  <p className="insight__headline">{isFallback(result) ? FALLBACK_TITLE : result.result.explanation.headline}</p>
+                  <p className="insight__headline">{showsMatchFacts(result.result) && <MatchFactsChip placement="lead" />}{savedTitle(result)}</p>
                 )
               ) : (
                 <button type="button" className="btn btn--ghost btn--small insight__ask" disabled={!allowed} onClick={() => start(job)}>

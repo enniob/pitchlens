@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Audience } from "@/explain/api";
 import { extractMatchContext } from "@/explain/context";
+import { recordedSummary } from "@/explain/recorded";
 import { insufficientEvidence } from "@/explain/response";
 import { ExplanationPanel, type SavedExplanation } from "@/components/ExplanationPanel";
 import { formatClock } from "@/components/format";
@@ -61,7 +62,7 @@ beforeEach(() => {
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   pause.mockClear(); replay.mockClear(); savedList = [];
 });
-afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
+afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("insight moments", () => {
   const home = sampleFixture.teams.find((t) => t.attacksTowards === "increasing-x")!;
@@ -72,19 +73,17 @@ describe("insight moments", () => {
     expect(sampleFixture.events.filter((e) => isInsightMoment(sampleFixture, e)).map((e) => e.type)).toEqual(["goal"]);
   });
 
-  it("counts fouls near the fouling team's own goal only", () => {
+  it("counts every foul, wherever it happened", () => {
     // This team attacks towards x = 105, so it defends x = 0.
-    expect(isInsightMoment(sampleFixture, foul(12))).toBe(true);
-    expect(isInsightMoment(sampleFixture, foul(30))).toBe(true);
-    expect(isInsightMoment(sampleFixture, foul(52))).toBe(false);
-    expect(isInsightMoment(sampleFixture, foul(95))).toBe(false);
-    expect(isInsightMoment(sampleFixture, foul(12, false))).toBe(false);
+    for (const x of [12, 30, 52, 95]) expect(isInsightMoment(sampleFixture, foul(x))).toBe(true);
+    expect(isInsightMoment(sampleFixture, foul(12, false))).toBe(true);
   });
 
   it("includes shot results and formation changes, and only moments inside the step", () => {
     const at = (type: MatchEvent["type"]): MatchEvent => ({ id: type, t: 1, type, teamId: home.id, outcome: "applied", description: "" });
     expect(isInsightMoment(sampleFixture, at("shot-result"))).toBe(true);
     expect(isInsightMoment(sampleFixture, at("formation-change"))).toBe(true);
+    expect(isInsightMoment(sampleFixture, at("offside"))).toBe(true);
     expect(isInsightMoment(sampleFixture, at("shot"))).toBe(false);
     expect(insightMomentsBetween(sampleFixture, goal.t, 24_000)).toEqual([]);
     expect(insightMomentsBetween(sampleFixture, goal.t - 1, goal.t)).toEqual([goal]);
@@ -170,6 +169,36 @@ describe("live insights", () => {
     expect(feedText()).toContain(`Insight at ${goal.t}`);
   });
 
+  it("automatically retries a busy model while keeping the card loading at its original moment", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false, error: { code: "upstream-rate-limited", retryAfterMs: 2_000 } }), { status: 503 }))
+      .mockImplementation(answering());
+    vi.stubGlobal("fetch", fetcher);
+    await play(8_000, 10_000);
+    expect(feedText()).toContain("Reading the evidence");
+    expect(container.querySelector(".insights [role=alert]")).toBeNull();
+    await render(11_000);
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(requestOf(fetcher.mock.calls[1]!)).toEqual(requestOf(fetcher.mock.calls[0]!));
+    expect(feedText()).toContain(`Insight at ${goal.t}`);
+  });
+
+  it("drops an automatic retry when seeking backward before the moment", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false, error: { code: "upstream-rate-limited", retryAfterMs: 2_000 } }), { status: 503 }))
+      .mockImplementation(answering());
+    vi.stubGlobal("fetch", fetcher);
+    await play(8_000, 10_000);
+    await render(5_000);
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(savedList).toEqual([]);
+    expect(feedText()).not.toContain("Goal");
+  });
+
   it("offers a retry on an insight that failed its checks and replaces it with the new answer", async () => {
     const fallback = { ...response(sampleFixture, goal.t, "casual"), verification: { outcome: "fallback" } };
     const fetcher = vi.fn<typeof fetch>()
@@ -185,6 +214,29 @@ describe("live insights", () => {
     expect(feedText()).not.toContain("didn't pass our checks");
     expect(savedList).toHaveLength(1);
     expect(() => button("Try again")).toThrow();
+  });
+
+  it("shows recorded match facts as a separate kind of card, not an AI insight, until an AI answer replaces them", async () => {
+    const facts = { ...response(sampleFixture, goal.t, "casual"), verification: { outcome: "fallback" },
+      recordedSummary: recordedSummary(extractMatchContext(sampleFixture, goal.t))! };
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(facts)))
+      .mockImplementation(answering());
+    vi.stubGlobal("fetch", fetcher);
+    await play(8_000, 10_000);
+    const card = () => container.querySelector(".insights .insight")!;
+    expect(card().classList.contains("insight--facts")).toBe(true);
+    expect(feedText()).toContain("Match facts, not AI");
+    expect(feedText()).not.toContain("didn't pass our checks");
+    // Collapsed, the card still says it is match facts, not an AI headline.
+    await act(async () => card().querySelector<HTMLButtonElement>(".insight__head")!.click());
+    expect(card().querySelector(".insight__headline")?.textContent).toBe(`Match facts, not AI${facts.recordedSummary.headline}`);
+    await act(async () => card().querySelector<HTMLButtonElement>(".insight__head")!.click());
+    await click("Get AI explanation");
+    expect(requestOf(fetcher.mock.calls[1]!).timeMs).toBe(goal.t);
+    expect(feedText()).toContain(`Insight at ${goal.t}`);
+    expect(feedText()).not.toContain("Match facts, not AI");
+    expect(card().classList.contains("insight--facts")).toBe(false);
   });
 
   it("collapses an open card when its title is clicked, and opens it again", async () => {
@@ -227,8 +279,11 @@ describe("live insights", () => {
   it("runs one request at a time and only the newest waiting moment", async () => {
     const fixture = generateMatch({ seed: 5 });
     const moments = fixture.events.filter((e) => isInsightMoment(fixture, e));
-    const [first, second, third] = moments;
-    expect(third!.t - first!.t).toBeLessThan(10_000);
+    // Three moments inside 10 s, with none in the second of play before the first.
+    const i = moments.findIndex((m, k) => k + 2 < moments.length && moments[k + 2]!.t - m.t < 10_000 &&
+      (k === 0 || moments[k - 1]!.t < m.t - 1_000));
+    expect(i).toBeGreaterThanOrEqual(0);
+    const [first, second, third] = moments.slice(i, i + 3);
     const finish: ((r: Response) => void)[] = [];
     const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => new Promise((r) => {
       const request = JSON.parse(String(init?.body));

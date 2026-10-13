@@ -55,7 +55,11 @@ export interface ExplanationResponse {
   limitations: string[];
 }
 
-export type ExplanationValidation = { ok: true; response: ExplanationResponse } | { ok: false; errors: string[] };
+export type ExplanationValidation = { ok: true; response: ExplanationResponse } | {
+  ok: false; errors: string[];
+  /** Server parse diagnostics only: rejected text safe to inspect, never an accepted answer. */
+  diagnosticCandidate?: ExplanationResponse;
+};
 
 /**
  * Wording that asserts intent or cause. Allowed in interpretation (where it is
@@ -165,7 +169,52 @@ export function parseExplanation(json: string, context: MatchContext): Explanati
   } catch {
     return { ok: false, errors: ["response is not valid JSON"] };
   }
-  return validateExplanation(value, context);
+  const normalized = dropDuplicateCitations(value);
+  const result = validateExplanation(normalized, context);
+  if (!result.ok && hasGroundingShape(normalized)) return { ...result, diagnosticCandidate: normalized };
+  return result;
+}
+
+/** Enough structure for wording checks, without relaxing any acceptance checks. */
+function hasGroundingShape(value: unknown): value is ExplanationResponse {
+  if (!isObject(value) || value.explanationVersion !== EXPLANATION_VERSION ||
+      typeof value.matchId !== "string" || typeof value.timeMs !== "number" ||
+      !STATUSES.includes(value.status as string) || typeof value.headline !== "string" ||
+      typeof value.explanation !== "string" || !Array.isArray(value.limitations) ||
+      !value.limitations.every(l => typeof l === "string")) return false;
+  return (["facts", "interpretation"] as const).every(field => {
+    const claims = value[field];
+    return Array.isArray(claims) && claims.every(claim => isObject(claim) && typeof claim.text === "string" &&
+      Array.isArray(claim.evidence) && claim.evidence.every(ref => isObject(ref) &&
+        (ref.kind === "event" ? typeof ref.id === "string" : ref.kind === "snapshot" && typeof ref.t === "number")));
+  });
+}
+
+/**
+ * Removes exact repeats of a citation within one claim. A repeat adds no
+ * support, so this accepts nothing that was not already supported; it only
+ * stops a model's draft being rejected before its wording is checked. Used on
+ * the server's model output only: validateExplanation itself, and so the
+ * browser's check of what the server returns, still rejects duplicates.
+ */
+function dropDuplicateCitations(value: unknown): unknown {
+  if (!isObject(value)) return value;
+  const copy: Record<string, unknown> = { ...value };
+  for (const key of ["facts", "interpretation"] as const) {
+    const claims = value[key];
+    if (!Array.isArray(claims)) continue;
+    copy[key] = claims.map((claim) => {
+      if (!isObject(claim) || !Array.isArray(claim.evidence)) return claim;
+      const seen = new Set<string>();
+      return { ...claim, evidence: claim.evidence.filter((ref) => {
+        const id = JSON.stringify(ref);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      }) };
+    });
+  }
+  return copy;
 }
 
 /** A valid response saying the moment cannot be explained from the evidence, e.g. as a fallback after a rejected response. */
@@ -234,7 +283,7 @@ export const EXPLANATION_JSON_SCHEMA = {
     matchId: { type: "string" },
     timeMs: { type: "number" },
     status: { enum: STATUSES },
-    headline: { type: "string", minLength: 1, maxLength: EXPLANATION_LIMITS.headline },
+    headline: { type: "string", description: `Short headline, at most ${EXPLANATION_LIMITS.headline} characters.`, minLength: 1, maxLength: EXPLANATION_LIMITS.headline },
     explanation: { type: "string", minLength: 1, maxLength: EXPLANATION_LIMITS.explanation },
     facts: { ...claimSchema("Observable facts only, each citing the context."), maxItems: EXPLANATION_LIMITS.facts },
     interpretation: {

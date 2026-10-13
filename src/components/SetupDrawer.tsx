@@ -10,7 +10,7 @@ import { DURATIONS_SECONDS, sameSetup, setupErrors, type SetupDraft } from "./se
 interface SetupDrawerProps {
   teams: [Team, Team];
   /** What is playing now, e.g. "Scripted demo". */
-  watchingLabel: string;
+  watchingLabel: string | null;
   /** The set-up of the loaded match, or null when it was not generated (scripted demo). */
   loaded: SetupDraft | null;
   draft: SetupDraft;
@@ -92,8 +92,8 @@ export function SetupDrawer({ teams, watchingLabel, loaded, draft, onDraft, onGe
         </div>
         <div className="drawer__body">
           <p className="now">
-            <b>Now watching: {watchingLabel}</b>
-            <span>Nothing here changes it. Your choices are used only when you press Generate match.</span>
+            <b>{watchingLabel ? `Now watching: ${watchingLabel}` : "No match loaded yet"}</b>
+            <span>{watchingLabel ? "Nothing here changes it. Your choices are used only when you press Generate match." : "Choose your settings, then press Generate match to start."}</span>
           </p>
           {tried && errorCount > 0 && (
             <p className="alert" role="alert">

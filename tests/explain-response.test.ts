@@ -40,6 +40,25 @@ const errorsOf = (r: ReturnType<typeof validateExplanation>) => (r.ok ? [] : r.e
 const fact = (r: Record<string, unknown>, i = 0) => (r.facts as Record<string, unknown>[])[i]!;
 
 describe("valid responses", () => {
+  it("keeps readable rejected drafts diagnostic-only and never accepts their invalid citations", () => {
+    const bad = structuredClone(valid);
+    bad.headline = "x".repeat(101);
+    bad.facts[0]!.evidence = [{ kind: "event", id: "future-or-invented" }];
+    const parsed = parseExplanation(JSON.stringify(bad), context);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) throw new Error("Invalid draft accepted");
+    expect(parsed.errors).toContain("headline is longer than 100 characters");
+    expect(parsed.errors.join(" ")).toContain("not in the context");
+    expect(parsed.diagnosticCandidate).toEqual(bad);
+    expect(validateExplanation(bad, context).ok).toBe(false);
+  });
+
+  it.each([null, 42, { facts: "broken" }, { ...valid, facts: [{ text: "Shot", evidence: [null] }] },
+    { ...valid, limitations: [42] }, { ...valid, interpretation: null }])("does not expose malformed structure to grounding checks: %j", value => {
+    const parsed = parseExplanation(JSON.stringify(value), context);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.diagnosticCandidate).toBeUndefined();
+  });
   it("accepts a grounded explanation, as an object and as JSON text", () => {
     expect(validateExplanation(valid, context)).toEqual({ ok: true, response: valid });
     expect(parseExplanation(JSON.stringify(valid), context).ok).toBe(true);
@@ -185,5 +204,24 @@ describe("invalid responses", () => {
     const r = withChange(change);
     expect(r.ok).toBe(false);
     expect(errorsOf(r).join("\n")).toMatch(message);
+  });
+});
+
+describe("duplicate citations", () => {
+  const repeated = () => {
+    const copy = structuredClone(valid);
+    copy.facts[0]!.evidence.push(structuredClone(copy.facts[0]!.evidence[0]!));
+    return copy;
+  };
+  it("are still rejected by validation, including the browser's check", () => {
+    expect(validateExplanation(repeated(), context)).toEqual({ ok: false, errors: [expect.stringMatching(/facts\[0\]\.evidence\[\d\] is a duplicate/)] });
+  });
+  it("are dropped from model output before it is checked, leaving the rest unchanged", () => {
+    expect(parseExplanation(JSON.stringify(repeated()), context)).toEqual({ ok: true, response: valid });
+  });
+  it("do not hide other problems", () => {
+    const copy = repeated();
+    copy.facts[0]!.evidence.push({ kind: "event", id: "no-such-event" });
+    expect(parseExplanation(JSON.stringify(copy), context).ok).toBe(false);
   });
 });

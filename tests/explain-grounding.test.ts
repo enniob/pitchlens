@@ -3,6 +3,7 @@ import { extractMatchContext } from "@/explain/context";
 import { AUDIENCE_LIMITS, checkGrounding } from "@/explain/grounding";
 import type { ExplanationResponse } from "@/explain/response";
 import { sampleFixture } from "@/match/fixture";
+import { generateMatch } from "@/simulation/generate";
 import { goalExplanation } from "./support/fakeModel";
 
 const atGoal = extractMatchContext(sampleFixture, 9_400);
@@ -237,5 +238,67 @@ describe("grounding checks", () => {
     expect(issues(long, atGoal, "casual")[0]).toContain("casual");
     const many = edit((r) => (r.facts = Array.from({ length: 5 }, () => ({ text: "The score is 1–0.", evidence: [{ kind: "snapshot" as const, t: 9_400 }] }))));
     expect(issues(many, atGoal, "casual")).toEqual([expect.stringContaining("more than 4 facts")]);
+  });
+});
+
+describe("revision hints", () => {
+  // Seed 99: #9's shot is blocked, its result revealed at 39.52 s (a live fallback case).
+  const fixture = generateMatch({ seed: 99, durationMs: 60_000 });
+  const result = fixture.events.find((e) => e.type === "shot-result" && e.t === 39_520)!;
+  const shot = fixture.events.find((e) => e.type === "shot" && e.t === result.startT && e.playerId === result.playerId)!;
+  const context = extractMatchContext(fixture, result.t);
+  const answer = (facts: ExplanationResponse["facts"]): ExplanationResponse => ({
+    explanationVersion: "1.0.0", matchId: fixture.matchId, timeMs: result.t, status: "explained",
+    headline: "Shot blocked", explanation: "The shot was blocked.", facts, interpretation: [], limitations: [],
+  });
+  const cite = (...ids: string[]) => ids.map((id) => ({ kind: "event" as const, id }));
+
+  it("names the uncited shot behind a cited shot result, and citing it passes", () => {
+    const text = "The shot was blocked.";
+    const found = checkGrounding(answer([{ text, evidence: cite(result.id) }]), context, "casual");
+    expect(found).toContainEqual(expect.stringContaining(`contains no shot; also cite the shot event ${shot.id} in this claim`));
+    expect(checkGrounding(answer([{ text, evidence: cite(result.id, shot.id) }]), context, "casual")).toEqual([]);
+  });
+
+  it("names the other endpoint of a duration only when the claim cites one and the other is unambiguous", () => {
+    // From the last pass before the shot; the claim cites the shot, so the pass is the missing endpoint.
+    const pass = fixture.events.filter((e) => e.type === "pass" && e.t < shot.t).at(-1)!;
+    const text = `The shot came ${Number(((shot.t - pass.t) / 1000).toFixed(2))} s after the pass.`;
+    const found = checkGrounding(answer([{ text, evidence: cite(shot.id) }]), context, "casual");
+    expect(found).toContainEqual(expect.stringContaining(`: also cite ${pass.id} in this claim, or remove the duration`));
+    expect(checkGrounding(answer([{ text, evidence: cite(shot.id, pass.id) }]), context, "casual")).toEqual([]);
+  });
+
+  it("never suggests a coincidental pair the claim does not anchor", () => {
+    // Citing only a turnover anchors nothing that spans 1.06 s, whatever pairs elsewhere happen to.
+    const turnover = context.events.find((e) => e.type === "turnover")!;
+    const found = checkGrounding(answer([{ text: "Possession changed 1.06 s later.", evidence: cite(turnover.id) }]), context, "casual");
+    const issue = found.find((i) => i.includes("not supported by two cited time endpoints"));
+    expect(issue).toMatch(/cite both events it is measured between in this claim, or remove the duration$/);
+  });
+
+  it("does not change what passes: the unrepaired claims are still rejected", () => {
+    const found = checkGrounding(answer([{ text: "The shot took 0.26 s to be blocked.", evidence: cite(result.id) }]), context, "casual");
+    expect(found.some((i) => i.includes("contains no shot"))).toBe(true);
+  });
+});
+
+describe("duration hint ambiguity", () => {
+  const fixture = generateMatch({ seed: 99, durationMs: 60_000 });
+  const base = extractMatchContext(fixture, 39_520);
+  const [a, b, c] = base.events.filter((e) => e.type === "pass").slice(-3);
+  // One uncited pass exactly 3 s from each of two cited passes.
+  const context = { ...base, events: base.events.map((e) =>
+    e === a ? { ...e, t: 30_000, startT: undefined } : e === b ? { ...e, t: 36_000, startT: undefined } : e === c ? { ...e, t: 33_000, startT: undefined } : e) };
+
+  it("gives the generic hint when one uncited event fits several cited anchors", () => {
+    const draft: ExplanationResponse = {
+      explanationVersion: "1.0.0", matchId: fixture.matchId, timeMs: 39_520, status: "explained",
+      headline: "Two passes", explanation: "Two passes were recorded.",
+      facts: [{ text: "The passes came 3 s apart.", evidence: [{ kind: "event", id: a!.id }, { kind: "event", id: b!.id }] }],
+      interpretation: [], limitations: [],
+    };
+    const issue = checkGrounding(draft, context, "casual").find((i) => i.includes("not supported by two cited time endpoints"));
+    expect(issue).toMatch(/cite both events it is measured between in this claim, or remove the duration$/);
   });
 });

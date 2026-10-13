@@ -43,8 +43,7 @@ client validation as an explicit request; only the trigger differs
 (`src/components/LiveInsights.tsx`):
 
 - **Which moments.** Goals, shot results (a shot that is scored is covered by
-  its goal), fouls within 30 m of the fouling team's own goal line, and
-  formation changes (`isInsightMoment` in `src/playback/moments.ts`). Each is
+  its goal), every foul and offside, and formation changes (`isInsightMoment` in `src/playback/moments.ts`). Each is
   judged from the event alone, so choosing it needs nothing later in the match.
 - **Cut-off.** Each request uses the moment's own time as `timeMs`, so the
   answer can only cite evidence up to that moment, wherever playback is when it
@@ -70,6 +69,27 @@ show their headline and open on click.
 
 Explicit moment requests (under **Ask about any moment**) are never automatic; the recap summary is requested
 the first time the recap opens for each audience and reused after that.
+
+**Browser request scheduling.** The server runs one explanation per session, so
+the viewer sends its requests one at a time through a shared browser-side
+scheduler (`src/explain/scheduler.ts`, provided per match by
+`ExplanationSchedulerScope` in `src/components/ExplanationScheduler.tsx`).
+Waiting explicit requests and the recap summary go before a waiting automatic
+insight; a request already running is never interrupted for priority. A waiting
+insight is replaced by a newer one. A request is never sent once it is
+cancelled, playback has moved back before its time, access is locked, or the
+viewer has closed or changed match. The match viewer waits three seconds after
+each completed, failed or cancelled request before starting the next one.
+Provider throttling extends that shared queue's cooldown using the greater of
+the response's `retryAfterMs` and `Retry-After`, including on a failed browser
+retry. The shared hold is capped at 60 seconds, so an hour-long quota cooldown
+fails that request without freezing every later one behind "Queued". A
+cancelled request cannot erase a known cooldown. Waiting requests are
+rechecked for cancellation and playback relevance before sending; no new HTTP
+request is sent during the gap. This reduces bursts and needless `busy`
+refusals but cannot guarantee provider capacity: the server's
+concurrency, access, quota, budget and response checks are unchanged, and the
+client still validates every answer.
 Changing the audience or match cancels a pending browser request. Every answer
 is kept for the current match: the panel lists earlier ones asked for explicitly under **Your
 explanations**, and the recap lists them, with automatic insights, under **Explained moments**,
@@ -78,7 +98,13 @@ as out of date. Seeking back before the explained time hides it, and the list
 leaves out any answer asked later than the current time, except while
 replaying that answer's own cited evidence; it shows again once playback
 reaches that time. Late responses cannot replace the new moment's explanation.
-Cancel is also available during loading. Errors offer an explicit retry;
+Cancel is also available during loading. A model-service busy error gets one
+automatic browser retry after the server's cooldown (ten seconds if none is
+provided, and no automatic retry for waits longer than one minute). The retry
+keeps the original moment, audience and scheduler slot, and is cancelled with
+the original request, including when an automatic insight is hidden by seeking
+back before its moment. Quota, access and other errors are not automatically
+retried. Errors remaining after the retry offer an explicit retry;
 insufficient evidence is displayed as a valid outcome. Both audiences use the
 same evidence rules. Browser-side validation repeats the response contract and
 checks citations against evidence reachable at the selected time; server-side
@@ -123,8 +149,29 @@ Earlier trials also showed unsupported wording and quota errors; these settings
 do not guarantee every moment will yield a usable answer. Model reviews reduce
 errors but do not prove factual correctness.
 
-Verification fallbacks are not cached and the viewer labels them as a failure
-to verify, with **Try again**, rather than implying the match lacks evidence.
+Verification fallbacks are not cached. On a fallback the service also
+supplies an optional `recordedSummary` when one passes the response and
+grounding checks: a deterministic account built from the same bounded context
+the analyst was given (`recordedAccount` in `src/explain/recorded.ts`). For a
+moment it describes the latest supported event. For a full-time summary it
+states the final score in the headline and explanation only (no event can be
+cited for a score without goals) and lists each recorded goal, then the latest
+shots, as single-citation facts; it gives no totals, since the key-event
+package may be truncated. A result takes precedence over a turnover recorded at the same instant.
+Linked shots are cited alongside their result; goal scores use the existing
+bounded score. The analyst receives this account as a factual starting point.
+The browser independently recomputes it; one that differs (an altered summary,
+or a server on another build) is dropped and the ordinary fallback is shown.
+It is shown as a separate kind of card wherever it appears: the open answer,
+the collapsed insight card, **Your explanations** and the recap's **Explained
+moments**. Each carries a **Match facts, not AI** chip with the list icon
+(never the AI spark), dashed edges and a muted title, with a note that no AI
+explanation passed the checks and a **Get AI explanation** button. It never
+displays rejected model prose or describes this summary as model-reviewed. The AI `explanation`, verification
+failure and trace remain unchanged for diagnostics. Without a supported event,
+the existing failed-check card remains. Provider errors retain their existing
+behavior. This path is covered by scripted tests, not a live model
+success-rate measurement.
 Genuine insufficient-evidence responses remain distinct. Successful answer
 cache keys include deployment, output, reasoning and sampling settings, without keys or
 credentials, so a configuration change cannot reuse an old answer.
@@ -349,6 +396,9 @@ setting values or provider responses.
    1. `validateExplanation` against the evidence the model was actually given
       (the base package plus everything the tools returned): contract, matching
       `matchId` and `timeMs`, citations that resolve, no intent or cause in facts.
+      Before this check, exact repeats of a citation within one claim are
+      dropped from the model's output (a repeat adds no support); the
+      validator itself, and the browser's check, still reject duplicates.
    2. `checkGrounding` (`src/explain/grounding.ts`): deterministic checks of
       the headline, explanation, every claim and every limitation (below).
    3. For an explained moment, a **verifier** model call reviews the
@@ -357,6 +407,27 @@ setting values or provider responses.
       A review that misses a target or is malformed counts as unusable.
 4. **One revision.** If a check fails, the analyst gets the problems found
    and one chance to revise. The revision goes through the same checks.
+   Where it can be determined exactly, a grounding problem names the evidence
+   that would support the wording: the shot behind a cited shot result or
+   goal, or the single uncited event that, with an event the claim already
+   cites, spans a stated duration. Hints only name events already supplied for
+   the selected time, never a pair the claim does not anchor, and do not change
+   what passes.
+   Revision instructions require removing unsupported event types throughout
+   the answer, including its headline. A rejected duration must not be replaced
+   with a timestamp calculated from the selected time; event times come from
+   supplied event timestamps, never the evidence-window boundary. The model is
+   also told to distinguish a penalty kick from a shot inside the penalty area.
+   Structurally readable drafts also receive grounding diagnostics when a
+   contract check fails, so a long headline does not hide a missing action
+   citation until after the single revision. They are listed before the
+   contract errors, as the revision request keeps only the first 12 problems.
+   A duration hint names an endpoint only when exactly one cited/uncited pair
+   fits. Both prompts say a score belongs in the headline or explanation unless
+   a fact cites the goal events behind it. These diagnostics never make a
+   rejected draft eligible for display or verifier approval. The headline's
+   100-character limit is stated in the prompt and schema description because
+   strict model schemas omit length-validation keywords.
 5. **Fallback.** If the revision also fails, the verifier's answer is unusable,
    or the call or token budget runs out, the result is the
    `insufficient-evidence` fallback with `outcome: "fallback"`.

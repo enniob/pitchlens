@@ -14,6 +14,9 @@ export function MatchPatterns({ fixture, timeMs, onReplay, favoriteTeamId, favor
 }) {
   const measurements = useMemo(() => measureEvents(eventsAt(fixture, timeMs), fixture.teams, timeMs), [fixture, timeMs]);
   const patterns = measurements.patterns.filter((p) => {
+    // Activity comparisons ("0 vs 0 shots") mean little to a viewer. They stay
+    // in the model's measurements, where they support stated facts, but get no card.
+    if (p.kind === "activity-change") return false;
     if (favoriteTeamId && p.teamId !== favoriteTeamId) return false;
     return !favoritePlayerId || p.eventIds.some((id) => {
       const e = fixture.events.find((event) => event.id === id);
@@ -25,7 +28,7 @@ export function MatchPatterns({ fixture, timeMs, onReplay, favoriteTeamId, favor
     <p className={styles.note}>Last 30 seconds. Counts describe actions, not pressure or player intent.</p>
     {patterns.length === 0 ? <p className={styles.empty}>No qualifying pattern in the available events{favoriteTeamId || favoritePlayerId ? " for this focus" : ""}.</p> :
       <ul className={styles.list}>{patterns.map((p) => <li key={p.id}>
-        <strong>{fixture.teams.find((t) => t.id === p.teamId)?.shortName} · {p.kind === "turnover-to-shot" ? "Turnover to shot" : p.kind === "repeated-flank" ? "Repeated flank actions" : "Activity comparison"}</strong>
+        <strong>{fixture.teams.find((t) => t.id === p.teamId)?.shortName} · {p.kind === "turnover-to-shot" ? "Turnover to shot" : "Repeated flank actions"}</strong>
         <p>{p.summary}</p>
         <div className={styles.evidence}>
           <span>{formatClock(p.fromMs)}–{formatClock(p.toMs)} · {p.eventIds.length} supporting events</span>

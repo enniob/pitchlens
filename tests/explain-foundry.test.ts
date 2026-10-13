@@ -78,6 +78,9 @@ describe("strict structured-output schema", () => {
       properties: { explanationVersion: { enum: ["1.0.0"] } },
     });
     expect(strictSchema({ properties: { title: { type: "string" } } })).toEqual({ properties: { title: { type: "string" } } });
+    expect(STRICT_EXPLANATION_SCHEMA).toMatchObject({ properties: {
+      headline: { description: expect.stringContaining("at most 100 characters") },
+    } });
   });
 });
 

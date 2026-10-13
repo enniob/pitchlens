@@ -3,6 +3,8 @@ import type { ExplainApiResponse, ExplainRequest } from "@/explain/api";
 import { matchReferenceOf } from "@/explain/matchRef";
 import { sampleFixture } from "@/match/fixture";
 import { generateMatch } from "@/simulation/generate";
+import { recordedSummary } from "@/explain/recorded";
+import { extractMatchContext } from "@/explain/context";
 import { handleExplain, MAX_BODY_BYTES, type ExplainDeps, type ExplainLogRecord } from "@/server/explainHandler";
 import { ModelError } from "@/server/foundry";
 import { AnswerCache, RequestGuard } from "@/server/guard";
@@ -151,6 +153,7 @@ describe("POST /api/explain", () => {
     const { deps, model } = setup([answer({}), answer({}), answer(draft), approve(draft)]);
     const failed = await call(deps, post(body()));
     expect(failed.json).toMatchObject({ ok: true, verification: { outcome: "fallback" } });
+    expect(failed.json).toHaveProperty("recordedSummary", recordedSummary(extractMatchContext(sampleFixture, 9_400)));
     const retry = await call(deps, post(body()));
     expect(retry.json).toMatchObject({ ok: true, cached: false, verification: { outcome: "verified" } });
     expect(model.requests).toHaveLength(4);

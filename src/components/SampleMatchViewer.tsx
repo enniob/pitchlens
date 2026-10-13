@@ -6,12 +6,12 @@ import { sampleFixture } from "@/match/fixture";
 import { generateMatch } from "@/simulation/generate";
 import { MatchViewer } from "./MatchViewer";
 import { SetupDrawer } from "./SetupDrawer";
+import { Icon } from "./Icon";
 import { controlsOf, DEFAULT_DRAFT, draftFromFixture, setupErrors, tacticsFromControls, type SetupDraft } from "./setup";
 
 export { tacticsFromControls } from "./setup";
 
 const PRO_KEY = "pitchlens.pro";
-const WELCOMED_KEY = "pitchlens.welcomed";
 
 /** Per-viewer conveniences only; storage may be unavailable (private windows, blocked site data). */
 function readFlag(key: string): boolean {
@@ -37,25 +37,24 @@ export function matchLabel(fixture: MatchFixture): string {
 
 /**
  * The app shell: which match is loaded, the "Set up match" drawer, the Pro
- * data preference and the first-visit welcome. The scripted demo stays one
+ * data preference and the startup choices. The scripted demo stays one
  * click away, and generated matches are reproducible from seed and set-up.
  */
 export function SampleMatchViewer() {
-  const [fixture, setFixture] = useState<MatchFixture>(sampleFixture);
+  const [fixture, setFixture] = useState<MatchFixture | null>(null);
   const [revision, setRevision] = useState(0);
   const [draft, setDraft] = useState<SetupDraft>(DEFAULT_DRAFT);
   const [setupOpen, setSetupOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [pro, setPro] = useState(false);
-  const [welcome, setWelcome] = useState(true);
 
   useEffect(() => {
     setPro(readFlag(PRO_KEY));
-    if (readFlag(WELCOMED_KEY)) setWelcome(false);
   }, []);
 
   const load = (next: MatchFixture) => {
+    setError("");
     setFixture(next);
     setRevision((r) => r + 1);
   };
@@ -76,14 +75,9 @@ export function SampleMatchViewer() {
       }
     }, 30);
   };
-  const dismissWelcome = () => {
-    setWelcome(false);
-    writeFlag(WELCOMED_KEY, true);
-  };
-
   return (
     <div className="shell">
-      <MatchViewer
+      {fixture ? <MatchViewer
         key={revision}
         fixture={fixture}
         pro={pro}
@@ -92,13 +86,26 @@ export function SampleMatchViewer() {
           setPro(!pro);
         }}
         onOpenSetup={() => {
-          dismissWelcome();
           setSetupOpen(true);
         }}
-        showWelcome={welcome && fixture === sampleFixture}
-        onWelcomeDone={dismissWelcome}
-        autoPlay={revision > 0}
-      />
+        autoPlay
+      /> : (
+        <section className="shell__welcome" aria-labelledby="welcome-title">
+          <div className="card card--welcome">
+            <p className="brand"><Icon name="lens" size={26} className="brand__mark" /><span>Pitch<b>Lens</b></span></p>
+            <p className="kicker">Synthetic football</p>
+            <h2 id="welcome-title">Watch it like a match on TV</h2>
+            <p>Choose the demo or set up your own match. Big moments pop up as they happen, and the timeline lets you jump back to them.</p>
+            <p className="small">The teams, players and events are made up by a simulator. No real match data is used.</p>
+            <div className="card__actions">
+              <button type="button" className="btn btn--primary btn--large" onClick={() => load(sampleFixture)}>
+                <Icon name="play" />Kick off the demo
+              </button>
+              <button type="button" className="btn btn--large" onClick={() => setSetupOpen(true)}>Set up your own match</button>
+            </div>
+          </div>
+        </section>
+      )}
       {generating && (
         <div className="shell__overlay" role="status">
           <div className="card card--center">
@@ -115,9 +122,9 @@ export function SampleMatchViewer() {
       )}
       {setupOpen && (
         <SetupDrawer
-          teams={fixture.teams}
-          watchingLabel={matchLabel(fixture)}
-          loaded={draftFromFixture(fixture)}
+          teams={(fixture ?? sampleFixture).teams}
+          watchingLabel={fixture ? matchLabel(fixture) : null}
+          loaded={fixture ? draftFromFixture(fixture) : null}
           draft={draft}
           onDraft={setDraft}
           onGenerate={generate}
