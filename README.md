@@ -11,6 +11,10 @@ evidence.
 
 ![A goal explained live: the AI insight cites the turnover and passes behind it, each with a replay button](docs/screenshots/readme/ai-insight-evidence.jpg)
 
+**Try it:** <judge URL> (hosted on Azure App Service). Playback is open to
+everyone; AI explanations need the access code given in the submission's
+testing instructions. See [testing PitchLens](docs/submission.md#testing-instructions-for-judges).
+
 > **Everything is synthetic.** Teams, players, movement and events are made up
 > by a simulator. No real match data is used, and the app labels every match
 > as synthetic.
@@ -150,8 +154,14 @@ The design, limits and failure handling are documented in
 - The analyst, tool, verifier and revision steps are implemented in
   TypeScript. **Microsoft Agent Framework** was evaluated but is not used; see
   [why](docs/explain-service.md#why-not-microsoft-agent-framework).
+- **Azure App Service** (Linux, Node.js 22) hosts the public app. Foundry
+  credentials, the access code and the session secret are App Service
+  application settings, never sent to the browser.
+- **GitHub Actions** builds and tests every push to `main` and deploys the
+  prebuilt package to App Service, signing in to Azure with OpenID Connect
+  (`azure/login`) rather than a stored password.
 
-Azure hosting, Fabric, MCP and managed databases are not used.
+Microsoft Agent Framework, Fabric, MCP and managed databases are not used.
 
 ## Quick start
 
@@ -223,8 +233,9 @@ Access control, allowances and abuse protection are described in
 
 ### Azure App Service
 
-`.github/workflows/main_pitchlens.yml` builds, tests and deploys `main` to an
-Azure App Service (Linux, Node 22) as one prebuilt zip. The web app needs:
+The public app runs on Azure App Service.
+`.github/workflows/main_pitchlens.yml` builds, tests and deploys `main` to it
+(Linux, Node 22) as one prebuilt zip. The web app needs:
 
 - Startup command: `node node_modules/next/dist/bin/next start --hostname 0.0.0.0`
   (`npm start` listens on loopback only, for local use).
@@ -233,6 +244,10 @@ Azure App Service (Linux, Node 22) as one prebuilt zip. The web app needs:
 - The settings from [Quick start](#quick-start) as app settings, with
   production values for the access code and session secret.
 - A single instance: allowances and the answer cache are kept in memory.
+- **HTTPS Only** turned on, so the session cookie is always sent over HTTPS.
+
+See [security controls](docs/security-controls.md#hosted-deployment-azure-app-service)
+for what the hosted app relies on and what it does not provide.
 
 ## Project structure
 
@@ -281,7 +296,11 @@ build) on pull requests and pushes to `main`. Live model quality is measured sep
   quality.
 - Players are drawn larger than life so they stay readable from the
   full-pitch camera.
-- Hosting for judges is not set up yet; the app runs locally.
+- The hosted app runs as a single App Service instance. Usage allowances and
+  the answer cache live in memory, so a restart resets them, and they are not
+  a billing cap.
+- Access to AI explanations uses one shared access code, not individual
+  accounts.
 
 ## Documentation
 
@@ -291,7 +310,7 @@ build) on pull requests and pushes to `main`. Live model quality is measured sep
 | [Evidence and response contract](docs/explain-this-moment.md) | What the model sees, the response schema, citation rules |
 | [Match patterns](docs/match-patterns.md) | Pattern definitions and coverage limits |
 | [AI evaluation](docs/ai-evaluation.md) | Offline checks versus live quality, the live evaluation |
-| [Security controls](docs/security-controls.md) | Access, allowances, kill switch, hosting requirements |
+| [Security controls](docs/security-controls.md) | Access, allowances, kill switch, the hosted deployment |
 | [3D rendering](docs/3d-rendering.md) | Scene, models and assets |
-| [Submission guide](docs/submission.md) | Elevator pitch and demo script |
+| [Submission guide](docs/submission.md) | Elevator pitch, judge testing instructions, demo script |
 | [Development history](docs/development-history.md) | The milestone-by-milestone record of how PitchLens was built |

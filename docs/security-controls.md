@@ -57,16 +57,39 @@ unsafe-eval; development permits it for the Next.js runtime. Inline styles
 remain allowed for React/Three.js layout. Dynamic page rendering trades static
 caching for nonce safety.
 
-## Hosting work still required
+## Hosted deployment (Azure App Service)
 
-Counters and cache are in memory: restarts reset allowances, replicas each get
-their own allowance, and a new login obtains a fresh session quota. These are
-application safeguards, not a durable billing cap or distributed rate limiter.
-Prompt token estimation and provider usage can differ from billed usage.
+The public app runs on one Azure App Service instance (Linux, Node.js 22),
+deployed from `main` by `.github/workflows/main_pitchlens.yml`. The workflow
+signs in to Azure with OpenID Connect; no Azure password is stored in the
+repository. Foundry credentials, `PITCHLENS_JUDGE_ACCESS_CODE` and
+`PITCHLENS_SESSION_SECRET` are App Service application settings. The app
+runs with `NODE_ENV=production`, so local access mode is refused and the
+session cookie is always `Secure`.
 
-Before public hosting, configure HTTPS, gateway connection/body/rate limits,
-trusted proxy handling, shared durable counters if running multiple instances,
-Foundry deployment quotas, billing alerts and operational monitoring. Azure
-budget alerts alone do not stop spending. Configure HSTS at the HTTPS edge.
-Validate session Origin handling behind the chosen proxy. Public hosting and
-deployment are a separate delivery step.
+What the hosted app relies on:
+
+- **HTTPS.** App Service terminates TLS. Turn on **HTTPS Only** so plain HTTP
+  redirects to HTTPS.
+- **The Host header.** Session logins require the browser's `Origin` to match
+  the request's own origin, built from `Host`. App Service passes the public
+  host through. After each change to the hosting setup, unlock **AI access** on
+  the public URL to confirm login still works.
+- **One instance.** Counters and the answer cache are in memory: restarts reset
+  allowances, and each extra instance would get its own allowance. Do not
+  scale out.
+- **The kill switch.** Set `PITCHLENS_EXPLANATIONS_DISABLED=1` in the app
+  settings to stop explanations; App Service restarts the app with the new
+  setting.
+
+What it does not provide:
+
+- Allowances are application safeguards, not a durable billing cap or a
+  distributed rate limiter. A new login obtains a fresh session quota. Prompt
+  token estimates and provider usage can differ from billed usage. Set the
+  Foundry deployment's quota to bound spending; Azure budget alerts notify but
+  do not stop spending.
+- There is no gateway in front of the app (such as Front Door or API
+  Management), so connection and rate limits are the application's own
+  per-process limits above.
+- HSTS is not configured.
