@@ -9,8 +9,15 @@
  *      (`checkGrounding`) and, for an explained moment, a review by a
  *      verifier model of the headline, explanation and every claim against
  *      the evidence.
- *   3. A rejected draft gets one revision with the problems found. If that
- *      also fails, the result is the standard insufficient-evidence response.
+ *   3. When every problem is about individual claims (facts, interpretation,
+ *      limitations), those claims are removed and the rest is checked again
+ *      (src/explain/prune.ts); removing a claim adds nothing unsupported.
+ *      Otherwise a rejected draft gets one revision with the problems found.
+ *      If that also fails, the result is the standard insufficient-evidence
+ *      response.
+ *
+ * A model call that runs out its own deadline is retried once when the
+ * workflow still has `timeoutRetryMinMs` left.
  *
  * Model calls, tool calls, tokens and time are all capped. Provider failures
  * (timeout, rate limit, outage) are thrown as `ModelError` for the caller to
@@ -34,7 +41,8 @@ import {
   verifierMessage,
 } from "@/explain/prompts";
 import { recordedAccount } from "@/explain/recorded";
-import { insufficientEvidence, parseExplanation, type ExplanationResponse } from "@/explain/response";
+import { pruneRejectedClaims } from "@/explain/prune";
+import { insufficientEvidence, parseExplanation, validateExplanation, type ExplanationResponse } from "@/explain/response";
 import { ModelError, type ChatMessage, type ChatRequest, type ChatResult, type ModelClient } from "./foundry";
 import { abortableDelay } from "./modelScheduler";
 
@@ -43,6 +51,8 @@ export const WORKFLOW_LIMITS = {
   totalMs: 60_000,
   /** One model call. */
   modelCallMs: 25_000,
+  /** A call that times out is retried once, only if at least this much of the workflow remains. */
+  timeoutRetryMinMs: 15_000,
   /** Model calls in total: analyst turns, verifier reviews and the revision. */
   modelCalls: 8,
   /** Evidence tool calls in total. */
@@ -91,6 +101,8 @@ interface Evaluation {
   grounding: boolean | null;
   modelReview: boolean | null;
   issues: string[];
+  /** Problems with claims removed from the answer instead of rejecting it. */
+  removed: string[];
 }
 
 const FALLBACK_REASON = "The explanation could not be checked against the match data, so none is shown.";
@@ -130,13 +142,16 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
     const reserve = estimatePromptTokens(request) + request.maxCompletionTokens;
     if (charged + reserve > limits.totalTokens)
       throw new BudgetExhausted(`token limit reached (${charged} used, ${reserve} needed, ${limits.totalTokens} allowed)`);
-    const remaining = deadline - now();
-    if (remaining < 1_000) throw new ModelError("timeout", "The explanation took too long.");
-    const timeout = AbortSignal.timeout(Math.min(limits.modelCallMs, remaining));
-    const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
+    if (deadline - now() < 1_000) throw new ModelError("timeout", "The explanation took too long.");
+    const callSignal = () => {
+      const timeout = AbortSignal.timeout(Math.min(limits.modelCallMs, deadline - now()));
+      return input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
+    };
+    let signal = callSignal();
     const t0 = now();
     let attemptStarted = t0;
     let result: ChatResult;
+    let timeoutRetried = false;
     for (let attempt = 0; ; attempt++) {
       attemptStarted = now();
       modelCalls++;
@@ -148,7 +163,19 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
         // reservation, and count every retry within the original call budget.
         charged += reserve;
         trace({ kind: "model", role: request.role, ms: Math.round(now() - attemptStarted), finishReason: e instanceof ModelError ? e.code : "error", toolCalls: 0, tokens: null });
-        if (!(e instanceof ModelError) || e.code !== "rate-limited" || attempt >= 1 || modelCalls >= limits.modelCalls || charged + reserve > limits.totalTokens) throw e;
+        if (e instanceof ModelError) e.trace = {
+          totalMs: Math.round(now() - started), modelCalls, toolCalls, tokens: { ...tokens }, chargedTokens: charged, steps: [...steps],
+        };
+        const affordable = modelCalls < limits.modelCalls && charged + reserve <= limits.totalTokens;
+        // Provider latency varies: one call that ran out its own deadline is retried
+        // once with a fresh deadline, if the workflow still has time for a full call.
+        if (e instanceof ModelError && e.code === "timeout" && !timeoutRetried && affordable && !input.signal?.aborted &&
+          deadline - now() >= limits.timeoutRetryMinMs) {
+          timeoutRetried = true;
+          signal = callSignal();
+          continue;
+        }
+        if (!(e instanceof ModelError) || e.code !== "rate-limited" || attempt >= 1 || !affordable) throw e;
         const delay = Math.max(250, e.retryAfterMs ?? 1_000);
         // Long provider cooldowns remain actionable rate-limit responses.
         if (delay >= 5_000 || delay + 1_000 >= Math.min(deadline - now(), limits.modelCallMs - (now() - t0))) throw e;
@@ -220,26 +247,47 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
     return null;
   };
 
+  /** Rejected claims removed, when that leaves an answer passing the contract and every wording check. */
+  const prune = (response: ExplanationResponse, problems: string[]) => {
+    const pruned = pruneRejectedClaims(response, problems);
+    if (!pruned) return null;
+    const context = session.context();
+    const valid = validateExplanation(pruned.response, context);
+    if (!valid.ok || checkGrounding(valid.response, context, input.audience, focus).length > 0) return null;
+    return { response: valid.response, removed: pruned.removed };
+  };
+
   const evaluate = async (text: string | null): Promise<Evaluation> => {
-    if (text === null) return { response: null, schema: false, grounding: null, modelReview: null, issues: ["no answer: the analyst kept calling tools"] };
+    if (text === null) return { response: null, schema: false, grounding: null, modelReview: null, removed: [], issues: ["no answer: the analyst kept calling tools"] };
     const context = session.context();
     const parsed = parseExplanation(text, context);
-    if (!parsed.ok) return {
-      response: null, schema: false, grounding: null, modelReview: null,
-      // Give the one revision all detectable problems, even when a length or
+    let response: ExplanationResponse;
+    /** Problems with claims that were removed rather than revised. */
+    let removed: string[] = [];
+    if (parsed.ok) response = parsed.response;
+    else {
+      // Give the revision all detectable problems, even when a length or
       // citation-contract error prevents this draft from being accepted. The
       // grounding problems go first: they carry the citation hints, and the
       // revision request keeps only the first few problems.
-      issues: [...(parsed.diagnosticCandidate
-        ? checkGrounding(parsed.diagnosticCandidate, context, input.audience, focus) : []), ...parsed.errors],
-    };
-    const response = parsed.response;
+      const problems = [...(parsed.diagnosticCandidate
+        ? checkGrounding(parsed.diagnosticCandidate, context, input.audience, focus) : []), ...parsed.errors];
+      const pruned = parsed.diagnosticCandidate ? prune(parsed.diagnosticCandidate, problems) : null;
+      if (!pruned) return { response: null, schema: false, grounding: null, modelReview: null, removed: [], issues: problems };
+      response = pruned.response;
+      removed = problems;
+    }
     const grounding = checkGrounding(response, context, input.audience, focus);
-    if (grounding.length > 0) return { response, schema: true, grounding: false, modelReview: null, issues: grounding };
+    if (grounding.length > 0) {
+      const pruned = prune(response, grounding);
+      if (!pruned) return { response, schema: true, grounding: false, modelReview: null, removed: [], issues: grounding };
+      response = pruned.response;
+      removed = [...removed, ...grounding];
+    }
     // The analyst's own insufficient-evidence answer is not reviewed, so none of its wording is shown:
     // it is replaced with the fixed response.
     if (response.status === "insufficient-evidence")
-      return { response: insufficientEvidence(session.base, INSUFFICIENT_REASON), schema: true, grounding: true, modelReview: null, issues: [] };
+      return { response: insufficientEvidence(session.base, INSUFFICIENT_REASON), schema: true, grounding: true, modelReview: null, removed: [], issues: [] };
 
     const review = await call({
       role: "verifier",
@@ -253,7 +301,13 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
     const verdict = parseReview(review.content ?? "", response);
     if (!verdict.ok) throw new ReviewUnavailable(verdict.error);
     const issues = verdict.unsupported.map((u) => `${u.target} is not supported by its evidence${u.reason ? `: ${u.reason}` : ""}`);
-    return { response, schema: true, grounding: true, modelReview: issues.length === 0, issues };
+    if (issues.length > 0) {
+      // The verifier approved the headline, explanation and every other claim,
+      // so removing only the claims it rejected leaves reviewed text.
+      const pruned = prune(response, issues);
+      if (pruned) return { response: pruned.response, schema: true, grounding: true, modelReview: true, removed: [...removed, ...issues], issues: [] };
+    }
+    return { response, schema: true, grounding: true, modelReview: issues.length === 0, removed, issues };
   };
 
   const issues: string[] = [];
@@ -282,8 +336,9 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
       });
       if (e.issues.length === 0 && e.response) {
         explanation = e.response;
+        issues.push(...e.removed.map((i) => `removed: ${i}`.slice(0, 300)));
         verification = {
-          outcome: e.response.status === "insufficient-evidence" ? "insufficient-evidence" : attempt === 0 ? "verified" : "revised",
+          outcome: e.response.status === "insufficient-evidence" ? "insufficient-evidence" : attempt === 0 && e.removed.length === 0 ? "verified" : "revised",
           revisions: attempt,
           schema: "passed",
           grounding: "passed",

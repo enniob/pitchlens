@@ -125,17 +125,48 @@ describe("analyst workflow", () => {
     expect(last.content).toContain("timeMs does not match");
   });
 
-  it("revises once when the verifier finds an unsupported claim", async () => {
+  it("revises once when the verifier finds the explanation unsupported", async () => {
     const draft = goalExplanation();
-    const model = new FakeModel([answer(draft), reject(targets, "interpretation[0]"), answer(draft), approve(draft)]);
+    const model = new FakeModel([answer(draft), reject(targets, "explanation"), answer(draft), approve(draft)]);
     const out = await run(model);
     expect(out.verification).toMatchObject({ outcome: "revised", revisions: 1 });
-    expect(out.verification.issues).toEqual([expect.stringContaining("interpretation[0] is not supported")]);
+    expect(out.verification.issues).toEqual([expect.stringContaining("explanation is not supported")]);
+  });
+
+  it("removes a claim the verifier rejects instead of revising, keeping only reviewed text", async () => {
+    const draft = goalExplanation();
+    const model = new FakeModel([answer(draft), reject(targets, "interpretation[0]")]);
+    const out = await run(model);
+    expect(model.requests).toHaveLength(2);
+    expect(out.explanation).toEqual({ ...draft, interpretation: draft.interpretation.slice(1) });
+    expect(out.verification).toMatchObject({ outcome: "revised", revisions: 0, grounding: "passed", modelReview: "passed" });
+    expect(out.verification.issues).toEqual([expect.stringMatching(/^removed: interpretation\[0\] is not supported/)]);
+  });
+
+  it("removes a fact the grounding checks reject before review, and the verifier sees only the rest", async () => {
+    const draft = goalExplanation();
+    draft.facts.push({ text: "The turnover came 3.3 s after the kickoff.", evidence: [{ kind: "event", id: "e1-turnover" }] });
+    const pruned = { ...draft, facts: draft.facts.slice(0, -1) };
+    const model = new FakeModel([answer(draft), approve(pruned)]);
+    const out = await run(model);
+    expect(model.requests[1]!.messages[1]!.content).not.toContain("3.3 s");
+    expect(out.explanation).toEqual(pruned);
+    expect(out.verification).toMatchObject({ outcome: "revised", revisions: 0, modelReview: "passed" });
+    expect(out.verification.issues[0]).toMatch(/^removed: facts\[3\]/);
+  });
+
+  it("does not remove a claim whose rejected detail the explanation repeats", async () => {
+    const draft = goalExplanation();
+    draft.explanation = `${draft.explanation} The turnover came 3.3 s after the kickoff.`;
+    draft.facts.push({ text: "The turnover came 3.3 s after the kickoff.", evidence: [{ kind: "event", id: "e1-turnover" }] });
+    const model = new FakeModel([answer(draft), answer(draft)]);
+    const out = await run(model);
+    expect(out.verification).toMatchObject({ outcome: "fallback", grounding: "failed" });
   });
 
   it("falls back to insufficient evidence after a failed revision", async () => {
     const future = goalExplanation();
-    future.facts[0]!.evidence = [{ kind: "event", id: "e7-kickoff" }];
+    for (const fact of future.facts) fact.evidence = [{ kind: "event", id: "e7-kickoff" }];
     const model = new FakeModel([answer("{ not json"), answer(future)]);
     const out = await run(model);
     expect(out.verification).toMatchObject({ outcome: "fallback", revisions: 1, schema: "failed", grounding: "skipped", modelReview: "skipped" });
@@ -188,12 +219,12 @@ describe("analyst workflow", () => {
     const draft = goalExplanation();
     draft.limitations = ["The ball travelled at 900 km/h."];
     const fixed = goalExplanation();
-    const model = new FakeModel([answer(draft), reject(targets, "limitations[0]"), answer(fixed), approve(fixed)]);
+    const model = new FakeModel([answer(draft), reject(targets, "limitations[0]")]);
     const out = await run(model);
     expect(model.requests[1]!.messages[1]!.content).toContain("900 km/h");
     expect(out.verification).toMatchObject({ outcome: "revised" });
     expect(out.verification.issues).toEqual([expect.stringContaining("limitations[0] is not supported")]);
-    expect(out.explanation).toEqual(fixed);
+    expect(out.explanation).toEqual({ ...fixed, limitations: [] });
   });
 
   it("bounds a model that keeps calling tools", async () => {
@@ -268,7 +299,26 @@ describe("analyst workflow", () => {
   it("aborts a slow model call and reports a timeout", async () => {
     const slow = (r: ChatRequest) =>
       new Promise<Error>((resolve) => r.signal.addEventListener("abort", () => resolve(new ModelError("timeout", "slow"))));
-    await expect(run(new FakeModel([slow]), 9_400, { limits: { modelCallMs: 20 } })).rejects.toMatchObject({ code: "timeout" });
+    const timedOut = expect.objectContaining({ kind: "model", role: "analyst", finishReason: "timeout", tokens: null });
+    await expect(run(new FakeModel([slow, slow]), 9_400, { limits: { modelCallMs: 20 } })).rejects.toMatchObject({ code: "timeout", trace: {
+      modelCalls: 2, tokens: { prompt: 0, completion: 0 }, steps: [timedOut, timedOut],
+    } });
+  });
+
+  it("retries a timed-out call once with a fresh deadline when the workflow has time left", async () => {
+    const slow = (r: ChatRequest) =>
+      new Promise<Error>((resolve) => r.signal.addEventListener("abort", () => resolve(new ModelError("timeout", "slow"))));
+    const draft = goalExplanation();
+    const model = new FakeModel([slow, answer(draft), approve(draft)]);
+    const out = await run(model, 9_400, { limits: { modelCallMs: 20 } });
+    expect(out.verification.outcome).toBe("verified");
+    expect(out.trace.modelCalls).toBe(3);
+    expect(model.requests[0]!.signal.aborted).toBe(true);
+    expect(model.requests[1]!.signal.aborted).toBe(false);
+    // Not when too little of the workflow is left.
+    const late = new FakeModel([slow]);
+    await expect(run(late, 9_400, { limits: { modelCallMs: 20, timeoutRetryMinMs: 120_000 } })).rejects.toMatchObject({ code: "timeout" });
+    expect(late.requests).toHaveLength(1);
   });
 
   it("stops before a call when the total time is used up", async () => {

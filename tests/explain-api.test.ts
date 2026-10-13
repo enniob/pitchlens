@@ -253,13 +253,15 @@ describe("POST /api/explain", () => {
       [new ModelError("bad-provider-response", "not json"), 502, "upstream-error"],
     ];
     for (const [error, status, code] of cases) {
-      const { deps, logs, model } = setup(error.code === "rate-limited" ? [error, error] : [error]);
+      // A short rate limit and a call timeout are each retried once.
+      const retried = error.code === "rate-limited" || error.code === "timeout";
+      const { deps, logs, model } = setup(retried ? [error, error] : [error]);
       const { response, json } = await call(deps, post(body()));
       expect(response.status, code).toBe(status);
       expect(json).toMatchObject({ ok: false, error: { code, retryable: true } });
       expect(JSON.stringify(json)).not.toContain(KEY);
       expect(logs[0]).toMatchObject({ error: code, status });
-      expect(model.requests).toHaveLength(error.code === "rate-limited" ? 2 : 1);
+      expect(model.requests).toHaveLength(retried ? 2 : 1);
       if (code === "upstream-rate-limited") expect(response.headers.get("retry-after")).toBe("3");
     }
   });

@@ -37,8 +37,9 @@ export interface ExplainRequest {
 /** How the explanation was checked. Automated checks reduce, but cannot rule out, unsupported text. */
 export interface VerificationSummary {
   /**
-   * `verified`: the first draft passed every check. `revised`: it failed, the
-   * one allowed revision passed. `fallback`: no draft passed, so the
+   * `verified`: the first draft passed every check unchanged. `revised`: it
+   * failed, and the one allowed revision passed, or rejected claims were
+   * removed and the rest passed every check (listed in `issues`). `fallback`: no draft passed, so the
    * explanation is the standard insufficient-evidence response.
    * `insufficient-evidence`: the analyst itself said the evidence is not enough.
    */

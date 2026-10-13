@@ -79,7 +79,9 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
         // A failed call may still have been billed; count the worst case against the budget.
         callsUsed += WORKFLOW_LIMITS.modelCalls;
         const reason = e instanceof ModelError ? e.code : redact(e instanceof Error ? e.message : String(e), secrets);
-        results.push({ scenario: s.id, audience, outcome: "error", blockers: [], leaks: [], unsupported: [], latencyMs: Date.now() - started, error: reason });
+        results.push({ scenario: s.id, audience, outcome: "error", blockers: [], leaks: [], unsupported: [], latencyMs: Date.now() - started, error: reason,
+          ...(e instanceof ModelError ? { diagnostics: e.diagnostics, trace: e.trace, ...(prices && e.trace ? { cost: estimateCost(e.trace, prices) } : {}) } : {}),
+        });
         // Provider failures are reported as errors; anything else is a bug.
         if (!(e instanceof ModelError)) throw e;
         return;

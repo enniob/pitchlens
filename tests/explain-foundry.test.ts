@@ -85,6 +85,29 @@ describe("strict structured-output schema", () => {
 });
 
 describe("Foundry client", () => {
+  it("distinguishes queue, request, body and provider HTTP timeouts without retaining provider text", async () => {
+    const controller = new AbortController();
+    const queued = new FoundryClient(config({ requestsPerMinute: 1 }), async () => reply({ choices: [{ message: { content: "{}" } }] }));
+    await queued.complete(request());
+    const waiting = queued.complete(request({ role: "verifier", signal: controller.signal }));
+    controller.abort();
+    await expect(waiting).rejects.toMatchObject({ code: "timeout", diagnostics: { role: "verifier", stage: "queue", queueMs: expect.any(Number) } });
+
+    const inRequest = new AbortController();
+    const hanging = new FoundryClient(config(), async () => { inRequest.abort(); throw new Error(KEY); });
+    await expect(hanging.complete(request({ signal: inRequest.signal }))).rejects.toMatchObject({ diagnostics: { stage: "request" } });
+
+    const inBody = new AbortController();
+    const response = reply({});
+    response.json = async () => { inBody.abort(); throw new Error(KEY); };
+    await expect(new FoundryClient(config(), async () => response).complete(request({ signal: inBody.signal })))
+      .rejects.toMatchObject({ diagnostics: { stage: "response-body" } });
+
+    const error = await new FoundryClient(config(), async () => new Response(KEY, { status: 504 })).complete(request()).catch((e) => e);
+    expect(error).toMatchObject({ code: "timeout", diagnostics: { role: "analyst", stage: "provider-http", httpStatus: 504 } });
+    expect(JSON.stringify(error)).not.toContain(KEY);
+    expect(JSON.stringify(error)).not.toContain(ENV.FOUNDRY_ENDPOINT);
+  });
   it("posts a chat completion with the key in a header and structured output", async () => {
     const seen: { url: string; init: RequestInit }[] = [];
     const client = new FoundryClient(config(), async (url, init) => {
