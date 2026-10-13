@@ -13,7 +13,7 @@
  * backswing is); both read ball and player positions slightly ahead and never
  * touch the score, feed, timeline or statistics.
  */
-import type { MatchFixture, Snapshot } from "@/match/contract";
+import { GOAL_HEIGHT, GOAL_WIDTH, PITCH_LENGTH, PITCH_WIDTH, type MatchFixture, type Snapshot } from "@/match/contract";
 import { clampTime, lastAtOrBefore, positionsAt } from "./derive";
 
 /** The kick animation starts this long before the ball is struck. */
@@ -146,6 +146,17 @@ const BEATEN_HEIGHT = 3;
 /** ...if it passes them within this long of the strike. */
 const BEATEN_AFTER_STRIKE_MS = 2500;
 
+/** A ball turning this close to a post or the crossbar has come off the frame, not a player, metres. */
+const WOODWORK_REACH = 0.6;
+
+/** Whether the ball is at the goal frame: a post, or the bar between them. */
+const atWoodwork = ({ x, y, z }: Snapshot["ball"]) => {
+  const line = Math.min(Math.abs(x), Math.abs(x - PITCH_LENGTH));
+  const across = Math.abs(y - PITCH_WIDTH / 2);
+  const post = Math.hypot(line, across - GOAL_WIDTH / 2) < WOODWORK_REACH && z < GOAL_HEIGHT + WOODWORK_REACH;
+  const bar = across < GOAL_WIDTH / 2 + WOODWORK_REACH && Math.hypot(line, z - GOAL_HEIGHT) < WOODWORK_REACH;
+  return post || bar;
+};
 const playerAt = (s: Snapshot, id: string) => s.players.find((p) => p.playerId === id);
 const moved = (a: Snapshot, b: Snapshot) => Math.hypot(b.ball.x - a.ball.x, b.ball.y - a.ball.y, b.ball.z - a.ball.z);
 
@@ -281,7 +292,7 @@ function recognise(fixture: MatchFixture): BallContact[] {
       const outLen = Math.hypot(outX, outY);
       if (inLen < 0.02 || outLen < 0.02) continue;
       const cos = (inX * outX + inY * outY) / (inLen * outLen);
-      if (cos > Math.cos(DEFLECTION_ANGLE)) continue;
+      if (cos > Math.cos(DEFLECTION_ANGLE) || atWoodwork(b.ball)) continue;
       let who: string | null = null;
       let best = DEFLECTION_REACH;
       for (const p of b.players) {
