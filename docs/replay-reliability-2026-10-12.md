@@ -34,6 +34,9 @@ remain outstanding. No merge or deployment was performed.
 Base commit: `482a824dee7585a0f2911c0f6c1908b271558ad7`.
 The evaluated working tree includes the existing uncommitted animation,
 pose, rig and animation-test changes. They were preserved.
+The cutoff fix itself was later committed as `5e3384c` and merged to `main`
+with PR #25. The live results below describe the fingerprinted working tree,
+not that commit, and were recorded on simulator v4.
 
 Implementation/test SHA-256:
 `80f04c5471b14542664ee809de551e0127dca1bfea7cde0f9c43e83c1dc8f1d5`.
