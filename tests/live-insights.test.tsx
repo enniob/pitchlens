@@ -72,19 +72,17 @@ describe("insight moments", () => {
     expect(sampleFixture.events.filter((e) => isInsightMoment(sampleFixture, e)).map((e) => e.type)).toEqual(["goal"]);
   });
 
-  it("counts fouls near the fouling team's own goal only", () => {
+  it("counts every foul, wherever it happened", () => {
     // This team attacks towards x = 105, so it defends x = 0.
-    expect(isInsightMoment(sampleFixture, foul(12))).toBe(true);
-    expect(isInsightMoment(sampleFixture, foul(30))).toBe(true);
-    expect(isInsightMoment(sampleFixture, foul(52))).toBe(false);
-    expect(isInsightMoment(sampleFixture, foul(95))).toBe(false);
-    expect(isInsightMoment(sampleFixture, foul(12, false))).toBe(false);
+    for (const x of [12, 30, 52, 95]) expect(isInsightMoment(sampleFixture, foul(x))).toBe(true);
+    expect(isInsightMoment(sampleFixture, foul(12, false))).toBe(true);
   });
 
   it("includes shot results and formation changes, and only moments inside the step", () => {
     const at = (type: MatchEvent["type"]): MatchEvent => ({ id: type, t: 1, type, teamId: home.id, outcome: "applied", description: "" });
     expect(isInsightMoment(sampleFixture, at("shot-result"))).toBe(true);
     expect(isInsightMoment(sampleFixture, at("formation-change"))).toBe(true);
+    expect(isInsightMoment(sampleFixture, at("offside"))).toBe(true);
     expect(isInsightMoment(sampleFixture, at("shot"))).toBe(false);
     expect(insightMomentsBetween(sampleFixture, goal.t, 24_000)).toEqual([]);
     expect(insightMomentsBetween(sampleFixture, goal.t - 1, goal.t)).toEqual([goal]);
@@ -257,8 +255,11 @@ describe("live insights", () => {
   it("runs one request at a time and only the newest waiting moment", async () => {
     const fixture = generateMatch({ seed: 5 });
     const moments = fixture.events.filter((e) => isInsightMoment(fixture, e));
-    const [first, second, third] = moments;
-    expect(third!.t - first!.t).toBeLessThan(10_000);
+    // Three moments inside 10 s, with none in the second of play before the first.
+    const i = moments.findIndex((m, k) => k + 2 < moments.length && moments[k + 2]!.t - m.t < 10_000 &&
+      (k === 0 || moments[k - 1]!.t < m.t - 1_000));
+    expect(i).toBeGreaterThanOrEqual(0);
+    const [first, second, third] = moments.slice(i, i + 3);
     const finish: ((r: Response) => void)[] = [];
     const fetcher = vi.fn<typeof fetch>().mockImplementation((_url, init) => new Promise((r) => {
       const request = JSON.parse(String(init?.body));

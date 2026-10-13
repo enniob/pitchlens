@@ -4,7 +4,7 @@
  * fixture and the time, built only from events with a timestamp ≤ t, so
  * nothing on screen can reveal what has not happened yet.
  */
-import { PITCH_LENGTH, type EventType, type MatchEvent, type MatchFixture } from "@/match/contract";
+import { type EventType, type MatchEvent, type MatchFixture } from "@/match/contract";
 import { clampTime, eventsAt } from "./derive";
 
 /** Events worth a marker, a pop-up or a line in the simple live feed. Passes, balls won and deflections are Pro detail. */
@@ -96,23 +96,14 @@ export function liveFeed(fixture: MatchFixture, t: number, pro: boolean): MatchE
   return out;
 }
 
-/** A foul this close to the fouling team's own goal line (or in its area) gets an automatic insight. */
-export const KEY_FOUL_DISTANCE_M = 30;
-
 /**
  * Moments that get an automatic insight: goals, shot results (the shot's
  * outcome is known by then; a shot that is scored is covered by its goal),
- * fouls near goal and formation changes. Each is judged only from the event
- * itself, so nothing after it is needed to pick it.
+ * fouls, offsides and formation changes. Each is judged only from the event itself, so
+ * nothing after it is needed to pick it.
  */
-export function isInsightMoment(fixture: MatchFixture, e: MatchEvent): boolean {
-  if (e.type === "goal" || e.type === "shot-result" || e.type === "formation-change") return true;
-  if (e.type !== "foul" || !e.start) return false;
-  // The fouling team defends the goal opposite the one it attacks.
-  const team = fixture.teams.find((t) => t.id === e.teamId);
-  if (!team) return false;
-  const ownGoalX = team.attacksTowards === "increasing-x" ? 0 : PITCH_LENGTH;
-  return Math.abs(e.start.x - ownGoalX) <= KEY_FOUL_DISTANCE_M;
+export function isInsightMoment(_fixture: MatchFixture, e: MatchEvent): boolean {
+  return e.type === "goal" || e.type === "shot-result" || e.type === "foul" || e.type === "offside" || e.type === "formation-change";
 }
 
 /** Insight moments with from < t ≤ to, oldest first: the ones playback just reached. */

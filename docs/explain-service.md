@@ -43,8 +43,7 @@ client validation as an explicit request; only the trigger differs
 (`src/components/LiveInsights.tsx`):
 
 - **Which moments.** Goals, shot results (a shot that is scored is covered by
-  its goal), fouls within 30 m of the fouling team's own goal line, and
-  formation changes (`isInsightMoment` in `src/playback/moments.ts`). Each is
+  its goal), every foul and offside, and formation changes (`isInsightMoment` in `src/playback/moments.ts`). Each is
   judged from the event alone, so choosing it needs nothing later in the match.
 - **Cut-off.** Each request uses the moment's own time as `timeMs`, so the
   answer can only cite evidence up to that moment, wherever playback is when it
