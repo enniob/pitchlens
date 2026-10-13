@@ -95,7 +95,7 @@ describe("pass measurements", () => {
     const inFlight = sampleFixture.events.find((e) => e.id === "e3-pass")!;
     const c = extractMatchContext(sampleFixture, inFlight.startT! + 100);
     expect(c.measurements.passes.map((p) => p.eventId)).toEqual(["e2-pass"]);
-    expect(c.measurements.statistics.find((s) => s.teamId === inFlight.teamId)!.attemptedPasses).toBe(1);
+    expect(c.measurements.statistics.find((s) => s.teamId === inFlight.teamId)!.passesPlayed).toBe(1);
     expect(JSON.stringify(c.measurements)).not.toContain("e3-pass");
     expect(JSON.stringify(c.measurements)).not.toContain(inFlight.recipientId!);
     const landed = extractMatchContext(sampleFixture, inFlight.t);
@@ -111,19 +111,19 @@ describe("pass completion", () => {
 
   it("uses the window as the denominator, never earlier or later passes", () => {
     const s = measureEvents([...events, pass("future", 16_001)], teams, 16_000, 10_000).statistics[0]!;
-    expect(s).toMatchObject({ attemptedPasses: 4, completedPasses: 2, completionPercent: 50 });
+    expect(s).toMatchObject({ passesPlayed: 4, completedPasses: 2, completionPercent: 50 });
     expect(s.eventIds).toEqual(["c1", "lost", "miss", "c2"]);
-    expect(measureEvents(events, teams, 16_000, 0).statistics[0]).toMatchObject({ attemptedPasses: 5, completedPasses: 3, completionPercent: 60 });
+    expect(measureEvents(events, teams, 16_000, 0).statistics[0]).toMatchObject({ passesPlayed: 5, completedPasses: 3, completionPercent: 60 });
   });
 
   it("gives no ratio for partial coverage or no attempts", () => {
-    expect(measureEvents(events, teams, 16_000, 10_000, false).statistics[0]).toMatchObject({ attemptedPasses: 4, completionPercent: null });
-    expect(measureEvents(events, teams, 16_000, 10_000).statistics[1]).toMatchObject({ attemptedPasses: 0, completionPercent: null });
+    expect(measureEvents(events, teams, 16_000, 10_000, false).statistics[0]).toMatchObject({ passesPlayed: 4, completionPercent: null });
+    expect(measureEvents(events, teams, 16_000, 10_000).statistics[1]).toMatchObject({ passesPlayed: 0, completionPercent: null });
   });
 
   it("gives no ratio when the key-event filter leaves passes out of the package", () => {
     const c = extractMatchContext(sampleFixture, 9_400, { eventTypes: ["shot", "goal"] });
-    expect(c.measurements.statistics.every((s) => s.completionPercent === null && s.attemptedPasses === 0)).toBe(true);
+    expect(c.measurements.statistics.every((s) => s.completionPercent === null && s.passesPlayed === 0)).toBe(true);
   });
 });
 
@@ -302,7 +302,7 @@ describe("in the evidence package", () => {
     expect(c.match.schemaVersion).toBe("1.0.0");
     expect(c.measurements.formationChanges).toEqual([]);
     expect(c.measurements.passes.map((p) => p.eventId)).toEqual(["e2-pass", "e3-pass", "e4-pass"]);
-    expect(c.measurements.statistics.find((s) => s.teamId === "hcf")).toMatchObject({ attemptedPasses: 3, completedPasses: 3, completionPercent: 100 });
+    expect(c.measurements.statistics.find((s) => s.teamId === "hcf")).toMatchObject({ passesPlayed: 3, completedPasses: 3, completionPercent: 100 });
   });
 
   it("lets a claim state a possession spell's duration only with all of its evidence", () => {

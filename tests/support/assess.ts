@@ -76,7 +76,9 @@ const EVENT_WORDING: { label: string; pattern: RegExp; types: EventType[] }[] = 
   { label: "a formation change", pattern: /\b(switch(es|ed)?|chang(e|es|ed))\b[^.]*\b(formation|shape|system)\b|\b(formation|shape) change\b/i, types: ["formation-change"] },
 ];
 /** The data has none of these; any claim stating them invents it. */
-const INVENTED = /\b(xG|expected goals?|PPDA|pressing intensity|pressure (index|metric|rating)|tired|fatigued?|exhausted|confident|frustrat\w*|nervous)\b|\d+(\.\d+)?\s?(%|km\/h|mph|m\/s)/i;
+const INVENTED = /\b(xG|expected goals?|PPDA|pressing intensity|pressure (index|metric|rating)|tired|fatigued?|exhausted|confident|frustrat\w*|nervous)\b|\d+(\.\d+)?\s?(km\/h|mph)/i;
+/** Percentages and speeds, allowed only when they repeat a supplied measurement. */
+const MEASURED_UNIT = /(\d+(?:\.\d+)?)\s?(%|m\/s)/gi;
 
 /**
  * Everything the analyst could have been shown: the default package, every
@@ -170,6 +172,10 @@ export function assess({ scenario, audience, explanation, verification, envelope
     ...r.limitations.map((l, i) => ({ where: `limitations[${i}]`, text: l })),
   ];
   const players = new Map(evidence.players.map((p) => [p.id, p]));
+  const measured = evidence.measurements;
+  const percents = new Set(measured.statistics.flatMap((s) => s.completionPercent === null ? [] : [s.completionPercent]));
+  const speeds = new Set([...measured.passes.map((p) => p.averageStraightLineSpeedMps), ...measured.movement.map((x) => x.averageSampledPathSpeedMps)]
+    .filter((v): v is number => v !== null));
   const events = new Map(evidence.events.map((e) => [e.id, e]));
 
   for (const { where, text, claim, fact } of texts) {
@@ -201,6 +207,10 @@ export function assess({ scenario, audience, explanation, verification, envelope
     for (const s of sentences(text))
       for (const f of scenario.forbidden) if (f.pattern.test(s) && !UNCERTAIN.test(s)) leaks.push(`${where} states ${f.label}: "${s.slice(0, 120)}"`);
     if (INVENTED.test(text)) unsupported.push(`${where} states a metric or attribute the data does not have ("${text.match(INVENTED)![0]}")`);
+    for (const m of text.matchAll(MEASURED_UNIT)) {
+      const supplied = m[2] === "%" ? percents : speeds;
+      if (!supplied.has(Number(m[1]))) unsupported.push(`${where} states a metric or attribute the data does not have ("${m[0]}")`);
+    }
 
     // Claim-level support: what the claim says must be in what it cites. Headline and explanation are
     // checked against everything reachable.

@@ -97,6 +97,19 @@ describe("evaluation scenarios", () => {
     expect(["needs-review", "unsafe"]).toContain(verdict.quality);
   });
 
+  it("accepts a percentage or speed only when it repeats a supplied measurement", () => {
+    const s = EVAL_SCENARIOS.find((x) => x.id === "demo-goal-recorded")!;
+    const measured = evidenceFor(s).measurements;
+    const percent = measured.statistics.find((x) => x.completionPercent !== null)!.completionPercent!;
+    const speed = measured.passes.find((p) => p.averageStraightLineSpeedMps !== null)!.averageStraightLineSpeedMps!;
+    const flagged = (text: string) => assess({ scenario: s, audience: "analyst", explanation: withClaim(s, "analyst", text) }).unsupported
+      .filter((u) => u.includes("metric or attribute"));
+    expect(flagged(`Passes were completed at ${percent}% in the window, at ${speed} m/s on average.`)).toEqual([]);
+    expect(flagged(`Passes were completed at ${percent - 13}% in the window.`)).toHaveLength(1);
+    expect(flagged(`The pass moved at ${speed + 1} m/s.`)).toHaveLength(1);
+    expect(flagged("The winger reached 30 km/h.")).toHaveLength(1);
+  });
+
   const byGrounding = probes.filter((p) => p.f.caughtBy === "grounding");
   const byVerifier = probes.filter((p) => p.f.caughtBy === "verifier");
 

@@ -32,10 +32,10 @@ export interface TeamWindowStatistics {
   teamId: string;
   shots: number;
   /** Resolved passes of any outcome (complete, intercepted, missed). A pass still in flight is not counted. */
-  attemptedPasses: number;
+  passesPlayed: number;
   completedPasses: number;
   /**
-   * completedPasses / attemptedPasses as a whole percentage, over this window only.
+   * completedPasses / passesPlayed as a whole percentage, over this window only.
    * `null` without attempts, or for `retained-events-only` coverage, where missing
    * passes would make the ratio wrong.
    */
@@ -81,10 +81,10 @@ export function measureEvents(
   const events = input.filter((e) => e.t >= fromMs && e.t <= selectedMs);
   const statistics = teams.map(({ id }): TeamWindowStatistics => {
     const counted = events.filter((e) => e.teamId === id && (e.type === "shot" || e.type === "goal" || e.type === "pass"));
-    const attemptedPasses = counted.filter((e) => e.type === "pass").length;
+    const passesPlayed = counted.filter((e) => e.type === "pass").length;
     const completedPasses = counted.filter((e) => e.type === "pass" && e.outcome === "complete").length;
-    return { teamId: id, shots: counted.filter((e) => e.type === "shot").length, attemptedPasses, completedPasses,
-      completionPercent: complete && attemptedPasses > 0 ? Math.round(completedPasses / attemptedPasses * 100) : null,
+    return { teamId: id, shots: counted.filter((e) => e.type === "shot").length, passesPlayed, completedPasses,
+      completionPercent: complete && passesPlayed > 0 ? Math.round(completedPasses / passesPlayed * 100) : null,
       goals: counted.filter((e) => e.type === "goal").length, eventIds: counted.map((e) => e.id) };
   });
   const patterns: MeasuredPattern[] = [];
