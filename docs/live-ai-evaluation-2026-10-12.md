@@ -4,7 +4,8 @@
 That evaluation attempted all 36 cases on one unchanged implementation
 fingerprint, retained redacted answers, and exercised local HTTP sessions and
 recovery. Its strict release gate failed; manual review found further
-unsupported claims. The runs below remain historical evidence only.
+unsupported claims. The runs below remain historical evidence only. They used
+simulator v4; see the note in that evaluation on what changed in v5.
 
 ## Conclusion
 

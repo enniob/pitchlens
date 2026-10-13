@@ -28,7 +28,7 @@ export const EVAL_AUDIENCES: readonly Audience[] = ["casual", "analyst"];
 
 /** The tactics every generated scenario uses: the away side switches shape at 30 s. */
 export const EVAL_TACTICS: TacticsConfig = { away: { formation: "4-3-3", changes: [{ t: 30_000, formation: "4-2-3-1" }] } };
-export const EVAL_SEEDS = [2, 3, 9, 20, 24, 28] as const;
+export const EVAL_SEEDS = [3, 6, 9, 16, 20, 24] as const;
 
 export type Coverage =
   | "goal-before-recorded"
@@ -202,8 +202,8 @@ function scenarios(): EvalScenario[] {
     insufficientEvidence: "unusable",
   });
 
-  // Seed 2 and 24: offside with a recorded snapshot at the kick (startT).
-  for (const [seed, live] of [[2, true], [24, false]] as const) {
+  // Seeds 6 and 24: offside with a recorded snapshot at the kick (startT).
+  for (const [seed, live] of [[6, true], [24, false]] as const) {
     const f = evalMatch(seed);
     const offside = first(f, "offside");
     if (offside.startT === undefined || !f.snapshots.some((s) => s.t === offside.startT))
@@ -220,7 +220,7 @@ function scenarios(): EvalScenario[] {
       forbidden: [],
       insufficientEvidence: "unusable",
     });
-    if (seed === 2) {
+    if (seed === 6) {
       const before = latest(f, offside.startT!);
       out.push({
         id: `seed${seed}-offside-kick-frame`,
@@ -344,8 +344,8 @@ function scenarios(): EvalScenario[] {
     });
   }
 
-  // Seeds 20 and 28: two goals each.
-  for (const [seed, live] of [[20, true], [28, false]] as const) {
+  // Seeds 20 and 16: two goals each.
+  for (const [seed, live] of [[20, true], [16, false]] as const) {
     const f = evalMatch(seed);
     const goals = all(f, "goal");
     if (goals.length < 2) throw new Error(`seed ${seed}: expected two goals`);
@@ -363,11 +363,11 @@ function scenarios(): EvalScenario[] {
     });
   }
   {
-    const f = evalMatch(28);
+    const f = evalMatch(16);
     const second = all(f, "goal")[1]!;
     out.push({
-      id: "seed28-second-goal",
-      title: "Seed 28: the second goal, the first one outside the evidence window",
+      id: "seed16-second-goal",
+      title: "Seed 16: the second goal, the first one outside the evidence window",
       covers: ["goal-recorded", "generated-seed"],
       fixture: f,
       timeMs: second.t,

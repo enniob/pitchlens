@@ -28,7 +28,7 @@ import {
   solveRig,
   TOE_REACH,
 } from "@/scene/rig";
-import { DRIBBLE_OFFSET, generateMatch, KEEPER_REACH, MAX_PLAYER_SPEED } from "@/simulation/generate";
+import { DRIBBLE_OFFSET, generateMatch, MAX_PLAYER_SPEED } from "@/simulation/generate";
 
 const generated = generateMatch({ seed: 42, durationMs: 60_000 });
 const fixtures = [
@@ -358,12 +358,6 @@ describe("ball contacts recognised from snapshots match what the simulator did",
     for (const { f, contacts } of all) {
       for (const goal of f.events.filter((e) => e.type === "goal")) {
         const keeper = f.roster.find((p) => p.role === "GK" && p.teamId !== goal.teamId)!.id;
-        const strike = contacts.filter((c) => c.kind === "kick" && c.t <= goal.t).at(-1)!;
-        // The last snapshot with the ball still at the shooter's feet.
-        const at = f.snapshots[f.snapshots.findIndex((s) => s.t === strike.t) - 1]!;
-        const gk = at.players.find((p) => p.playerId === keeper)!;
-        // A shot struck from beside the goalkeeper, after dribbling round them, never comes at them.
-        if (Math.hypot(at.ball.x - gk.x, at.ball.y - gk.y) < KEEPER_REACH) continue;
         goals++;
         expect(contacts.some((c) => c.kind === "save" && c.playerId === keeper && c.t <= goal.t && goal.t - c.t < 2500)).toBe(true);
       }

@@ -358,9 +358,9 @@ describe.each(fixtures)("event/contact alignment, seed %s", (_seed, f) => {
         const reach = /^Parried/.test(d.description) ? KEEPER_REACH : BLOCK_REACH;
         expect(gap(playerIn(s, d.playerId), s.ball)).toBeLessThanOrEqual(reach + 1e-9);
       }
-      // The ball leaves the contact on a new path.
+      // The ball leaves the contact on a new path, unless it fell straight to a player who took it there.
       const next = f.snapshots[f.snapshots.indexOf(s) + 1];
-      if (next && !next.discontinuity) expect(gap(next.ball, s.ball)).toBeGreaterThan(0);
+      if (next && !next.discontinuity && !next.possession) expect(gap(next.ball, s.ball)).toBeGreaterThan(0);
     }
   });
 });

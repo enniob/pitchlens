@@ -10,7 +10,7 @@ import { generateMatch, type TacticsConfig } from "@/simulation/generate";
 const TACTICS: TacticsConfig = { away: { formation: "4-3-3", changes: [{ t: 30_000, formation: "4-2-3-1" }] } };
 const generated = (seed: number) => generateMatch({ seed, durationMs: 60_000, tactics: TACTICS });
 // Seeds picked for coverage: 2 has an offside, 9 a goal, 0 a shot whose result arrives 640 ms later.
-const offsideMatch = generated(2);
+const offsideMatch = generated(6);
 const goalMatch = generated(9);
 const shotMatch = generated(0);
 
@@ -215,7 +215,7 @@ describe("descriptive metadata", () => {
     expect(Object.keys(c.match).sort()).toEqual(["durationMs", "label", "matchId", "schemaVersion", "synthetic"]);
     expect(json(c)).not.toMatch(/generator|simulatorVersion|configKey|"seed"/);
     // The fixture itself keeps it.
-    expect(offsideMatch.generator).toMatchObject({ seed: 2 });
+    expect(offsideMatch.generator).toMatchObject({ seed: 6 });
   });
 
   it("does not copy the fixture title, which can describe how the sequence ends", () => {
@@ -363,7 +363,7 @@ describe("bounded payload", () => {
 describe("determinism and serialisation", () => {
   it("gives identical, JSON-round-trippable output for the same input", () => {
     const a = extractMatchContext(offsideMatch, 41_000);
-    const b = extractMatchContext(generated(2), 41_000);
+    const b = extractMatchContext(generated(6), 41_000);
     expect(b).toEqual(a);
     expect(JSON.parse(json(a))).toEqual(a);
   });

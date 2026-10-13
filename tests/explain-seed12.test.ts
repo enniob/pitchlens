@@ -26,7 +26,7 @@ const good = (): ExplanationResponse => ({
 
 describe("seed 12 goal grounding", () => {
   it("reproduces the reported match and rejects the reported unsupported penalty and timing claims", () => {
-    expect(fixture.matchId).toBe("sim-v4-12-60000-197b5a1c");
+    expect(fixture.matchId).toBe("sim-v5-12-60000-197b5a1c");
     expect(context.events.some(e => e.type === "penalty")).toBe(false);
     const draft = good();
     draft.headline = "Castell scores a penalty";
@@ -74,7 +74,7 @@ describe("seed 12 both teams 4-3-3 at 29.94 seconds", () => {
   const evidence = extractMatchContext(match, atMs);
 
   it("reports length and shot-citation failures together before using the one revision", async () => {
-    expect(match.matchId).toBe("sim-v4-12-60000-2dd241ec");
+    expect(match.matchId).toBe("sim-v5-12-60000-2dd241ec");
     const shot = evidence.events.find(e => e.id === "sim-11")!;
     const outcome = evidence.events.find(e => (e.type === "goal" || e.type === "shot-result") &&
       e.startT === shot.t && e.playerId === shot.playerId)!;

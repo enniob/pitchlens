@@ -174,7 +174,7 @@ describe("POST /api/explain", () => {
       [post(body({ fixture: sampleFixture } as never)), 413, "payload-too-large"],
       [post(body({ match: { kind: "upload", matchId: "x" } as never })), 400, "invalid-request"],
       [post(body({ match: { kind: "sample", matchId: "other-match" } })), 404, "unknown-match"],
-      [post(body({ match: { ...matchReferenceOf(generateMatch({ seed: 1, durationMs: 10_000 }), "")!, matchId: "sim-v4-1-10000-forged" } as never })), 404, "unknown-match"],
+      [post(body({ match: { ...matchReferenceOf(generateMatch({ seed: 1, durationMs: 10_000 }), "")!, matchId: "sim-v5-1-10000-forged" } as never })), 404, "unknown-match"],
       [post({ ...body(), padding: "x".repeat(MAX_BODY_BYTES) }), 413, "payload-too-large"],
       [new Request(URL_, { method: "POST", headers: { "content-type": "text/plain" }, body: JSON.stringify(body()) }), 415, "unsupported-media-type"],
       [post(body(), { origin: "https://evil.example" }), 403, "forbidden-origin"],

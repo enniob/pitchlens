@@ -33,17 +33,17 @@ out.
 `tests/support/scenarios.ts`. Times and event IDs are derived from the fixtures
 rather than hard-coded, so a simulator change that moves an event fails the
 suite instead of quietly testing a different moment. Generated matches use
-60 s, seeds 2, 3, 9, 20, 24 and 28, and the away side switches from 4-3-3 to
+60 s, seeds 3, 6, 9, 16, 20 and 24, and the away side switches from 4-3-3 to
 4-2-3-1 at 30 s.
 
 | Situation | Scenarios |
 | --- | --- |
-| Goal before and after it is recorded | `demo-goal-before` (1 ms before), `demo-goal-recorded`, `seed9-goal-before`, `seed9-goal-recorded`, `seed28-second-goal` (first goal outside the evidence window) |
+| Goal before and after it is recorded | `demo-goal-before` (1 ms before), `demo-goal-recorded`, `seed9-goal-before`, `seed9-goal-recorded`, `seed16-second-goal` (first goal outside the evidence window) |
 | Pass and shot in flight | `demo-pass-in-flight`, `demo-shot-in-flight` |
-| Offside with a recorded kick frame | `seed2-offside-kick-frame` (before the flag), `seed2-offside-recorded`, `seed24-offside-recorded` |
+| Offside with a recorded kick frame | `seed6-offside-kick-frame` (before the flag), `seed6-offside-recorded`, `seed24-offside-recorded` |
 | Formation change | `seed9-formation-before` (1 ms before), `seed9-formation-recorded` |
 | Sparse evidence, zero goals | `demo-sparse` (no event yet), `seed3-zero-goal-moment`, `seed3-zero-goal-recap` |
-| End-of-sequence recaps | `demo-recap`, `seed3-zero-goal-recap`, `seed20-recap-two-goals`, `seed28-recap-two-goals` |
+| End-of-sequence recaps | `demo-recap`, `seed3-zero-goal-recap`, `seed20-recap-two-goals`, `seed16-recap-two-goals` |
 
 Each scenario defines:
 

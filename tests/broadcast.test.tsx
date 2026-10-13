@@ -32,9 +32,9 @@ import { pitchZone, proChips, proStatisticsAt } from "@/playback/proData";
 import { statisticsAt } from "@/playback/statistics";
 import { generateMatch } from "@/simulation/generate";
 
-// Seed 46 with these tactics has two goals, two fouls and a formation change at 0:30.
+// Seed 47 with these tactics has a formation change at 0:30, then a foul and an away goal at 0:53.
 const f = generateMatch({
-  seed: 46,
+  seed: 47,
   durationMs: 60_000,
   tactics: { home: { formation: "4-4-2" }, away: { formation: "4-3-3", changes: [{ t: 30_000, formation: "4-2-3-1" }] } },
 });
@@ -211,7 +211,7 @@ describe("score bug", () => {
     expect(html).toContain('aria-label="Score: Harbor City FC 0, Northvale Rovers 1"');
     expect(html).toContain("marker--home");
     expect(html).toContain("marker--away");
-    expect(html).toContain("<time>0:14</time>");
+    expect(html).toContain("<time>0:53</time>");
     // Full team names are written out, so the kit colour is never the only cue.
     for (const team of f.teams) expect(html).toContain(`${team.name}</span>`);
     expect(html).toContain("Paused");
@@ -258,20 +258,20 @@ describe("match set-up", () => {
 
   it("recovers the set-up from a generated match, so unchanged settings are not 'pending'", () => {
     const loaded = draftFromFixture(f)!;
-    expect(loaded).toMatchObject({ seed: "46", durationSeconds: 60, changeOn: { home: false, away: true } });
+    expect(loaded).toMatchObject({ seed: "47", durationSeconds: 60, changeOn: { home: false, away: true } });
     expect(loaded.teams.away).toEqual({ formation: "4-3-3", changeAt: "30", changeTo: "4-2-3-1" });
     expect(sameSetup(loaded, structuredClone(loaded))).toBe(true);
-    expect(sameSetup(loaded, { ...loaded, seed: "47" })).toBe(false);
+    expect(sameSetup(loaded, { ...loaded, seed: "48" })).toBe(false);
     expect(draftFromFixture(sampleFixture)).toBeNull();
     // Regenerating from the recovered set-up gives the same match.
     const tactics = tacticsFromControls(controlsOf(loaded), loaded.durationSeconds);
-    expect(generateMatch({ seed: 46, durationMs: 60_000, tactics }).matchId).toBe(f.matchId);
+    expect(generateMatch({ seed: 47, durationMs: 60_000, tactics }).matchId).toBe(f.matchId);
   });
 
   it("says when changes are not applied yet, and summarises errors in words", () => {
     const props = {
       teams: f.teams,
-      watchingLabel: "Seed 46",
+      watchingLabel: "Seed 47",
       onDraft: () => {},
       onGenerate: () => {},
       onScriptedDemo: () => {},

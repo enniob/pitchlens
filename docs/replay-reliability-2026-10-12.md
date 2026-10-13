@@ -10,6 +10,12 @@ confirmed incorrect claims, and an eighth has an unsupported directional
 label. Additional HTTP samples also failed manual grounding review. All
 football evidence is synthetic.
 
+> **Simulator version.** This run used simulator v4 (`sim-v4-…` match IDs).
+> Simulator v5 changed how goalkeepers meet a carrier who is in on goal, so
+> generated matches no longer reproduce these exact cases. Seeds 3, 9, 20 and
+> 24 play out unchanged. The `seed2-*` and `seed28-*` scenarios below were
+> replaced by `seed6-*` and `seed16-*`, which have not yet been run live.
+
 The matrix ran from October 12 at 11:38 p.m. to October 13 at 12:24 a.m.
 America/New_York (finish: `2026-10-13T04:24:19.916Z`). Every successful response
 was retained and manually compared with selected-time evidence. No confirmed

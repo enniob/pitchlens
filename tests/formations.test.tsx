@@ -315,7 +315,7 @@ describe("scheduled formation changes", () => {
 
   it("during a stoppage, take effect for the restart: a goal kick lines up in the new shape", () => {
     // The first goal kick in an unchanged match; change the kicking team's formation during the dead ball before it.
-    const seeds = Array.from({ length: 12 }, (_, i) => i);
+    const seeds = Array.from({ length: 16 }, (_, i) => i);
     let checked = 0;
     for (const seed of seeds) {
       const plain = generateMatch({ seed, durationMs: 120_000 });

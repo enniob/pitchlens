@@ -103,7 +103,7 @@ export interface SimulationOptions {
  * Bumped whenever the simulator's output for a given seed and configuration
  * changes. Part of every generated matchId.
  */
-export const SIMULATOR_VERSION = "4";
+export const SIMULATOR_VERSION = "5";
 
 /** Fixed simulation timestep for player movement and ball physics. */
 export const STEP_MS = 20;
@@ -177,6 +177,12 @@ const DEFLECT_RECOVERY_MS = 400;
 const KICK_RECOVERY_MS = 400;
 /** Chance that a passer notices a team-mate is offside and looks for someone else. */
 const OFFSIDE_AWARENESS = 0.75;
+/**
+ * A carrier this close to the centre of the goal they attack is in on goal:
+ * they shoot (or cut the ball back) instead of carrying it on, and the
+ * goalkeeper comes off their line to meet them, m.
+ */
+const IN_ON_GOAL_RANGE = 8;
 /** Once a carrier is this close to goal, a defender steps into the line between them and the goal. */
 const COVER_RANGE = 32;
 /** ...this far in front of the ball. */
@@ -484,6 +490,8 @@ export function generateMatch({ seed, durationMs = 60_000, tactics: config }: Si
   /** Last player to touch the ball; decides who gets a throw-in, corner or goal kick. */
   let lastTouch = null as Body | null;
   let nextAction = 1000;
+  /** When the carrier last decided while in on goal; they reconsider at once on getting there, then at most this often. */
+  let inOnGoalT = -Infinity;
   /** Set when this step contains a contact, so a snapshot is recorded at exactly this time. */
   let contact = false;
 
@@ -698,6 +706,7 @@ export function generateMatch({ seed, durationMs = 60_000, tactics: config }: Si
     return { x: clamp(spot.x, 2, PITCH_LENGTH - 2), y: clamp(spot.y, 2, PITCH_WIDTH - 2) };
   };
   const keeperSpot = (b: Body): Vec2 => ({ x: b.base.x, y: clamp(ball.y, 30.5, 37.5) });
+  const inOnGoal = (b: Body) => !b.keeper && distance(b.state, { x: goalLineOf(b.team), y: CENTRE.y }) < IN_ON_GOAL_RANGE;
   const ballLead = (): Vec2 => ({
     x: clamp(ball.x + ball.vx * 0.25, 0.5, PITCH_LENGTH - 0.5),
     y: clamp(ball.y + ball.vy * 0.25, 0.5, PITCH_WIDTH - 0.5),
@@ -769,10 +778,13 @@ export function generateMatch({ seed, durationMs = 60_000, tactics: config }: Si
         let target = keeperSpot(b);
         let speed = MAX_PLAYER_SPEED;
         if (flight?.kind === "shot" && flight.from.team !== b.team && !flight.loose) {
-          // Move across the line towards where the shot will arrive, after a reaction delay.
+          // Move across towards where the shot will arrive, after a reaction delay, wherever they came out to.
           speed = KEEPER_SPEED;
           const eta = Math.abs(ball.vx) > 0.5 ? (s.x - ball.x) / ball.vx : -1;
-          target = t < flight.reactT || eta <= 0 ? s : { x: b.base.x, y: clamp(ball.y + ball.vy * eta, 29.5, 38.5) };
+          target = t < flight.reactT || eta <= 0 ? s : { x: s.x, y: clamp(ball.y + ball.vy * eta, 29.5, 38.5) };
+        } else if (owner && owner.team !== b.team && !held && inOnGoal(owner)) {
+          // Come out to meet a carrier who is in on goal, to smother the ball or narrow the angle.
+          target = owner.state;
         }
         // Goalkeepers shuffle across their goal while facing the ball, so they can dive either way.
         move(b, target, speed, Math.atan2(ball.y - s.y, ball.x - s.x));
@@ -1014,12 +1026,12 @@ export function generateMatch({ seed, durationMs = 60_000, tactics: config }: Si
       !play?.indirect &&
       distance(s, goal) < 28 &&
       Math.abs(s.y - goal.y) < depth * 0.9 + 6 &&
-      rng() < 0.65
+      (inOnGoal(from) || rng() < 0.65)
     ) {
       // Aim somewhere around the frame; wide and high aims miss on their own.
       const target = { x: goal.x, y: goal.y + (rng() * 2 - 1) * 4.3, z: 0.25 + rng() * 2.6 };
       intent = { kind: "shot", since: t, target, speed: 21 + rng() * 6 };
-    } else if (!play && rng() < 0.4) {
+    } else if (!play && !inOnGoal(from) && rng() < 0.4) {
       // Carry into space before reconsidering a pass.
       nextAction = t + 1200;
     } else {
@@ -1545,7 +1557,8 @@ export function generateMatch({ seed, durationMs = 60_000, tactics: config }: Si
             if (i.kind === "pass") strikePass(carrier, i);
             else strikeShot(carrier, i.target, i.speed);
           }
-        } else if (gathered && t >= nextAction) {
+        } else if (gathered && (t >= nextAction || (inOnGoal(carrier) && t - inOnGoalT >= 1000))) {
+          if (inOnGoal(carrier)) inOnGoalT = t;
           decide(carrier);
         }
       } else if (flight) {

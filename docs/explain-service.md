@@ -283,7 +283,7 @@ rebuilds it (`src/explain/matchRef.ts`, `src/server/resolveMatch.ts`):
 // A match from the set-up drawer: the recipe that produced it
 {
   "kind": "generated",
-  "matchId": "sim-v4-42-60000-1a2b3c4d",
+  "matchId": "sim-v5-42-60000-1a2b3c4d",
   "seed": 42,
   "durationMs": 60000,
   "tactics": {

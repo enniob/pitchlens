@@ -9,10 +9,10 @@ const flag = fixture.events.find(e => e.type === "offside")!;
 describe("offside review evidence", () => {
   it("shows the reported marginal offside at the kick, rather than the whistle", () => {
     const review = offsideReview(fixture, flag)!;
-    expect(review.frame.timeMs).toBe(26640);
-    expect(flag.t).toBe(28480);
-    expect(review.lineX).toBeCloseTo(17.026959);
-    expect(review.margin).toBeCloseTo(0.189283);
+    expect(review.frame.timeMs).toBe(26500);
+    expect(flag.t).toBe(28340);
+    expect(review.lineX).toBeCloseTo(16.952862);
+    expect(review.margin).toBeCloseTo(0.031988);
     expect(review.player.playerId).toBe("nvr-9");
   });
 
@@ -31,7 +31,7 @@ describe("offside review evidence", () => {
 
   it("skips calls without a recorded kick frame instead of inventing evidence", () => {
     expect(offsideReview(fixture, { ...flag, startT: undefined })).toBeNull();
-    expect(offsideReview(fixture, { ...flag, startT: 26641 })).toBeNull();
+    expect(offsideReview(fixture, { ...flag, startT: 26501 })).toBeNull();
     expect(offsideReview(fixture, { ...flag, startT: flag.t + 1 })).toBeNull();
     expect(offsideReview(fixture, { ...flag, type: "foul" })).toBeNull();
   });
