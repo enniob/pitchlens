@@ -70,6 +70,19 @@ show their headline and open on click.
 
 Explicit moment requests (under **Ask about any moment**) are never automatic; the recap summary is requested
 the first time the recap opens for each audience and reused after that.
+
+**Browser request scheduling.** The server runs one explanation per session, so
+the viewer sends its requests one at a time through a shared browser-side
+scheduler (`src/explain/scheduler.ts`, provided per match by
+`ExplanationSchedulerScope` in `src/components/ExplanationScheduler.tsx`).
+Waiting explicit requests and the recap summary go before a waiting automatic
+insight; a request already running is never interrupted for priority. A waiting
+insight is replaced by a newer one. A request is never sent once it is
+cancelled, playback has moved back before its time, access is locked, or the
+viewer has closed or changed match; cancelling or a failure frees the queue for
+the next request. This only avoids needless `busy` refusals: the server's
+concurrency, access, quota, budget and response checks are unchanged, and the
+client still validates every answer.
 Changing the audience or match cancels a pending browser request. Every answer
 is kept for the current match: the panel lists earlier ones asked for explicitly under **Your
 explanations**, and the recap lists them, with automatic insights, under **Explained moments**,

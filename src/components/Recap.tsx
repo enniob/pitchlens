@@ -10,6 +10,7 @@ import { recapMoments } from "@/playback/recap";
 import { statisticsAt } from "@/playback/statistics";
 import { ExplanationDetails } from "./Evidence";
 import { LOCKED_HINT, useExplanationAccess } from "./ExplanationAccessGate";
+import { ExplanationSchedulerScope, useExplanationScheduler } from "./ExplanationScheduler";
 import { eventCopy, plainDescription } from "./eventCopy";
 import { AudienceSwitch, audienceName, CheckRow, savedTitle, type SavedExplanation } from "./ExplanationPanel";
 import { formatClock } from "./format";
@@ -100,7 +101,9 @@ export function Recap({ fixture, audience, onAudience, onReplayFrom, explained =
       )}
 
       <div className="recap__lower">
-        <Story key={audience} fixture={fixture} audience={audience} onReplay={replay} cached={summaries[audience]} onSummary={onSummary} />
+        <ExplanationSchedulerScope>
+          <Story key={audience} fixture={fixture} audience={audience} onReplay={replay} cached={summaries[audience]} onSummary={onSummary} />
+        </ExplanationSchedulerScope>
         <Snapshot fixture={fixture} home={home} away={away} />
       </div>
       {explained.length > 0 && onOpenExplanation && (
@@ -143,6 +146,9 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
   { fixture: MatchFixture; audience: Audience; onReplay: (t: number) => void; cached?: ExplainSuccess; onSummary?: (a: Audience, r: ExplainSuccess) => void }) {
   const supported = matchReferenceOf(fixture, sampleFixture.matchId) !== null;
   const allowed = useExplanationAccess();
+  const allowedRef = useRef(allowed);
+  allowedRef.current = allowed;
+  const scheduler = useExplanationScheduler();
   const [state, setState] = useState<{ kind: "loading" } | { kind: "error"; message: string } | { kind: "done"; result: ExplainSuccess }>(
     cached ? { kind: "done", result: cached } : { kind: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -154,7 +160,9 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
     if (!supported || !allowed || answered.current === attempt) return;
     const controller = new AbortController();
     setState({ kind: "loading" });
-    requestExplanation(fixture, sampleFixture.matchId, fixture.durationMs, audience, controller.signal, fetch, "match")
+    // Not sent once access is locked; this effect's cleanup then abandons it.
+    scheduler.schedule({ priority: "manual", signal: controller.signal, wanted: () => allowedRef.current },
+      () => requestExplanation(fixture, sampleFixture.matchId, fixture.durationMs, audience, controller.signal, fetch, "match"))
       .then((result) => {
         if (controller.signal.aborted) return;
         answered.current = attempt;
@@ -168,7 +176,7 @@ function Story({ fixture, audience, onReplay, cached, onSummary }:
       });
     return () => controller.abort();
     // `answered` is read as it is when an attempt starts, and onSummary is a stable callback from the viewer.
-  }, [fixture, audience, supported, attempt, allowed]);
+  }, [fixture, audience, supported, attempt, allowed, scheduler]);
 
   if (!supported)
     return <article className="recap__story"><h3>How the match unfolded</h3><p>Summaries are unavailable for this match. Try the demo or generate a new match.</p></article>;

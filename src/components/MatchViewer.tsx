@@ -35,6 +35,7 @@ import { MomentBanner } from "./MomentBanner";
 import { MomentStrip, nextStripMoment, previousStripMoment, stripMoments as pickStripMoments } from "./MomentStrip";
 import { PlaybackControls, StageControls, ZoomControls } from "./PlaybackControls";
 import { Recap } from "./Recap";
+import { ExplanationSchedulerScope } from "./ExplanationScheduler";
 import { ScoreBug, TacticsNumbers, type PlaybackPhase } from "./ScoreBug";
 import { TeamName } from "./TeamBadge";
 import { Timeline } from "./Timeline";
@@ -121,8 +122,13 @@ function safeValidate(fixture: MatchFixture): string[] {
 export function MatchViewer(props: MatchViewerProps) {
   const errors = useMemo(() => safeValidate(props.fixture), [props.fixture]);
   if (errors.length > 0) return <FixtureErrors errors={errors} />;
-  // Keyed by fixture so a new fixture gets a fresh engine and scene.
-  return <PlaybackViewer key={props.fixture.matchId} {...props} />;
+  // Keyed by fixture so a new fixture gets a fresh engine and scene, and a fresh
+  // explanation scheduler shared by the insight feed, the panel and the recap.
+  return (
+    <ExplanationSchedulerScope key={props.fixture.matchId}>
+      <PlaybackViewer {...props} />
+    </ExplanationSchedulerScope>
+  );
 }
 
 function FixtureErrors({ errors }: { errors: string[] }) {
