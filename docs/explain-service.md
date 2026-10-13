@@ -405,7 +405,17 @@ setting values or provider responses.
       headline, the explanation and every fact, interpretation and limitation
       against the evidence and returns `supported` or `unsupported` with a reason for each.
       A review that misses a target or is malformed counts as unusable.
-4. **One revision.** If a check fails, the analyst gets the problems found
+4. **Removing rejected claims.** When every problem found, by the contract,
+   grounding or verifier check, names an individual fact, interpretation claim
+   or limitation, those entries are removed and the rest is checked again
+   (`src/explain/prune.ts`). After grounding, the verifier then reviews only
+   what is left; after review, every remaining field was already approved.
+   Removing a claim adds nothing to the answer. It is not done when any
+   problem concerns the headline, the explanation or the answer as a whole,
+   when no fact would remain, or when the headline or explanation repeats a
+   number that only a removed claim gives. The answer then has
+   `outcome: "revised"` and lists each removal in `issues` as `removed: ...`.
+5. **One revision.** Otherwise, if a check fails, the analyst gets the problems found
    and one chance to revise. The revision goes through the same checks.
    Where it can be determined exactly, a grounding problem names the evidence
    that would support the wording: the shot behind a cited shot result or
@@ -428,7 +438,7 @@ setting values or provider responses.
    rejected draft eligible for display or verifier approval. The headline's
    100-character limit is stated in the prompt and schema description because
    strict model schemas omit length-validation keywords.
-5. **Fallback.** If the revision also fails, the verifier's answer is unusable,
+6. **Fallback.** If the revision also fails, the verifier's answer is unusable,
    or the call or token budget runs out, the result is the
    `insufficient-evidence` fallback with `outcome: "fallback"`.
 
@@ -505,7 +515,7 @@ are in `src/explain/prompts.ts`.
 | Limit | Value | Where |
 | --- | --- | --- |
 | Whole workflow | 60 s | `WORKFLOW_LIMITS.totalMs` |
-| One model call | 25 s | `modelCallMs` |
+| One model call | 25 s; a call that times out is retried once if at least 15 s of the workflow remain | `modelCallMs`, `timeoutRetryMinMs` |
 | Model calls | 8 (analyst turns, reviews and the revision) | `modelCalls` |
 | Tool calls | 6 | `toolCalls` |
 | Analyst turns per draft | 3, the last without tools | `analystTurns` |

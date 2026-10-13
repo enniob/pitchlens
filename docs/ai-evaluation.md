@@ -1,6 +1,20 @@
 # AI evaluation of "Explain this moment"
 
-**Latest follow-up (October 12–13, 2026):** the unchanged final working-tree
+**Latest targeted follow-up (October 13, 2026):** timestamp parsing and
+possession grounding fixes passed 1,460 offline tests, type checking and build.
+The 26 affected live cases returned 13 usable answers, ten fallbacks and three
+timeouts; the release gate failed. The known possession defect was rejected
+live. All seven prior timeout cases returned without another timeout, while
+three other requests exhausted the 25-second call budget. A further full
+evaluation is deferred. See [findings and limitations](live-ai-evaluation-2026-10-13.md).
+
+**Latest full rerun (October 13, 2026):** merged commit `533a82a` attempted
+all 36 cases: 21 usable explanations, two flagged answers, six fallbacks and
+seven timeouts. The release gate failed, and manual review found unsupported
+possession claims that passed automated checks. See
+[results and targeted follow-up](live-ai-evaluation-2026-10-13.md).
+
+**Earlier follow-up (October 12–13, 2026):** the unchanged final working-tree
 fingerprint `80f04c5471b14542664ee809de551e0127dca1bfea7cde0f9c43e83c1dc8f1d5`
 on base `482a824dee7585a0f2911c0f6c1908b271558ad7` completed all 36 live cases:
 26 reviewed explanations, eight fallbacks and two errors. The strict gate

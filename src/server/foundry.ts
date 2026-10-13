@@ -11,6 +11,7 @@
  */
 
 import { ModelScheduler } from "./modelScheduler";
+import type { ExplainTrace } from "@/explain/api";
 
 export interface FoundryConfig {
   /** Base URL ending in /openai/v1, e.g. https://<resource>.openai.azure.com/openai/v1 */
@@ -111,11 +112,23 @@ export interface ModelClient {
 
 export type ModelErrorCode = "timeout" | "rate-limited" | "provider-error" | "bad-provider-response";
 
+/** Safe local diagnostics: no URL, headers, prompts or response text. */
+export interface ModelFailureDiagnostics {
+  role: ChatRequest["role"];
+  stage: "queue" | "request" | "response-body" | "provider-http";
+  elapsedMs: number;
+  queueMs: number;
+  httpStatus?: number;
+}
+
 export class ModelError extends Error {
+  /** Recorded by the workflow for local evaluation; never sent as an HTTP error body. */
+  trace?: ExplainTrace;
   constructor(
     readonly code: ModelErrorCode,
     message: string,
     readonly retryAfterMs?: number,
+    readonly diagnostics?: ModelFailureDiagnostics,
   ) {
     super(message);
     this.name = "ModelError";
@@ -156,6 +169,12 @@ export class FoundryClient implements ModelClient {
   ) {}
 
   async complete(request: ChatRequest): Promise<ChatResult> {
+    const started = performance.now();
+    let stage: ModelFailureDiagnostics["stage"] = "queue";
+    let queueMs = 0;
+    const failure = (code: ModelErrorCode, message: string, retry?: number, status?: number) =>
+      new ModelError(code, message, retry, { role: request.role, stage, elapsedMs: Math.round(performance.now() - started), queueMs,
+        ...(status === undefined ? {} : { httpStatus: status }) });
     const body: Record<string, unknown> = {
       model: request.role === "verifier" ? this.config.verifierDeployment : this.config.deployment,
       messages: request.messages,
@@ -177,6 +196,8 @@ export class FoundryClient implements ModelClient {
     try {
       await this.scheduler(request.role).acquire(request.signal);
       request.signal.throwIfAborted();
+      queueMs = Math.round(performance.now() - started);
+      stage = "request";
       response = await this.fetchImpl(`${this.config.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json", "api-key": this.config.apiKey },
@@ -184,31 +205,36 @@ export class FoundryClient implements ModelClient {
         signal: request.signal,
       });
     } catch (e) {
-      if (request.signal.aborted) throw new ModelError("timeout", "The model did not answer in time.");
-      throw new ModelError("provider-error", `Could not reach the model service (${e instanceof Error ? e.name : "network error"}).`);
+      if (stage === "queue") queueMs = Math.round(performance.now() - started);
+      if (request.signal.aborted) throw failure("timeout", "The model did not answer in time.");
+      throw failure("provider-error", `Could not reach the model service (${e instanceof Error ? e.name : "network error"}).`);
     }
 
     if (response.status === 429) {
+      stage = "provider-http";
       await response.body?.cancel().catch(() => {});
       const delay = retryAfter(response.headers) ?? 1_000;
       this.scheduler(request.role).defer(delay);
-      throw new ModelError("rate-limited", "The model service is rate limiting requests.", delay);
+      throw failure("rate-limited", "The model service is rate limiting requests.", delay, response.status);
     }
     if (response.status === 408 || response.status === 504) {
+      stage = "provider-http";
       await response.body?.cancel().catch(() => {});
-      throw new ModelError("timeout", "The model service timed out.");
+      throw failure("timeout", "The model service timed out.", undefined, response.status);
     }
     if (!response.ok) {
+      stage = "provider-http";
       await response.body?.cancel().catch(() => {});
-      throw new ModelError("provider-error", `The model service returned HTTP ${response.status}.`);
+      throw failure("provider-error", `The model service returned HTTP ${response.status}.`, undefined, response.status);
     }
 
     let json: unknown;
+    stage = "response-body";
     try {
       json = await response.json();
     } catch {
-      if (request.signal.aborted) throw new ModelError("timeout", "The model did not answer in time.");
-      throw new ModelError("bad-provider-response", "The model service returned a body that is not JSON.");
+      if (request.signal.aborted) throw failure("timeout", "The model did not answer in time.");
+      throw failure("bad-provider-response", "The model service returned a body that is not JSON.", undefined, response.status);
     }
     if (typeof json !== "object" || json === null || Array.isArray(json))
       throw new ModelError("bad-provider-response", "The model service returned no message.");

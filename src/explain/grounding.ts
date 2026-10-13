@@ -15,7 +15,7 @@
  *     claim's cited evidence (facts and interpretation alike) or, for the
  *     headline and explanation, in any supplied evidence. Only the headline
  *     and explanation may mention a goal the score shows but the evidence
- *     window no longer contains.
+ *     window no longer contains. Negated wording ("no shots") names no event.
  *   - a duration between two named kinds of event ("the goal came 6.4 s after
  *     the turnover") that no such pair of events in its evidence spans
  *   - a pass called forward or backward against its recorded direction, or
@@ -36,6 +36,7 @@ import type { Score } from "@/match/contract";
 import type { Audience, Focus } from "./api";
 import type { ContextEvent, MatchContext } from "./context";
 import type { Claim, ExplanationResponse } from "./response";
+import { WRITTEN_TIME as TIME, writtenTimeMs, isElapsedTime as isDuration } from "./timeText";
 
 /** Wording limits per audience, stricter than the contract's own limits. */
 export const AUDIENCE_LIMITS: Record<Audience, { explanation: number; facts: number; interpretation: number }> = {
@@ -76,7 +77,6 @@ const EVENT_WORDS: { label: string; pattern: RegExp; supports: (e: ContextEvent)
 ];
 
 // Not a shirt number followed by an initial, as event descriptions name players ("#6 S. Okafor").
-const TIME = /(?<![#\d.])(\d+(?:\.\d+)?)\s*(ms|s|secs?|[sS]econds?)\b/g;
 const MINUTE = /\b(\d+)(?:st|nd|rd|th)?\s+minute\b/gi;
 // Two numbers joined by a dash, but not part of a formation such as 4-3-3.
 const SCORE = /(?<![\d.\-–])(\d{1,2})\s?[–-]\s?(\d{1,2})(?![\d\-–])/g;
@@ -158,6 +158,7 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
   if (events !== "none") {
     checkIntervals(issues, where, text, scope, context);
     checkGeography(issues, where, text, scope, context);
+    checkPossession(issues, where, text, scope, context);
   }
 
   // Explicit clock/minute prose needs the same future boundary as seconds.
@@ -174,12 +175,13 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
   }
 
   for (const m of text.matchAll(TIME)) {
-    const ms = m[2]!.toLowerCase() === "ms" ? Number(m[1]) : Number(m[1]) * 1000;
+    const ms = writtenTimeMs(m);
+    if (!Number.isFinite(ms)) { issues.push(`${where} gives a malformed time ${m[0].trim()}`); continue; }
     const prefix = text.slice(Math.max(0, m.index! - 60), m.index).toLowerCase();
     const duration = isDuration(text, m);
     const times = [...scope.events.flatMap((e) => e.startT !== undefined ? [e.t, e.startT] : [e.t]), ...(scope.snapshotTimes ?? [])];
     const decimals = m[1]!.split(".")[1]?.length ?? 0;
-    const tolerance = m[2]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** decimals;
+    const tolerance = m[3]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** decimals;
     const roundedKnownTime = !duration && ms <= selected + tolerance && times.some((t) => t <= selected && Math.abs(t - ms) <= tolerance);
     if (ms > selected + 50 && !roundedKnownTime) issues.push(`${where} mentions ${m[0].trim()}, after the selected time (${selected / 1000} s)`);
     if (where.startsWith("facts[") || where.startsWith("interpretation[")) {
@@ -229,7 +231,7 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
   for (const w of EVENT_WORDS) {
     if (events === "none") continue;
     const m = text.match(w.pattern);
-    if (!m || scope.events.some(w.supports)) continue;
+    if (!m || scope.events.some(w.supports) || negated(text, m.index!)) continue;
     // The score shows a goal happened, even one before the evidence window that
     // cannot be cited, but only the headline and explanation may rely on it.
     // Facts and interpretation must cite the goal itself.
@@ -238,15 +240,16 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
   }
 }
 
+/**
+ * "No shots", "without a shot", "before any goal": the wording names a kind of
+ * event without saying one happened. Whether the absence is shown is left to
+ * the verifier, as for any other statement about the window.
+ */
+const negated = (text: string, index: number) =>
+  /\b(?:no|not|without|zero|neither|nor|never|any)\s+(?:\w+\s+){0,2}$/i.test(text.slice(Math.max(0, index - 40), index));
+
 const FILTERED_COUNT =
   /\b(\d+)\s+(?:ordinary\s+|other\s+|routine\s+)?(?:pass(?:es)?|turnovers?|throw-?ins?|tackles?|touches)\b[^.;]*?\b(?:filtered|omitted|left out|excluded|not (?:listed|shown|included))\b/i;
-
-/** A time written as an elapsed duration ("took 6.4 s", "6.4 s later"), not a timestamp ("at 6.4 s"). */
-function isDuration(text: string, m: RegExpMatchArray): boolean {
-  const prefix = text.slice(Math.max(0, m.index! - 60), m.index).toLowerCase();
-  const suffix = text.slice(m.index! + m[0].length, m.index! + m[0].length + 15).toLowerCase();
-  return !/\bat\s+$/.test(prefix) && (/(?:took|takes|lasted|lasting|within|over|in|for|after|last|previous|duration(?: of)?|elapsed(?: time)?|approximately|about|roughly)\s+(?:(?:approximately|about|roughly|only|just)\s+)?$/.test(prefix) || /^\s+(?:later|earlier|apart|elapsed|after|before)\b/.test(suffix));
-}
 
 /**
  * Kinds of event a duration can be measured between, and the times each
@@ -279,9 +282,10 @@ const ENDPOINTS: { kind: string; pattern: RegExp; times: (e: ContextEvent) => nu
 function checkIntervals(issues: string[], where: string, text: string, scope: Scope, context: MatchContext): void {
   for (const sentence of sentencesOf(text)) {
     const times = [...sentence.matchAll(TIME)];
-    const breaks = [...sentence.matchAll(/,|;|\b(?:and|while|then)\b/gi)].map((b) => b.index!);
+    const breaks = [...sentence.matchAll(/,|;|\b(?:and|while|then)\b/gi)].map((b) => b.index!)
+      .filter((b) => !times.some((m) => b > m.index! && b < m.index! + m[0].length));
     times.forEach((m, i) => {
-      if (m[2]!.toLowerCase() === "ms" || !isDuration(sentence, m)) return;
+      if (!isDuration(sentence, m)) return;
       const previous = i === 0 ? 0 : times[i - 1]!.index! + times[i - 1]![0].length;
       const next = i === times.length - 1 ? sentence.length : times[i + 1]!.index!;
       const from = Math.max(previous, ...breaks.filter((b) => b < m.index!));
@@ -289,8 +293,8 @@ function checkIntervals(issues: string[], where: string, text: string, scope: Sc
       const clause = sentence.slice(from, to);
       const kinds = ENDPOINTS.filter((k) => k.pattern.test(clause));
       if (kinds.length < 2) return;
-      const ms = Number(m[1]) * 1000;
-      const tolerance = 500 / 10 ** (m[1]!.split(".")[1]?.length ?? 0);
+      const ms = writtenTimeMs(m);
+      const tolerance = m[3]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** (m[2]?.length ?? 0);
       const at = (k: (typeof ENDPOINTS)[number]) => scope.events.filter((e) => e.t <= context.time.selectedMs).flatMap(k.times);
       const spanned = kinds.some((a, x) => kinds.some((b, y) => x < y && at(a).some((ta) => at(b).some((tb) => Math.abs(Math.abs(ta - tb) - ms) <= tolerance))));
       if (!spanned)
@@ -301,6 +305,34 @@ function checkIntervals(issues: string[], where: string, text: string, scope: Sc
 
 /** Sentences, without splitting after a player's initial ("S. Okafor"). */
 const sentencesOf = (text: string) => text.split(/(?<!\b[A-Z]\.)(?<=[.!?;])\s+/);
+
+/** Possession duration comes from sampled spells, never a convenient gap between events. */
+function checkPossession(issues: string[], where: string, text: string, scope: Scope, context: MatchContext): void {
+  const cited = new Set(scope.events.map((e) => e.id));
+  const snapshots = new Set(scope.snapshotTimes ?? []);
+  const claim = where.startsWith("facts[") || where.startsWith("interpretation[");
+  for (const sentence of sentencesOf(text)) {
+    if (!/\bpossession\b/i.test(sentence)) continue;
+    const spellClaim = /\bpossession\s+(?:spell|run|sequence|that|lasting|lasted|for|began)|\bspell\b/i.test(sentence);
+    if (!spellClaim && !/\b(?:ended|ending|stopped|halted|terminated)\b/i.test(sentence)) continue;
+    // A supplied event can occur during a spell without being its end or cause.
+    if (/\b(?:offside|goal|shot|foul|kickoff|kick-off)\b/i.test(sentence) && /\b(?:ended|ending|stopped|halted|terminated)\b/i.test(sentence))
+      issues.push(`${where} attributes a possession spell's end to an event; the supplied spells do not establish event causes, so state the recorded event separately`);
+    const spells = (context.measurements.possessionSpells ?? []).filter((sp) =>
+      (!claim || sp.cite.every((r) => r.kind === "event" ? cited.has(r.id) : snapshots.has(r.t))) &&
+      !context.teams.some((team) => team.id !== sp.teamId && [team.name, team.shortName, team.name.replace(/\s+\S+$/, "")].some((name) => name && sentence.includes(name))));
+    if (/\b(?:ended|ending|stopped|halted|terminated)\b/i.test(sentence) && !/\b(?:not|never|hasn't|hadn't)\b/i.test(sentence) &&
+      !spells.some((sp) => sp.end !== "ongoing"))
+      issues.push(`${where} says a possession spell ended, but no cited spell records an end; describe the sampled spell without extending its boundary`);
+    for (const m of sentence.matchAll(TIME)) {
+      if (!isDuration(sentence, m)) continue;
+      const ms = writtenTimeMs(m);
+      const tolerance = m[3]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** (m[2]?.length ?? 0);
+      if (!spells.some((sp) => Math.abs(sp.durationMs - ms) <= tolerance))
+        issues.push(`${where} gives a possession duration not supported by a cited possession spell; copy durationMs and cite the spell's cite list, or omit the duration`);
+    }
+  }
+}
 
 const HALF_LINE = 52.5;
 /** Whether x is in the half a team defends, from the direction it attacks. */

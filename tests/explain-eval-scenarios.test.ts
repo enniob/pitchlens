@@ -122,7 +122,9 @@ describe("evaluation scenarios", () => {
     const draft = withClaim(s, audience, f.probe);
     const out = await run(s, audience, byRole(draft, lenientVerifier));
     expect(shownText(out.explanation)).not.toContain(f.probe);
-    expect(out.verification).toMatchObject({ outcome: "fallback", grounding: "failed" });
+    // The grounding checks reject the claim: it is removed from the answer, or the answer falls back.
+    if (out.verification.outcome === "fallback") expect(out.verification.grounding).toBe("failed");
+    else expect(out.verification).toMatchObject({ outcome: "revised", revisions: 0, issues: expect.arrayContaining([expect.stringMatching(/^removed: facts\[\d+\]/)]) });
     const verdict = assess({ scenario: s, audience, explanation: out.explanation, verification: out.verification });
     expect(verdict).toMatchObject({ blockers: [], leaks: [] });
   });
@@ -138,7 +140,7 @@ describe("evaluation scenarios", () => {
     expect(["needs-review", "unsafe"]).toContain(verdict.quality);
   });
 
-  it.each(probes)("$name is rejected by the checks or the verifier and removed in the revision", async ({ s, audience, f }) => {
+  it.each(probes)("$name is rejected by the checks or the verifier and removed", async ({ s, audience, f }) => {
     const leaky = withClaim(s, audience, f.probe, "interpretation");
     const fixed = groundedDraft(s, audience);
     let analystTurns = 0;
@@ -146,7 +148,8 @@ describe("evaluation scenarios", () => {
       r.role === "analyst" ? answer(analystTurns++ === 0 ? leaky : fixed) : verifierRejecting(f.pattern)(r));
     const out = await run(s, audience, steps);
     expect(shownText(out.explanation)).not.toContain(f.probe);
-    expect(out.verification.revisions).toBe(1);
+    // Removed with its claim, or by the model's revision.
+    expect(out.verification.outcome === "revised" || out.verification.revisions === 1).toBe(true);
     const verdict = assess({ scenario: s, audience, explanation: out.explanation, verification: out.verification });
     expect(verdict).toMatchObject({ blockers: [], leaks: [], unsupported: [] });
   });

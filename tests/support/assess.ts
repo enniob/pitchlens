@@ -25,6 +25,7 @@ import type { Audience, ExplainSuccess, VerificationSummary } from "@/explain/ap
 import type { MatchContext } from "@/explain/context";
 import { EVENT_TYPES, EvidenceSession } from "@/explain/evidence";
 import { validateExplanation, type Claim, type ExplanationResponse } from "@/explain/response";
+import { WRITTEN_TIME as TIME, writtenTimeMs, isElapsedTime } from "@/explain/timeText";
 import { FORMATION_IDS, type EventType, type MatchFixture, type Score } from "@/match/contract";
 import { formationsAt, scoreAt } from "@/playback/derive";
 import type { EvalScenario } from "./scenarios";
@@ -55,7 +56,6 @@ export interface Assessment {
 const UNCERTAIN =
   /\b(not (yet )?(known|shown|recorded|available|clear|visible|included|in the (data|evidence))|unknown|unclear|whether|if it|cannot (be )?(tell|told|say|confirm|determine|know)|can't (tell|say)|no (result|outcome)|yet to|pending|does not (show|say|include)|doesn't (show|say|include)|outside the evidence)\b/i;
 // Not a shirt number followed by an initial ("#6 S. Okafor").
-const TIME = /(?<![#\d.])(\d+(?:\.(\d+))?)\s*(ms|s|secs?|[sS]econds?)\b/g;
 const SCORE = /(?<![\d.\-–])(\d{1,2})\s?[–-]\s?(\d{1,2})(?![\d\-–])/g;
 const NUMBER = /#(\d{1,3})\b/g;
 const FORMATION = new RegExp(`(?<![\\d-])(${FORMATION_IDS.map((f) => f.replace(/-/g, "\\-")).join("|")})(?![\\d-])`, "g");
@@ -96,15 +96,14 @@ const KINDS: [RegExp, (e: Ev) => number[]][] = [
 /** A duration in a clause naming two kinds of event must equal the gap between two such events. */
 function endpointIssues(text: string, events: Ev[], selected: number): string[] {
   const out: string[] = [];
-  for (const clause of text.split(/(?<!\b[A-Z]\.)(?<=[.!?;])\s+|,|\b(?:and|while|then)\b/i)) {
-    const durations = [...clause.matchAll(/(\d+(?:\.(\d+))?)\s*(?:s|secs?|seconds?)\b\s*(later|earlier|after|before|apart)?/gi)]
-      .filter((m) => m[3] || /\b(took|takes|lasted|in|within|after|over)\s+(about\s+|roughly\s+|approximately\s+)?$/i.test(clause.slice(0, m.index)));
+  for (const clause of text.split(/(?<!\b[A-Z]\.)(?<=[.!?;])\s+|(?<!\d),|,(?!\d)|\b(?:and|while|then)\b/i)) {
+    const durations = [...clause.matchAll(TIME)].filter((m) => isElapsedTime(clause, m));
     if (durations.length !== 1) continue;
     const kinds = KINDS.filter(([pattern]) => pattern.test(clause));
     if (kinds.length < 2) continue;
     const m = durations[0]!;
-    const ms = Number(m[1]) * 1000;
-    const tolerance = 500 / 10 ** (m[2]?.length ?? 0);
+    const ms = writtenTimeMs(m);
+    const tolerance = m[3]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** (m[2]?.length ?? 0);
     const times = kinds.map(([, of]) => events.filter((e) => e.t <= selected).flatMap(of));
     const fits = times.some((a, i) => times.some((b, j) => i < j && a.some((x) => b.some((y) => Math.abs(Math.abs(x - y) - ms) <= tolerance))));
     if (!fits) out.push(`gives ${m[1]} s between events it names, but no such pair of events is that far apart`);
@@ -240,11 +239,12 @@ export function assess({ scenario, audience, explanation, verification, envelope
     const snapshotTimes = claim ? claim.evidence.flatMap((ref) => (ref.kind === "snapshot" ? [ref.t] : [])) : evidence.snapshots.map((s) => s.t);
     for (const id of futureIds) if (text.includes(id)) blockers.push(`${where} names later event ${id}`);
     for (const m of text.matchAll(TIME)) {
-      const ms = m[3]!.toLowerCase() === "ms" ? Number(m[1]) : Number(m[1]) * 1000;
+      const ms = writtenTimeMs(m);
+      if (!Number.isFinite(ms)) { unsupported.push(`${where} gives a malformed time ${m[0].trim()}`); continue; }
       const precision = m[3]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** (m[2]?.length ?? 0);
       const before = text.slice(Math.max(0, m.index! - 60), m.index).toLowerCase();
       const after = text.slice(m.index! + m[0].length, m.index! + m[0].length + 15).toLowerCase();
-      const elapsed = !/\bat\s+$/.test(before) && (/(?:took|takes|lasted|lasting|within|over|in|for|after|last|previous|duration(?: of)?|elapsed(?: time)?|approximately|about|roughly)\s+(?:(?:approximately|about|roughly|only|just)\s+)?$/.test(before) || /^\s+(?:later|earlier|apart|elapsed|after|before)\b/.test(after));
+      const elapsed = isElapsedTime(text, m);
       const known = [...cited.flatMap((e) => e.startT === undefined ? [e.t] : [e.t, e.startT]), ...snapshotTimes];
       const roundedKnownTime = !elapsed && ms <= selected + precision && known.some((t) => t <= selected && Math.abs(t - ms) <= precision);
       if (ms > selected + 50 && !roundedKnownTime) blockers.push(`${where} mentions ${m[0].trim()}, after the selected time`);
@@ -277,6 +277,21 @@ export function assess({ scenario, audience, explanation, verification, envelope
       unsupported.push(`${where} uses a left/right label ("${text.match(/\b(left|right)[ -]\w+/i)![0]}") the data does not define`);
     for (const issue of endpointIssues(text, claim ? cited : evidence.events, selected)) unsupported.push(`${where} ${issue}`);
     for (const issue of geographyIssues(text, claim ? cited : evidence.events, evidence, !!claim)) unsupported.push(`${where} ${issue}`);
+    // Independent possession check: a gap between a turnover and offside is not a sampled spell.
+    for (const sentence of text.split(/(?<!\b[A-Z]\.)(?<=[.!?;])\s+/)) {
+      if (!/\bpossession\b/i.test(sentence) || !/\bspell\b|\bpossession (?:run|sequence|that|lasting|lasted|for|began)|\b(?:ended|ending|stopped|halted|terminated)\b/i.test(sentence)) continue;
+      if (/\b(?:offside|goal|shot|foul|kick-?off)\b/i.test(sentence) && /\b(?:ended|ending|stopped|halted|terminated)\b/i.test(sentence))
+        unsupported.push(`${where} attributes a possession spell's end to an event without measured support`);
+      const ids = new Set(cited.map((e) => e.id));
+      const snap = new Set(snapshotTimes);
+      const supported = measured.possessionSpells.filter((sp) => !claim || sp.cite.every((ref) => ref.kind === "event" ? ids.has(ref.id) : snap.has(ref.t)));
+      for (const m of sentence.matchAll(TIME)) {
+        if (!isElapsedTime(sentence, m)) continue;
+        const tolerance = m[3]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** (m[2]?.length ?? 0);
+        if (!supported.some((sp) => Math.abs(sp.durationMs - writtenTimeMs(m)) <= tolerance))
+          unsupported.push(`${where} gives a possession duration without a supporting cited spell`);
+      }
+    }
 
     // Claim-level support: what the claim says must be in what it cites. Headline and explanation are
     // checked against everything reachable.
@@ -314,11 +329,11 @@ export function assess({ scenario, audience, explanation, verification, envelope
       {
         const times = [...cited.flatMap((e) => (e.startT !== undefined ? [e.t, e.startT] : [e.t])), ...snapshotTimes];
         for (const m of text.matchAll(TIME)) {
-          const ms = m[3]!.toLowerCase() === "ms" ? Number(m[1]) : Number(m[1]) * 1000;
+          const ms = writtenTimeMs(m);
           const tolerance = m[3]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** (m[2]?.length ?? 0);
           const before = text.slice(Math.max(0, m.index! - 60), m.index).toLowerCase();
           const after = text.slice(m.index! + m[0].length, m.index! + m[0].length + 15).toLowerCase();
-          const elapsed = !/\bat\s+$/.test(before) && (/(?:took|takes|lasted|lasting|within|over|in|for|after|last|previous|duration(?: of)?|elapsed(?: time)?|approximately|about|roughly)\s+(?:(?:approximately|about|roughly|only|just)\s+)?$/.test(before) || /^\s+(?:later|earlier|apart|elapsed|after|before)\b/.test(after));
+          const elapsed = isElapsedTime(text, m);
           if (elapsed) {
             const intervals = times.flatMap((start) => times.filter((end) => end !== start).map((end) => Math.abs(end - start)));
             const ids = new Set(cited.map((e) => e.id));

@@ -10,6 +10,7 @@ import type { Audience, ExplainTrace, VerificationSummary } from "@/explain/api"
 import { WORKFLOW_LIMITS } from "@/server/analyst";
 import type { ExplanationResponse } from "@/explain/response";
 import type { Quality } from "./assess";
+import type { ModelFailureDiagnostics } from "@/server/foundry";
 import { assessAudiences, type AudienceAssessment } from "./audience";
 import { EVAL_AUDIENCES, type EvalScenario } from "./scenarios";
 
@@ -133,6 +134,7 @@ export interface LiveResult {
   cost?: { amount: number; complete: boolean };
   /** Error code or reason, redacted. */
   error?: string;
+  diagnostics?: ModelFailureDiagnostics;
 }
 
 /** Removes every occurrence of each secret (and anything that looks like a bearer or api-key header). */
@@ -264,6 +266,13 @@ export function formatReport(meta: LiveMeta, results: LiveResult[], summary: Liv
     "Safety passing means no deterministic release blocker was found; it does not make an answer usable or true. Model review is not proof of factual correctness.",
   ];
   const flagged = results.filter((r) => r.blockers.length + r.leaks.length + r.unsupported.length > 0);
+  if (results.some((r) => r.diagnostics)) {
+    lines.push("", "### Provider failure diagnostics", "", "No prompts, response bodies, endpoints or credentials are retained. Reported tokens exclude unreported usage from failed calls.", "");
+    for (const r of results) if (r.diagnostics) {
+      const d = r.diagnostics;
+      lines.push(`- ${r.scenario} (${r.audience}): ${r.error}; role=${d.role}, stage=${d.stage}, elapsed=${d.elapsedMs} ms, queue=${d.queueMs} ms${d.httpStatus ? `, HTTP ${d.httpStatus}` : ""}`);
+    }
+  }
   if (flagged.length > 0) {
     lines.push("", "### Flags for human review", "");
     for (const r of flagged)

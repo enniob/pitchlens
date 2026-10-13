@@ -136,6 +136,14 @@ describe("live evaluation report", () => {
     expect(text).not.toContain("res.openai.azure.com");
     expect(redact("Authorization: Bearer abc.def", [])).toBe("Authorization: [redacted]");
   });
+  it("retains failure stage and partial usage in the diagnostic report", () => {
+    const failed = result({ outcome: "error", error: "timeout", trace: trace([{ role: "analyst", prompt: 120, completion: 30 }]), diagnostics: {
+      role: "verifier", stage: "request", elapsedMs: 25000, queueMs: 12,
+    } });
+    const report = formatReport({ commit: "x", date: "d", settings: {}, bounds: liveBoundsFromEnv({}) }, [failed], summarise([failed], null));
+    expect(report).toContain("role=verifier, stage=request, elapsed=25000 ms, queue=12 ms");
+    expect(report).toContain("Reported tokens exclude unreported usage from failed calls");
+  });
 });
 
 describe("live evaluation: planted instructions and audience pairs", () => {

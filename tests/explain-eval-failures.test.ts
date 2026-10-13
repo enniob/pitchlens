@@ -102,7 +102,8 @@ describe("failure handling on the evaluation scenarios", () => {
     if (good.status === "explained")
       await expect(run(s, audience, [answer(good), new ModelError("bad-provider-response", "no message")])).rejects.toMatchObject({ code: "bad-provider-response" });
     const slow = (r: ChatRequest) => new Promise<Error>((resolve) => r.signal.addEventListener("abort", () => resolve(new ModelError("timeout", "slow"))));
-    await expect(run(s, audience, [slow], { modelCallMs: 10 })).rejects.toMatchObject({ code: "timeout" });
+    // A timed-out call is retried once; a second timeout is the error.
+    await expect(run(s, audience, [slow, slow], { modelCallMs: 10 })).rejects.toMatchObject({ code: "timeout" });
   });
 
   it.each(explained)("$name: running out of calls or tokens ends in the fallback", async ({ s, audience }) => {
@@ -187,6 +188,7 @@ describe("the endpoint on the evaluation scenarios", () => {
     const { post, deps } = handler([
       new ModelError("provider-error", `HTTP 500 ${KEY}`),
       new ModelError("rate-limited", "busy", 2_000),
+      slow,
       slow,
       answer("not json"),
       answer("still not json"),
