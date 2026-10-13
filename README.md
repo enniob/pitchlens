@@ -215,6 +215,19 @@ settings are documented in [`.env.example`](.env.example), including:
 Access control, allowances and abuse protection are described in
 [security controls](docs/security-controls.md).
 
+### Azure App Service
+
+`.github/workflows/main_pitchlens.yml` builds, tests and deploys `main` to an
+Azure App Service (Linux, Node 22) as one prebuilt zip. The web app needs:
+
+- Startup command: `node node_modules/next/dist/bin/next start --hostname 0.0.0.0`
+  (`npm start` listens on loopback only, for local use).
+- `SCM_DO_BUILD_DURING_DEPLOYMENT=false`, so App Service runs the uploaded
+  build instead of rebuilding it.
+- The settings from [Quick start](#quick-start) as app settings, with
+  production values for the access code and session secret.
+- A single instance: allowances and the answer cache are kept in memory.
+
 ## Project structure
 
 ```
