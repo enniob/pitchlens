@@ -31,7 +31,7 @@ export interface AudienceAssessment {
 export const CASUAL_READABILITY = { averageWords: 22, longestWords: 35, headlineWords: 12, numbers: 4 } as const;
 
 const JARGON =
-  /\b(half[ -]?spaces?|progressive|xT|xG|low block|mid block|high block|rest defen[cs]e|overloads?|underlap\w*|between the lines|line[ -]breaking|vertical(ity)?|transition(al)? phase|pressing trigger|compactness|third man|channel)\b/i;
+  /\b(half[ -]?spaces?|progressive|xT|xG|low block|mid block|high block|rest defen[cs]e|overloads?|underlap\w*|between the lines|line[ -]breaking|vertical(ity)?|transition(al)? phase|pressing trigger|compactness|third man)\b/i;
 const RAW = [
   { label: "raw coordinates", pattern: /\b[xy]\s?=\s?-?\d/i },
   { label: "a speed unit", pattern: /\bm\/s\b/i },

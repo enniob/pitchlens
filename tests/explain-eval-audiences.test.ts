@@ -53,6 +53,8 @@ describe("Casual Fan and Analyst answers as a pair", () => {
     const flags = (patch: Partial<ExplanationResponse>) => assessAudiences(edit(casual(), patch), analyst()).readability.join("\n");
     expect(flags({ explanation: long })).toMatch(/words/);
     expect(flags({ explanation: "Harbor City attacked through the half-space and scored." })).toMatch(/jargon \("half-space"\)/);
+    // The supplied shot measurement names a channel; repeating it is not jargon.
+    expect(flags({ explanation: "Castell shot from the central channel and scored." })).toBe("");
     expect(flags({ explanation: "The shot came from x=96.4 at 31 m/s after e5-shot." })).toMatch(/raw coordinates[\s\S]*speed unit[\s\S]*event ID/);
     expect(flags({ explanation: "At 2.4 s, 4.1 s, 6.0 s and 8.8 s Harbor City passed and at 9.4 s scored." })).toMatch(/numbers/);
     expect(flags({ headline: "Harbor City finally score after a long and patient move through every line of the pitch" })).toMatch(/headline has/);
