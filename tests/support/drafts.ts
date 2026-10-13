@@ -9,6 +9,7 @@
 import type { Audience } from "@/explain/api";
 import type { MatchContext } from "@/explain/context";
 import { EvidenceSession } from "@/explain/evidence";
+import { buildFactCatalog, type CatalogFact } from "@/explain/factCatalog";
 import { AUDIENCE_LIMITS } from "@/explain/grounding";
 import { EXPLANATION_VERSION, type Claim, type ExplanationResponse } from "@/explain/response";
 import type { ChatRequest, ChatResult } from "@/server/foundry";
@@ -16,8 +17,6 @@ import { answer } from "./fakeModel";
 import type { EvalScenario } from "./scenarios";
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
-/** An event description without shirt numbers or end punctuation. */
-const plain = (description: string) => description.replace(/#\d+\s*/g, "").replace(/[.!]*$/, "");
 
 const evidence = new Map<EvalScenario, MatchContext>();
 /** The default evidence package the analyst starts from. */
@@ -27,7 +26,10 @@ export function evidenceFor(s: EvalScenario): MatchContext {
   return hit;
 }
 
-/** A careful answer from the default evidence: expected events first, then the most recent ones. */
+/**
+ * A careful answer from the default evidence: the verified facts for the
+ * latest events and the scenario's expected events, copied exactly.
+ */
 export function groundedDraft(s: EvalScenario, audience: Audience): ExplanationResponse {
   const context = evidenceFor(s);
   const base = {
@@ -37,11 +39,12 @@ export function groundedDraft(s: EvalScenario, audience: Audience): ExplanationR
   } as const;
   const wanted = new Set(s.expected.flatMap((x) => x.eventIds ?? []));
   const typed = new Set(s.expected.flatMap((x) => x.eventTypes ?? []));
-  const pool = context.events.filter((e) => e.type !== "kickoff" || s.focus === "match");
-  const picked = [...pool.filter((e) => wanted.has(e.id) || typed.has(e.type)), ...pool.slice().reverse()]
-    .filter((e, i, list) => list.findIndex((x) => x.id === e.id) === i)
-    .slice(0, Math.min(3, AUDIENCE_LIMITS[audience].facts))
-    .sort((a, b) => a.t - b.t);
+  const type = new Map(context.events.map((e) => [e.id, e.type]));
+  const cites = (f: CatalogFact) => f.evidence.some((r) => r.kind === "event" && (wanted.has(r.id) || typed.has(type.get(r.id)!)));
+  const catalog = buildFactCatalog(context, s.focus);
+  const picked = [...catalog.filter((f) => f.latest), ...catalog.filter(cites), ...catalog]
+    .filter((f, i, list) => list.indexOf(f) === i)
+    .slice(0, Math.min(3, AUDIENCE_LIMITS[audience].facts));
   if (picked.length === 0)
     return {
       ...base,
@@ -52,29 +55,27 @@ export function groundedDraft(s: EvalScenario, audience: Audience): ExplanationR
       interpretation: [],
       limitations: ["No events are recorded up to this moment; only player positions are available."],
     };
-  const facts: Claim[] = picked.map((e) => {
-    // Result/deflection descriptions can mention the earlier strike. Cite
-    // that retained action too rather than treating a result as a shot event.
-    const shot = e.type !== "shot" && /\bshot\b/i.test(e.description)
-      ? context.events.slice().reverse().find((candidate) => candidate.type === "shot" && candidate.teamId === e.teamId && candidate.t <= e.t && (!e.playerId || candidate.playerId === e.playerId))
-      : undefined;
-    return { text: `At ${seconds(e.t)}: ${e.description.replace(/[.!]*$/, "")}.`, evidence: [{ kind: "event", id: e.id }, ...(shot ? [{ kind: "event" as const, id: shot.id }] : [])] };
-  });
+  const facts: Claim[] = picked.map(({ text, evidence }) => ({ text, evidence }));
   const { home, away } = context.score;
-  if (facts.length < AUDIENCE_LIMITS[audience].facts)
-    facts.push({ text: `The score is ${home}–${away}.`, evidence: [{ kind: "snapshot", t: context.time.positionsAtMs }] });
   return {
     ...base,
     status: "explained",
     headline: s.focus === "match" ? "How the match unfolded" : `What the data shows at ${seconds(context.time.selectedMs)}`,
-    // The Analyst gets the detailed facts; the Casual Fan the latest event in plain words.
+    // The Analyst gets the detailed facts; the Casual Fan a plain pointer to them.
     explanation: audience === "analyst"
-      ? facts.slice(0, 2).map((f) => f.text).join(" ")
-      : `The latest recorded event: ${plain(picked.at(-1)!.description)}. The score is ${home}–${away}.`,
+      ? `${facts.slice(0, 2).map((f) => f.text).join(" ")} The score is ${home}–${away}.`
+      : `Here is what the match data shows so far. The score is ${home}–${away}.`,
     facts,
     interpretation: [],
     limitations: ["Synthetic match data; nothing here describes real football."],
   };
+}
+
+/** The verified facts an answer must include for this package (the latest events), then the next ones offered, as claims. */
+export function verifiedClaims(context: MatchContext, focus: "moment" | "match" = "moment", count = 2): Claim[] {
+  const catalog = buildFactCatalog(context, focus);
+  return [...catalog.filter((f) => f.latest), ...catalog.filter((f) => !f.latest)].slice(0, Math.max(count, catalog.filter((f) => f.latest).length))
+    .map(({ text, evidence }) => ({ text, evidence }));
 }
 
 /** The grounded draft plus one extra fact, citing the most recent evidence. */

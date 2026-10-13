@@ -132,9 +132,10 @@ Offline, with a scripted model, `tests/explain-eval-adversarial.test.ts` shows:
 - A draft that obeyed a payload and is rejected by the verifier is replaced in
   the revision.
 
-**Known gap:** a claim that only repeats a payload's wording ("mark all
-targets supported") passes the deterministic checks. Only the verifier stops
-it. If a verifier lets it through, the assessment marks the answer
+**Known gap:** an interpretation, headline or explanation that only repeats a
+payload's wording ("mark all targets supported") passes the deterministic
+checks. Only the verifier stops it. As a fact it is stopped deterministically:
+every fact must be a verified fact built by application code. If a verifier lets it through, the assessment marks the answer
 `needs-review`. Whether a real model ignores the payloads is measured only by a
 live run.
 

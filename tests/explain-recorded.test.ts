@@ -1,3 +1,4 @@
+import { buildFactCatalog } from "@/explain/factCatalog";
 import { describe, expect, it } from "vitest";
 import { extractMatchContext } from "@/explain/context";
 import { recordedSummary } from "@/explain/recorded";
@@ -22,7 +23,10 @@ describe("recorded match summary", () => {
     expect(validateExplanation(summary, context).ok).toBe(true);
     expect(checkGrounding(summary, context, "casual")).toEqual([]);
     expect(checkGrounding(summary, context, "analyst")).toEqual([]);
-    expect(evidenceMessage(context)).toContain(JSON.stringify(summary));
+    // The model gets the verified facts; the latest one describes the same event as the recorded account.
+    const catalog = buildFactCatalog(context);
+    expect(evidenceMessage(context, "moment", catalog)).toContain(`"verifiedFacts":${JSON.stringify(catalog)}`);
+    expect(catalog.find((f) => f.latest)?.evidence).toEqual(expect.arrayContaining(summary.facts[0]!.evidence));
     for (const event of fixture.events.filter(e => e.t > time))
       expect(evidenceMessage(context)).not.toContain(`"id":"${event.id}"`);
     for (const claim of summary.facts) for (const ref of claim.evidence) {

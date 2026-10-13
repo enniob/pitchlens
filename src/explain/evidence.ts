@@ -24,6 +24,7 @@
 import type { EventType, MatchFixture } from "@/match/contract";
 import type { Focus } from "./api";
 import { extractMatchContext, type ContextEvent, type ContextSnapshot, type MatchContext } from "./context";
+import { buildFactCatalog, type CatalogFact } from "./factCatalog";
 
 /** How far before the selected time the tools can reach, in ms. */
 export const TOOL_LOOKBACK_MS = 30_000;
@@ -60,7 +61,7 @@ export const SUMMARY_EVENT_TYPES: readonly EventType[] = [
 ];
 
 export type ToolResult =
-  | { ok: true; content: unknown; events: string[]; snapshots: number[] }
+  | { ok: true; content: unknown; events: string[]; snapshots: number[]; facts?: CatalogFact[] }
   | { ok: false; error: string };
 
 /** Tool definitions in the OpenAI-compatible function-calling format Foundry uses. */
@@ -104,6 +105,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 
 export class EvidenceSession {
   readonly base: MatchContext;
+  private factCalls = 0;
   private readonly fixture: MatchFixture;
   private readonly order: Map<string, number>;
   private readonly events = new Map<string, ContextEvent>();
@@ -176,16 +178,20 @@ export class EvidenceSession {
     const matching = window.events.filter((e) => !types || types.has(e.type));
     const events = matching.slice(-TOOL_MAX_EVENTS);
     for (const e of events) this.events.set(e.id, e);
+    // The same verified sentences the evidence offers, for these earlier events.
+    const facts = buildFactCatalog(window, "moment", { only: events, idPrefix: `T${++this.factCalls}-` });
     return {
       ok: true,
       content: {
         fromMs: from,
         toMs: this.selectedMs,
         events,
+        verifiedFacts: facts,
         omittedOlder: matching.length > events.length || window.limitations.some((l) => l.code === "events-truncated"),
       },
       events: events.map((e) => e.id),
       snapshots: [],
+      facts,
     };
   }
 

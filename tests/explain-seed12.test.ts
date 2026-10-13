@@ -7,6 +7,8 @@ import { explainMoment } from "@/server/analyst";
 import { generateMatch } from "@/simulation/generate";
 import { recordedAccount, recordedMatchSummary } from "@/explain/recorded";
 import { answer, approve, FakeModel } from "./support/fakeModel";
+import { verifiedClaims } from "./support/drafts";
+import { buildFactCatalog } from "@/explain/factCatalog";
 
 const fixture = generateMatch({ seed: 12, durationMs: 60_000,
   tactics: { home: { formation: "4-3-3" }, away: { formation: "4-4-2" } } });
@@ -51,7 +53,7 @@ describe("seed 12 goal grounding", () => {
     const bad = good();
     bad.headline = "Castell scores a penalty";
     bad.facts[1] = { text: "The sequence took 10 s.", evidence: [{ kind: "event", id: "sim-22" }] };
-    const corrected = good();
+    const corrected = { ...good(), facts: verifiedClaims(context) };
     const model = new FakeModel([answer(bad), answer(corrected), approve(corrected)]);
     const result = await explainMoment({ fixture, timeMs, audience: "casual", client: model });
     expect(result.verification).toMatchObject({ outcome: "revised", grounding: "passed", modelReview: "passed" });
@@ -85,10 +87,11 @@ describe("seed 12 both teams 4-3-3 at 29.94 seconds", () => {
       explanationVersion: "1.0.0", matchId: match.matchId, timeMs: atMs, status: "explained",
       headline: "A shot and its recorded result",
       explanation: "A shot and its result were recorded.",
-      facts: [{ text: "The shot and its result were recorded.",
-        evidence: [{ kind: "event", id: shot.id }, { kind: "event", id: outcome.id }] }],
+      facts: verifiedClaims(evidence, "moment", 1),
       interpretation: [], limitations: [],
     };
+    // The latest event's verified fact describes the blocked shot, citing the shot and its result.
+    expect(corrected.facts[0]!.evidence).toEqual([{ kind: "event", id: shot.id }, { kind: "event", id: outcome.id }]);
     const bad = structuredClone(corrected);
     bad.headline = "x".repeat(101);
     bad.facts[0]!.evidence = [{ kind: "event", id: outcome.id }];
@@ -127,19 +130,24 @@ describe("seed 12 both teams 4-3-3 full-time summary", () => {
 
     const shot = session.base.events.find(e => e.type === "shot")!;
     const noFacts = { ...summary, facts: [] };
-    const scoreFact = { ...summary, facts: [...summary.facts, { text: "The score is 0–0.", evidence: [{ kind: "event" as const, id: shot.id }] }] };
-    const unsupported = (draft: ExplanationResponse) => answer({ reviews: [
-      "headline", "explanation", ...draft.facts.map((_, i) => `facts[${i}]`)].map(target => ({
-      target, verdict: target === `facts[${draft.facts.length - 1}]` ? "unsupported" : "supported",
-      reason: target === `facts[${draft.facts.length - 1}]` ? "A shot does not show the score." : "" })) });
-    const model = new FakeModel([answer(noFacts), answer(scoreFact), unsupported(scoreFact)]);
+    // Without a fact twice: the fallback, with the recorded account.
+    const empty = await explainMoment({ fixture: match, timeMs: end, audience: "casual", focus: "match", client: new FakeModel([answer(noFacts), answer(noFacts)]) });
+    expect(empty.verification).toMatchObject({ outcome: "fallback" });
+    expect(empty.recordedSummary).toEqual(summary);
+
+    // A score fact citing a shot is not a verified fact: it is removed, and the verified ones are kept.
+    const verified = verifiedClaims(session.base, "match");
+    const scoreFact = { ...summary, facts: [...verified, { text: "The score is 0–0.", evidence: [{ kind: "event" as const, id: shot.id }] }] };
+    const kept = { ...scoreFact, facts: verified };
+    const model = new FakeModel([answer(noFacts), answer(scoreFact), approve(kept)]);
     const result = await explainMoment({ fixture: match, timeMs: end, audience: "casual", focus: "match", client: model });
-    expect(result.verification).toMatchObject({ outcome: "fallback", modelReview: "failed" });
-    expect(result.recordedSummary).toEqual(summary);
+    expect(result.verification).toMatchObject({ outcome: "revised", modelReview: "passed" });
+    expect(result.explanation.facts).toEqual(verified);
+    expect(result.verification.issues).toContainEqual(expect.stringContaining(`removed: facts[${verified.length}] is not one of verifiedFacts`));
 
     const analyst = model.requests[0]!.messages;
     expect(analyst[0]!.content).toContain("a 0–0 score has no goal event to cite, so never put it in a fact");
-    expect(analyst[1]!.content).toContain('"recordedAccount":{');
+    expect(analyst[1]!.content).toContain(`"verifiedFacts":${JSON.stringify(buildFactCatalog(session.base, "match"))}`);
     expect(model.requests[2]!.messages[0]!.content).toContain("citing shots or other events does not show a score");
   });
 });

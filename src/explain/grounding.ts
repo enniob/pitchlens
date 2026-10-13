@@ -152,6 +152,10 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
   // zones. A model must not invent that mapping from near-central coordinates.
   if (events !== "none" && /\b(?:left|right)[ -](?:side(?:d)?|half[ -]?space|touchline|flank|wing)\b/i.test(text))
     issues.push(`${where} uses a left/right zone label not defined by the supplied measurements; use a measured channel or omit the geography`);
+  // Internal identifiers are for citations, never for readers ("F. Lindqvist (nvr-8)").
+  const id = [...context.players.map((p) => p.id), ...context.events.map((e) => e.id)]
+    .find((x) => x.length >= 3 && new RegExp(`(?<![\\w-])${escape(x)}(?![\\w-])`).test(text));
+  if (id) issues.push(`${where} shows the internal identifier ${id}; use the player's name or describe the event instead`);
   // The evidence reports one total for filtered events of mixed types ("events of other types, such as ordinary passes").
   const filtered = text.match(FILTERED_COUNT);
   if (filtered) issues.push(`${where} says "${filtered[0]}", but the evidence gives only a total of filtered events of mixed types; say "${filtered[1]} other events" or omit the count`);
