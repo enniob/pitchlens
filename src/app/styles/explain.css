@@ -148,11 +148,12 @@
   box-shadow: 0 1px 2px rgba(15, 27, 38, 0.12);
 }
 
-.explain__go:hover:not(:disabled) {
+.explain__go:hover:not(:disabled, [aria-disabled="true"]) {
   background: linear-gradient(90deg, #0b6849, #0f7556 50%, #13805f);
 }
 
-.explain__go:disabled {
+.explain__go:disabled,
+.explain__go[aria-disabled="true"] {
   opacity: 0.6;
 }
 
@@ -309,7 +310,8 @@
 .evidence {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: calc((100% - 20px) / 3);
+  /* Three across; on a phone they keep a readable width and scroll sideways within the list. */
+  grid-auto-columns: max(calc((100% - 20px) / 3), 132px);
   gap: 10px;
   margin: 0;
   padding: 0 0 4px;
@@ -357,6 +359,7 @@
 }
 
 .evidence__replay {
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -699,7 +702,7 @@
   font-size: 16px;
 }
 
-.explain__ask .explain__go:hover:not(:disabled) {
+.explain__ask .explain__go:hover:not(:disabled, [aria-disabled="true"]) {
   border-color: var(--ink-accent);
   background: var(--ink-hover);
 }
