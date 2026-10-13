@@ -131,8 +131,11 @@ describe("evaluation scenarios", () => {
 
   // Known gap, documented in docs/ai-evaluation.md: these depend on the verifier. If one approves
   // them anyway, the evaluation must not count the answer as usable.
-  it.each(byVerifier)("$name relies on the verifier; the assessment flags it if a verifier lets it through", async ({ s, audience, f }) => {
-    const draft = withClaim(s, audience, f.probe);
+  it.each(byVerifier)("$name is removed as a fact; as interpretation it relies on the verifier, and the assessment flags it", async ({ s, audience, f }) => {
+    // A fact must be a verified fact, so the probe written as one never reaches the reader.
+    const asFact = await run(s, audience, byRole(withClaim(s, audience, f.probe), lenientVerifier));
+    expect(shownText(asFact.explanation)).not.toContain(f.probe);
+    const draft = withClaim(s, audience, f.probe, "interpretation");
     const out = await run(s, audience, byRole(draft, lenientVerifier));
     expect(out.verification.outcome).toBe("verified");
     const verdict = assess({ scenario: s, audience, explanation: out.explanation, verification: out.verification });

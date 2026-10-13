@@ -49,3 +49,11 @@ describe("negated event wording", () => {
     expect(checkGrounding(claim("S. Okafor passed to a teammate, then took a shot."), context, "analyst")).toContainEqual(expect.stringContaining("contains no shot"));
   });
 });
+
+describe("removing a rejected score claim", () => {
+  it("is not blocked by the summary stating the score, which grounding checks separately", () => {
+    const d = goalExplanation();
+    d.facts.push({ text: "The score is 1–0.", evidence: [{ kind: "event", id: "e5-shot" }] });
+    expect(pruneRejectedClaims(d, ["facts[3] is not one of verifiedFacts"])?.removed).toEqual(["facts[3]"]);
+  });
+});

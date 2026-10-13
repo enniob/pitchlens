@@ -23,8 +23,10 @@ export interface FoundryConfig {
   verifierDeployment: string;
   /** `json_schema` (strict structured output) or `json_object` for models without it. */
   structuredOutput: "json_schema" | "json_object";
-  /** Optional provider-supported reasoning setting; omitted unless configured. */
+  /** Optional provider-supported reasoning setting for the analyst; omitted unless configured. */
   reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
+  /** The verifier's reasoning setting; defaults to the analyst's. */
+  verifierReasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
   /** Optional sampling setting for deployments that support it. */
   temperature?: number;
   /** Deployment request quota, used to space calls (including verifier calls). */
@@ -50,6 +52,9 @@ export function foundryConfigFromEnv(env: Record<string, string | undefined> = p
   if (structured !== "json_schema" && structured !== "json_object") invalid.push("FOUNDRY_STRUCTURED_OUTPUT");
   const reasoning = env.FOUNDRY_REASONING_EFFORT?.trim();
   if (reasoning && !["none", "minimal", "low", "medium", "high"].includes(reasoning)) invalid.push("FOUNDRY_REASONING_EFFORT");
+  const ownVerifierReasoning = env.FOUNDRY_VERIFIER_REASONING_EFFORT?.trim();
+  if (ownVerifierReasoning && !["none", "minimal", "low", "medium", "high"].includes(ownVerifierReasoning)) invalid.push("FOUNDRY_VERIFIER_REASONING_EFFORT");
+  const verifierReasoning = ownVerifierReasoning || reasoning;
   const temperature = env.FOUNDRY_TEMPERATURE?.trim();
   const rpm = env.FOUNDRY_REQUESTS_PER_MINUTE?.trim();
   if (rpm && (!Number.isInteger(Number(rpm)) || Number(rpm) < 1 || Number(rpm) > 60_000)) invalid.push("FOUNDRY_REQUESTS_PER_MINUTE");
@@ -71,6 +76,7 @@ export function foundryConfigFromEnv(env: Record<string, string | undefined> = p
     ok: true,
     config: { baseUrl, apiKey, deployment, verifierDeployment, structuredOutput: structured as FoundryConfig["structuredOutput"],
       ...(reasoning ? { reasoningEffort: reasoning as FoundryConfig["reasoningEffort"] } : {}),
+      ...(verifierReasoning ? { verifierReasoningEffort: verifierReasoning as FoundryConfig["verifierReasoningEffort"] } : {}),
       ...(temperature ? { temperature: Number(temperature) } : {}),
       ...(rpm ? { requestsPerMinute: Number(rpm) } : {}) },
   };
@@ -184,7 +190,8 @@ export class FoundryClient implements ModelClient {
           ? { type: "json_schema", json_schema: { name: request.schema.name, strict: true, schema: request.schema.schema } }
           : { type: "json_object" },
     };
-    if (this.config.reasoningEffort) body.reasoning_effort = this.config.reasoningEffort;
+    const reasoningEffort = request.role === "verifier" ? this.config.verifierReasoningEffort : this.config.reasoningEffort;
+    if (reasoningEffort) body.reasoning_effort = reasoningEffort;
     if (this.config.temperature !== undefined) body.temperature = this.config.temperature;
     if (request.tools && request.tools.length > 0) {
       body.tools = request.tools;

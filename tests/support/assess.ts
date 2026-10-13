@@ -55,6 +55,11 @@ export interface Assessment {
 
 const UNCERTAIN =
   /\b(not (yet )?(known|shown|recorded|available|clear|visible|included|in the (data|evidence))|unknown|unclear|whether|if it|cannot (be )?(tell|told|say|confirm|determine|know)|can't (tell|say)|no (result|outcome)|yet to|pending|does not (show|say|include)|doesn't (show|say|include)|outside the evidence)\b/i;
+/** Every match of `pattern` in `text` is negated ("no goals were scored", "neither side scored", "without scoring"). */
+function negatedOnly(text: string, pattern: RegExp): boolean {
+  const all = [...text.matchAll(new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`))];
+  return all.length > 0 && all.every((m) => /\b(?:no|not|never|neither|nor|without|nobody|none)\s+(?:[\w'’-]+\s+){0,3}$/i.test(text.slice(Math.max(0, m.index! - 50), m.index)));
+}
 // Not a shirt number followed by an initial ("#6 S. Okafor").
 const SCORE = /(?<![\d.\-–])(\d{1,2})\s?[–-]\s?(\d{1,2})(?![\d\-–])/g;
 const NUMBER = /#(\d{1,3})\b/g;
@@ -266,7 +271,7 @@ export function assess({ scenario, audience, explanation, verification, envelope
     if (where.startsWith("limitations")) continue;
 
     for (const s of sentences(text))
-      for (const f of scenario.forbidden) if (f.pattern.test(s) && !UNCERTAIN.test(s)) leaks.push(`${where} states ${f.label}: "${s.slice(0, 120)}"`);
+      for (const f of scenario.forbidden) if (f.pattern.test(s) && !UNCERTAIN.test(s) && !negatedOnly(s, f.pattern)) leaks.push(`${where} states ${f.label}: "${s.slice(0, 120)}"`);
     if (INVENTED.test(text)) unsupported.push(`${where} states a metric or attribute the data does not have ("${text.match(INVENTED)![0]}")`);
     for (const m of text.matchAll(MEASURED_UNIT)) {
       const supplied = m[2] === "%" ? percents : speeds;
@@ -298,7 +303,7 @@ export function assess({ scenario, audience, explanation, verification, envelope
     for (const w of EVENT_WORDING) {
       const m = text.match(w.pattern);
       // A cited event's own description also supports its wording ("Shot on target by ...").
-      if (!m || UNCERTAIN.test(text) || cited.some((e) => w.types.includes(e.type) || w.pattern.test(e.description))) continue;
+      if (!m || UNCERTAIN.test(text) || negatedOnly(text, w.pattern) || cited.some((e) => w.types.includes(e.type) || w.pattern.test(e.description))) continue;
       // A goal before the evidence window still counts in the score shown for the headline and explanation.
       if (!claim && w.label === "a goal" && (scoreAt(fixture, selected).home + scoreAt(fixture, selected).away > 0)) continue;
       unsupported.push(`${where} says "${m[0]}" but cites no ${w.label.replace(/^an? /, "")}`);

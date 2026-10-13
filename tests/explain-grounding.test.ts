@@ -4,13 +4,13 @@ import { AUDIENCE_LIMITS, checkGrounding } from "@/explain/grounding";
 import type { ExplanationResponse } from "@/explain/response";
 import { sampleFixture } from "@/match/fixture";
 import { generateMatch } from "@/simulation/generate";
-import { goalExplanation } from "./support/fakeModel";
+import { freeTextGoalExplanation } from "./support/fakeModel";
 import { evalMatch } from "./support/scenarios";
 
 const atGoal = extractMatchContext(sampleFixture, 9_400);
 const beforeGoal = extractMatchContext(sampleFixture, 9_050);
 
-const edit = (change: (r: ExplanationResponse) => void, base = goalExplanation()) => {
+const edit = (change: (r: ExplanationResponse) => void, base = freeTextGoalExplanation()) => {
   change(base);
   return base;
 };
@@ -24,7 +24,7 @@ describe("grounding checks", () => {
     expect(issues(edit((r) => { r.explanation = "The shot started in the central channel inside the penalty area."; }))).toEqual([]);
   });
   it("requires the shot endpoint even when a sequence claim cites its passes", () => {
-    const r = goalExplanation();
+    const r = freeTextGoalExplanation();
     r.facts = [{ text: "Three passes before the shot.", evidence: ["e2-pass", "e3-pass", "e4-pass"].map((id) => ({ kind: "event" as const, id })) }];
     expect(issues(r)).toContainEqual(expect.stringContaining("contains no shot"));
     r.facts[0]!.evidence.push({ kind: "event", id: "e5-shot" });
@@ -32,7 +32,7 @@ describe("grounding checks", () => {
   });
   it("allows a rounded timestamp only when it matches cited revealed evidence", () => {
     const context = extractMatchContext(sampleFixture, 9_450);
-    const r = goalExplanation();
+    const r = freeTextGoalExplanation();
     r.facts = [{ text: "The goal was recorded at 9 s.", evidence: [{ kind: "event", id: "e6-goal" }] }];
     expect(issues(r, context)).toEqual([]);
     r.facts[0]!.text = "The goal was recorded at 10 s.";
@@ -50,7 +50,7 @@ describe("grounding checks", () => {
     const context = extractMatchContext(sampleFixture, 12_000);
     const pattern = context.measurements.patterns.find((p) => p.kind === "activity-change")!;
     expect(pattern).toBeDefined();
-    const r = goalExplanation();
+    const r = freeTextGoalExplanation();
     r.facts = [];
     r.interpretation = [{ text: pattern.summary, evidence: pattern.eventIds.map((id) => ({ kind: "event" as const, id })) }];
     expect(issues(r, context)).toEqual([]);
@@ -68,8 +68,8 @@ describe("grounding checks", () => {
     expect(issues(elapsed)).toEqual([]);
   });
   it("accept the documented example", () => {
-    expect(issues(goalExplanation())).toEqual([]);
-    expect(issues(goalExplanation(), atGoal, "casual")).toEqual([]);
+    expect(issues(freeTextGoalExplanation())).toEqual([]);
+    expect(issues(freeTextGoalExplanation(), atGoal, "casual")).toEqual([]);
   });
 
   it("reject a time after the selected moment", () => {
@@ -311,11 +311,11 @@ describe("checks added after the live evaluation", () => {
 
   it("reject a duration whose named endpoints are not the events it spans", () => {
     // Turnover 2.4 s, shot 8.8 s, goal 9.4 s: 6.4 s is turnover to shot, 7.0 s turnover to goal.
-    const wrong = only(goalExplanation(), { explanation: "The goal came 6.4 s after S. Okafor won the ball." });
+    const wrong = only(freeTextGoalExplanation(), { explanation: "The goal came 6.4 s after S. Okafor won the ball." });
     expect(issues(wrong)).toContainEqual(expect.stringContaining("6.4 s between a goal, turnover"));
-    expect(issues(only(goalExplanation(), { explanation: "The goal came 7.0 s after S. Okafor won the ball." }))).toEqual([]);
-    expect(issues(only(goalExplanation(), { explanation: "The shot came 6.4 s after the turnover, and the goal followed." }))).toEqual([]);
-    const fact = (text: string) => only(goalExplanation(), { facts: [{ text, evidence: ev("e1-turnover", "e5-shot", "e6-goal") }] });
+    expect(issues(only(freeTextGoalExplanation(), { explanation: "The goal came 7.0 s after S. Okafor won the ball." }))).toEqual([]);
+    expect(issues(only(freeTextGoalExplanation(), { explanation: "The shot came 6.4 s after the turnover, and the goal followed." }))).toEqual([]);
+    const fact = (text: string) => only(freeTextGoalExplanation(), { facts: [{ text, evidence: ev("e1-turnover", "e5-shot", "e6-goal") }] });
     expect(issues(fact("The turnover-to-goal interval took 6.4 s."))).toContainEqual(expect.stringContaining("no such pair"));
     expect(issues(fact("The turnover-to-shot interval took 6.4 s."))).toEqual([]);
     // Each duration is judged on its own clause.
@@ -338,8 +338,8 @@ describe("checks added after the live evaluation", () => {
     const prose = `${surname(pass.playerId)} completed a pass to ${surname(pass.recipientId)}, moving play forward.`;
     expect(issues({ ...r("The pass was completed."), explanation: prose }, context)).toContainEqual(expect.stringContaining("explanation calls play forward"));
     expect(issues({ ...r("The pass was completed."), explanation: prose.replace("forward", "backward") }, context)).toEqual([]);
-    expect(issues(only(goalExplanation(), { facts: [{ text: "The pass went backwards.", evidence: ev("e2-pass") }] }))).toContainEqual(expect.stringContaining("moved forward"));
-    expect(issues(only(goalExplanation(), { facts: [{ text: "The pass moved play forward.", evidence: ev("e2-pass") }] }))).toEqual([]);
+    expect(issues(only(freeTextGoalExplanation(), { facts: [{ text: "The pass went backwards.", evidence: ev("e2-pass") }] }))).toContainEqual(expect.stringContaining("moved forward"));
+    expect(issues(only(freeTextGoalExplanation(), { facts: [{ text: "The pass moved play forward.", evidence: ev("e2-pass") }] }))).toEqual([]);
   });
 
   it("reject play placed in the wrong team's half", () => {
@@ -357,12 +357,12 @@ describe("checks added after the live evaluation", () => {
 
   it("reject left/right touchline, flank and wing labels", () => {
     for (const label of ["right touchline", "left flank", "right wing"])
-      expect(issues(only(goalExplanation(), { explanation: `The move began near the ${label}.` }))).toContainEqual(expect.stringContaining("zone label"));
+      expect(issues(only(freeTextGoalExplanation(), { explanation: `The move began near the ${label}.` }))).toContainEqual(expect.stringContaining("zone label"));
   });
 
   it("reject a count of filtered events of one type, even in a limitation", () => {
-    const r = only(goalExplanation(), { limitations: ["22 ordinary passes were filtered out of this summary."] });
+    const r = only(freeTextGoalExplanation(), { limitations: ["22 ordinary passes were filtered out of this summary."] });
     expect(issues(r)).toContainEqual(expect.stringContaining("only a total of filtered events"));
-    expect(issues(only(goalExplanation(), { limitations: ["22 other events were filtered out of this summary."] }))).toEqual([]);
+    expect(issues(only(freeTextGoalExplanation(), { limitations: ["22 other events were filtered out of this summary."] }))).toEqual([]);
   });
 });

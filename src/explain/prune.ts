@@ -13,6 +13,7 @@
  *   - no fact would remain;
  *   - a number from a removed claim appears in the headline or explanation
  *     but in no kept claim, as the summary may repeat the rejected detail.
+ *     Scores are exempt: grounding checks every score against the actual one.
  *
  * The caller checks the pruned answer again before using it.
  */
@@ -20,6 +21,8 @@ import type { ExplanationResponse } from "./response";
 
 const TARGET = /^(facts|interpretation|limitations)\[(\d+)\]/;
 const NUMBER = /\d+(?:[.,]\d+)*/g;
+// A score is checked against the actual score wherever it appears, so a removed score claim does not block removal.
+const SCORE = /(?<![\d.–-])\d{1,2}\s?[–-]\s?\d{1,2}(?![\d–-])(?!\.\d)/g;
 
 export interface Pruned {
   response: ExplanationResponse;
@@ -49,7 +52,7 @@ export function pruneRejectedClaims(response: ExplanationResponse, issues: strin
   const removedText = [
     ...response.facts.filter((_, i) => drop.facts.has(i)),
     ...response.interpretation.filter((_, i) => drop.interpretation.has(i)),
-  ].map((c) => c.text).join(" ");
+  ].map((c) => c.text.replace(SCORE, " ")).join(" ");
   const summary = numbers(`${response.headline} ${response.explanation}`);
   for (const n of numbers(removedText)) if (summary.has(n) && !kept.has(n)) return null;
 

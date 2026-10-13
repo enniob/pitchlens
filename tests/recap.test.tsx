@@ -33,7 +33,8 @@ const summary = (): ExplanationResponse => ({
   status: "explained",
   headline: "Harbor City win 1–0",
   explanation: "Harbor City's number 9 scored at 9.4 s, and the match finished 1–0.",
-  facts: [{ text: "#9 scored at 9.4 s, making it 1–0.", evidence: [{ kind: "event", id: "e6-goal" }] }],
+  // Copied from the verified facts for the full-time package.
+  facts: [{ text: "R. Castell scored for Harbor City FC at 9.4 s, making it 1–0.", evidence: [{ kind: "event", id: "e6-goal" }] }],
   interpretation: [],
   limitations: [],
 });
@@ -241,7 +242,7 @@ describe("recap view", () => {
     await act(async () => toggle.click());
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const evidence = container.querySelector("#recap-evidence")!;
-    expect(evidence.textContent).toContain("#9 scored at 9.4 s");
+    expect(evidence.textContent).toContain("R. Castell scored for Harbor City FC at 9.4 s");
     await act(async () => evidence.querySelector<HTMLButtonElement>("button.cite")!.click());
     const goal = sampleFixture.events.find((e) => e.id === "e6-goal")!;
     expect(replay).toHaveBeenCalledWith(goal.t - 3_000);

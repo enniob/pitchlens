@@ -116,7 +116,7 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
 
   afterAll(() => {
     if (!config.ok) return;
-    const { deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature } = config.config;
+    const { deployment, verifierDeployment, structuredOutput, reasoningEffort, verifierReasoningEffort, temperature } = config.config;
     let commit = "unknown";
     try {
       commit = revision;
@@ -124,7 +124,7 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
     const summary = summarise(results, prices);
     const failures = releaseFailures(results, cases);
     const report = formatReport(
-      { commit, date: new Date().toISOString(), settings: { deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature }, bounds,
+      { commit, date: new Date().toISOString(), settings: { deployment, verifierDeployment, structuredOutput, reasoningEffort, verifierReasoningEffort, temperature }, bounds,
         scenarios: `version ${EVAL_SCENARIO_VERSION}, fingerprint ${scenarioFingerprint()}` },
       results,
       summary,

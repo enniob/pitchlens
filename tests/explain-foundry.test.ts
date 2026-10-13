@@ -58,6 +58,11 @@ describe("Foundry configuration", () => {
     expect(foundryConfigFromEnv({ ...ENV, FOUNDRY_REASONING_EFFORT: "none" })).toMatchObject({ ok: true, config: { reasoningEffort: "none" } });
     expect(foundryConfigFromEnv({ ...ENV, FOUNDRY_REASONING_EFFORT: "unlimited" })).toMatchObject({ ok: false, invalid: ["FOUNDRY_REASONING_EFFORT"] });
     expect(config().reasoningEffort).toBeUndefined();
+    // The verifier can reason differently from the analyst, and follows it by default.
+    expect(foundryConfigFromEnv({ ...ENV, FOUNDRY_REASONING_EFFORT: "low" })).toMatchObject({ ok: true, config: { reasoningEffort: "low", verifierReasoningEffort: "low" } });
+    expect(foundryConfigFromEnv({ ...ENV, FOUNDRY_REASONING_EFFORT: "low", FOUNDRY_VERIFIER_REASONING_EFFORT: "none" }))
+      .toMatchObject({ ok: true, config: { reasoningEffort: "low", verifierReasoningEffort: "none" } });
+    expect(foundryConfigFromEnv({ ...ENV, FOUNDRY_VERIFIER_REASONING_EFFORT: "max" })).toMatchObject({ ok: false, invalid: ["FOUNDRY_VERIFIER_REASONING_EFFORT"] });
   });
 
   it("validates optional temperature without treating zero as absent", () => {
@@ -133,12 +138,12 @@ describe("Foundry client", () => {
 
   it.each(["analyst", "verifier"] as const)("sends the configured reasoning effort for %s", async (role) => {
     let body: Record<string, unknown> = {};
-    const client = new FoundryClient(config({ reasoningEffort: "none", temperature: 0 }), async (_u, init) => {
+    const client = new FoundryClient(config({ reasoningEffort: "low", verifierReasoningEffort: "none", temperature: 0 }), async (_u, init) => {
       body = JSON.parse(String(init!.body));
       return reply({ choices: [{ message: { content: "{}" }, finish_reason: "stop" }] });
     });
     await client.complete(request({ role }));
-    expect(body.reasoning_effort).toBe("none");
+    expect(body.reasoning_effort).toBe(role === "analyst" ? "low" : "none");
     expect(body.temperature).toBe(0);
     expect(body.max_completion_tokens).toBe(500);
   });

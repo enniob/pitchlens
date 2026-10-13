@@ -207,3 +207,69 @@ Offline, `npm run check` passed 60 files / 1,469 tests, type checking and the
 production build. A full 36-case live rerun on these changes was started
 before merge; its results will be recorded separately. Until then, release
 readiness remains unestablished.
+
+## Verified facts: partial live run
+
+Facts are now built in code (`src/explain/factCatalog.ts`); the analyst
+chooses among them and writes the headline, explanation and interpretation.
+A full 36-case run on commit `4aea640` (DeepSeek-V4-Flash for both roles,
+`json_schema`, reasoning `none`, temperature 0, normal pacing) was stopped
+after 24 cases because the evaluation machine ran low on memory. It is not
+a completed release evaluation.
+
+| Result (24 cases) | Cases |
+| --- | ---: |
+| Usable explanations | 21 |
+| Fallbacks | 3 |
+| Timeouts | 0 |
+
+Cases that fell back or were incomplete in the earlier runs were usable:
+`demo-goal-recorded` (Analyst), `seed6-offside-recorded` (both),
+`seed6-offside-kick-frame` (Analyst) and `seed24-offside-recorded` (Analyst).
+The three fallbacks:
+
+- Both `demo-recap` answers: the verifier read the final score at 24 s, the
+  demo's full time, as a match in progress, and the Casual draft also
+  speculated about an equaliser, which the verifier rightly rejected.
+- `seed9-formation-before` (Analyst): the explanation claimed a possession
+  spell ended, which the evidence does not show; grounding rejected it in
+  the draft and the revision.
+
+Most first drafts were marked explained with an empty facts list and needed
+a revision. Commit `583e367` adds the required verified facts to such a
+draft in code (then checks and reviews it as usual) and tells the verifier
+when it reviews a full-time summary. Both were then measured live, below.
+
+### Remaining cases and rechecks on `583e367`
+
+A 16-case run on `583e367` covered the 12 cases the stopped run never
+reached and rechecked its 4 fallbacks, with the same model settings and
+pacing. It completed in 19.7 minutes. The release gate failed on the cases
+below.
+
+| Result (16 cases) | Cases |
+| --- | ---: |
+| Usable explanations | 14 |
+| Flagged for review | 1 |
+| Fallbacks | 1 |
+| Timeouts | 0 |
+
+All four rechecked fallbacks were usable: both `demo-recap` answers (one
+verified on its first draft) and both `seed9-formation-before` answers.
+`seed16-second-goal` (Casual), a timeout in the earlier runs, was usable.
+
+- `seed3-zero-goal-moment` (Analyst) fell back: its headline mentioned a
+  shot in a window with no shot, in the draft and again in the revision.
+  Grounding rejected it both times. The Casual answer was explained, so the
+  pair counts as an audience conflict.
+- `seed3-zero-goal-recap` (Casual) was flagged by the evaluation, not by the
+  production checks: "no goals were scored by either side" was read as a
+  stated goal. The answer is correct. The assessment now treats negated
+  wording as no claim, with a regression test.
+
+Taken together, 35 of 36 cases have a usable answer on one of the two
+revisions (21 of 24 on `4aea640`, then the 12 remaining and 4 rechecks on
+`583e367`), with one model error caught by grounding. This combines two
+revisions and two runs; it is not a single complete release evaluation. A
+full 36-case run on the merged revision is still needed to establish
+release readiness.

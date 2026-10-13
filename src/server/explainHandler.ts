@@ -158,11 +158,11 @@ export async function handleExplain(request: Request, deps: ExplainDeps): Promis
   const usage = usageConfig(deps.env);
   if (!usage) return fail("not-configured", "Explanation usage limits are not configured correctly.");
 
-  const { baseUrl, deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature } = config.config;
+  const { baseUrl, deployment, verifierDeployment, structuredOutput, reasoningEffort, verifierReasoningEffort, temperature } = config.config;
   // Model settings affect the answer. Never reuse a result from an older
   // deployment or reasoning mode, and never put credentials in cache keys.
   const cacheKey = JSON.stringify([reference, timeMs, audience, focus,
-    { baseUrl, deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature }, deps.limits ?? null]);
+    { baseUrl, deployment, verifierDeployment, structuredOutput, reasoningEffort, verifierReasoningEffort, temperature }, deps.limits ?? null]);
   const cached = deps.cache.get(cacheKey);
   if (cached) {
     Object.assign(record, { status: 200, cached: true, outcome: cached.verification.outcome });

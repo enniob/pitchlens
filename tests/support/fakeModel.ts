@@ -49,10 +49,14 @@ export const goalExplanation = (): ExplanationResponse => ({
   headline: "Harbor City score after a three-pass move",
   explanation:
     "Harbor City won the ball, passed it forward three times and their number 9 shot from inside the area. The ball crossed the line, making it 1–0.",
+  // Copied from the verified facts for this moment (src/explain/factCatalog.ts), as the analyst must.
   facts: [
-    { text: "Harbor City #6 won the ball at 2.4 s.", evidence: [{ kind: "event", id: "e1-turnover" }] },
-    { text: "#9 shot at 8.8 s and the ball crossed the line at 9.4 s.", evidence: [{ kind: "event", id: "e5-shot" }, { kind: "event", id: "e6-goal" }] },
-    { text: "The score is 1–0.", evidence: [{ kind: "snapshot", t: 9_400 }, { kind: "event", id: "e6-goal" }] },
+    { text: "R. Castell scored for Harbor City FC at 9.4 s, making it 1–0.", evidence: [{ kind: "event", id: "e6-goal" }] },
+    { text: "S. Okafor won the ball for Harbor City FC at 2.4 s, in Northvale Rovers' half.", evidence: [{ kind: "event", id: "e1-turnover" }] },
+    {
+      text: "The goal came 7.0 s after Harbor City FC won the ball, with 3 completed passes in between.",
+      evidence: [{ kind: "event", id: "e1-turnover" }, { kind: "event", id: "e2-pass" }, { kind: "event", id: "e3-pass" }, { kind: "event", id: "e4-pass" }, { kind: "event", id: "e6-goal" }],
+    },
   ],
   interpretation: [
     {
@@ -61,4 +65,18 @@ export const goalExplanation = (): ExplanationResponse => ({
     },
   ],
   limitations: ["Synthetic scripted sequence; not real football."],
+});
+
+/**
+ * The same moment written in the model's own words, as answers were before
+ * facts had to be copied from the verified facts. For tests of the wording
+ * checks themselves, which still apply to every field.
+ */
+export const freeTextGoalExplanation = (): ExplanationResponse => ({
+  ...goalExplanation(),
+  facts: [
+    { text: "Harbor City #6 won the ball at 2.4 s.", evidence: [{ kind: "event", id: "e1-turnover" }] },
+    { text: "#9 shot at 8.8 s and the ball crossed the line at 9.4 s.", evidence: [{ kind: "event", id: "e5-shot" }, { kind: "event", id: "e6-goal" }] },
+    { text: "The score is 1–0.", evidence: [{ kind: "snapshot", t: 9_400 }, { kind: "event", id: "e6-goal" }] },
+  ],
 });

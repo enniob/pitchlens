@@ -380,7 +380,32 @@ setting values or provider responses.
 
 1. **Evidence.** An `EvidenceSession` (`src/explain/evidence.ts`) is built for
    the fixture and selected time. The analyst's first message carries the
-   default evidence package from `extractMatchContext`.
+   default evidence package from `extractMatchContext`, with player positions
+   for the latest snapshot only (every snapshot can still be cited), and its
+   **verified facts** (`src/explain/factCatalog.ts`).
+
+   Verified facts are short sentences that application code builds from the
+   package's structured fields, never from event descriptions, each with the
+   citations it needs: each recent event (who, what, when, and the half for
+   turnovers, fouls and free kicks), the measured interval from the latest
+   turnover or kickoff to each later shot, goal or offside, shot location,
+   pass direction and length, the latest possession spell and opponent
+   proximity. Every one must pass `validateExplanation` and `checkGrounding`
+   on its own, or it is left out. The model works out no number, interval,
+   direction or half itself. Every fact in an answer must be a verified fact,
+   copied exactly (spacing, a final full stop and dash style may differ), and
+   an explained moment must include the verified fact for each event at the
+   latest recorded instant. `list_events` returns verified facts for the
+   earlier events it lists, which an answer may then use. The headline,
+   explanation and interpretation remain the model's own words, under the
+   checks below. A verifier rejection of a verified fact is not followed: it
+   is computed from the evidence. An explained draft with an empty facts list
+   gets the facts it needs added in code (the latest events' facts for a
+   moment; the recorded goals' facts for a full-time summary), listed in
+   `issues` as `added verified fact ...`, and is then checked and reviewed as
+   usual; a draft that wrote facts of its own is never completed this way.
+   The verifier is told whether it reviews a moment or a full-time summary,
+   so a final score is not mistaken for a match in progress.
 2. **Analyst.** The model may call two tools, at most 6 calls in total:
    - `list_events({ fromMs?, types? })`: revealed events up to the selected
      time, at most 40, from no earlier than 30 s before it
@@ -636,6 +661,8 @@ PITCHLENS_ALLOWED_ORIGINS=https://<your-preview-host>
 | `FOUNDRY_API_KEY` | yes | Resource key. Server-side only |
 | `FOUNDRY_DEPLOYMENT` | yes | Deployment name of the analyst model. It must support function calling, and JSON Schema structured output unless `json_object` is set |
 | `FOUNDRY_VERIFIER_DEPLOYMENT` | no | Deployment for the verifier; defaults to the analyst's. A different model gives a more independent review |
+| `FOUNDRY_REASONING_EFFORT` | no | `none`, `minimal`, `low`, `medium` or `high`, sent only when set, for deployments that support it. Applies to the analyst, and to the verifier unless set separately |
+| `FOUNDRY_VERIFIER_REASONING_EFFORT` | no | The verifier's reasoning setting, when it should differ from the analyst's |
 | `FOUNDRY_STRUCTURED_OUTPUT` | no | `json_schema` (default, strict) or `json_object` for models without strict structured output. The validator enforces the contract either way |
 | `PITCHLENS_ALLOWED_ORIGINS` | no | Comma-separated extra origins allowed to call the endpoint |
 | `PITCHLENS_JUDGE_ACCESS_CODE` | browser access | Random code, 16–256 characters, exchanged at `/api/session` |

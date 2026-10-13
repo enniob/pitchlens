@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { insufficientEvidence, validateExplanation } from "@/explain/response";
 import { STRICT_EXPLANATION_SCHEMA, reviewTargets } from "@/explain/prompts";
 import { EvidenceSession } from "@/explain/evidence";
+import { buildFactCatalog } from "@/explain/factCatalog";
 import { sampleFixture } from "@/match/fixture";
 import { eventsAt } from "@/playback/derive";
 import { generateMatch } from "@/simulation/generate";
@@ -89,18 +90,27 @@ describe("analyst workflow", () => {
       status: "explained",
       headline: "Earlier play",
       explanation: "An earlier event set this up.",
-      facts: [{ text: "An earlier event happened.", evidence: [{ kind: "event", id: older.id }] }],
+      facts: [{ text: "An earlier event happened.", evidence: [{ kind: "event", id: older.id }] as unknown[] }],
       interpretation: [],
       limitations: [],
-    } as const;
+    };
+    // The event tool returns verified facts for the earlier events; the answer copies the one for `older`.
+    const copyToolFact = (r: ChatRequest) => {
+      const listed = JSON.parse(r.messages.find((m) => m.role === "tool")!.content as string) as { verifiedFacts: { text: string; evidence: unknown[] }[] };
+      const fact = listed.verifiedFacts.find((f) => JSON.stringify(f.evidence) === JSON.stringify([{ kind: "event", id: older.id }]))!;
+      Object.assign(draft.facts[0]!, { text: fact.text, evidence: fact.evidence });
+      // A moment's answer also includes the latest event's verified fact.
+      draft.facts.push(...buildFactCatalog(session.base).filter((f) => f.latest).map(({ text, evidence }) => ({ text, evidence: evidence as unknown[] })));
+      return answer(draft);
+    };
     const model = new FakeModel([
       toolCall("list_events", {}),
       toolCall("get_positions", { atMs: t + 5_000 }),
-      answer(draft),
+      copyToolFact,
       (r: ChatRequest) => approve(JSON.parse(JSON.stringify(draft))),
     ]);
     const out = await explainMoment({ fixture, timeMs: t, audience: "analyst", client: model });
-    expect(out.verification.outcome).toBe("verified");
+    expect(out.verification).toMatchObject({ outcome: "verified", issues: [] });
     const tools = out.trace.steps.filter((s) => s.kind === "tool");
     expect(tools).toEqual([
       expect.objectContaining({ name: "list_events", ok: true, events: expect.arrayContaining([older.id]) }),
@@ -155,6 +165,22 @@ describe("analyst workflow", () => {
     expect(out.verification.issues[0]).toMatch(/^removed: facts\[3\]/);
   });
 
+  it("adds the latest event's verified fact to an explained draft with no facts, then reviews it", async () => {
+    const empty = { ...goalExplanation(), facts: [] };
+    const latest = buildFactCatalog(new EvidenceSession(sampleFixture, 9_400).base).filter((f) => f.latest).map(({ text, evidence }) => ({ text, evidence }));
+    const completed = { ...empty, facts: latest };
+    const model = new FakeModel([answer(empty), approve(completed)]);
+    const out = await run(model);
+    expect(model.requests).toHaveLength(2);
+    expect(out.explanation).toEqual(completed);
+    expect(out.verification).toMatchObject({ outcome: "revised", revisions: 0, modelReview: "passed" });
+    expect(out.verification.issues).toEqual([expect.stringMatching(/^added verified fact F1: R\. Castell scored/)]);
+    // A draft with facts of its own is not completed: a wrong one is still rejected.
+    const wrong = { ...goalExplanation(), facts: [{ text: "Castell scored a penalty.", evidence: [{ kind: "event" as const, id: "e6-goal" }] }] };
+    const rejected = await run(new FakeModel([answer(wrong), answer(wrong)]));
+    expect(rejected.verification.outcome).toBe("fallback");
+  });
+
   it("does not remove a claim whose rejected detail the explanation repeats", async () => {
     const draft = goalExplanation();
     draft.explanation = `${draft.explanation} The turnover came 3.3 s after the kickoff.`;
@@ -172,7 +198,9 @@ describe("analyst workflow", () => {
     expect(out.verification).toMatchObject({ outcome: "fallback", revisions: 1, schema: "failed", grounding: "skipped", modelReview: "skipped" });
     expect(out.explanation.status).toBe("insufficient-evidence");
     expect(validateExplanation(out.explanation, new EvidenceSession(sampleFixture, 9_400).base).ok).toBe(true);
-    expect(out.verification.issues.join(" ")).toMatch(/not valid JSON.*e7-kickoff/);
+    expect(out.verification.issues[0]).toMatch(/not valid JSON/);
+    // The second draft's problems: grounding diagnostics first, then the contract's (here, the later kickoff).
+    expect(out.verification.issues.slice(1).join(" ")).toMatch(/facts\[0\]/);
     expect(model.requests).toHaveLength(2);
   });
 
