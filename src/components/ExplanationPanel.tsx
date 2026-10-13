@@ -119,6 +119,8 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
   const [error, setError] = useState("");
   const pending = useRef<AbortController | null>(null);
   useEffect(() => () => { pending.current?.abort(); }, []);
+  // Cancel and Close disappear when used, so keyboard focus returns here instead of the page.
+  const goRef = useRef<HTMLButtonElement>(null);
   const supported = matchReferenceOf(fixture, sampleFixture.matchId) !== null;
   const allowed = useExplanationAccess();
   const allowedRef = useRef(allowed);
@@ -194,7 +196,9 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
   const history = explanationsUpTo(asked, timeMs).filter((s) => s.id !== visible?.id);
 
   return <>
-    <button className="btn btn--ghost btn--block explain__go" type="button" disabled={loading || !supported || !allowed} onClick={explain}>
+    {/* aria-disabled while loading, not disabled, so a keyboard user keeps focus here; explain() ignores the click. */}
+    <button ref={goRef} className="btn btn--ghost btn--block explain__go" type="button" disabled={!supported || !allowed}
+      aria-disabled={loading || undefined} onClick={explain}>
       {loading ? <span className="spinner spinner--small" aria-hidden="true" /> : <Icon name={playback === "playing" ? "pause" : "spark"} size={18} />}
       {label}
     </button>
@@ -204,7 +208,7 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
       <div className="explain__status">
         <span>{sent ? `Reading the evidence up to ${formatClock(pendingAt)} and checking the answer…`
           : `Queued to explain ${formatClock(pendingAt)}. Waiting for the next request slot…`}</span>
-        <button className="btn btn--ghost btn--small" type="button" onClick={cancel}>Cancel</button>
+        <button className="btn btn--ghost btn--small" type="button" onClick={() => { cancel(); goRef.current?.focus(); }}>Cancel</button>
       </div>
       <div className="skeleton" aria-hidden="true"><span /><span /><span /><span /></div>
     </div>}
@@ -218,7 +222,7 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
         <span>{audienceName(audience)} · explained at {formatClock(visible.atMs)}</span>
         <button className="btn btn--ghost btn--icon btn--small" type="button" aria-label="Close explanation"
           title="Close. It stays under Your explanations."
-          onClick={() => onShow(null)}>
+          onClick={() => { onShow(null); goRef.current?.focus(); }}>
           <Icon name="close" size={16} />
         </button>
       </div>

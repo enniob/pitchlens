@@ -5,10 +5,33 @@
   .appbar__tabs { justify-self: center; }
 }
 
+/* Below this the full name, tabs and actions no longer fit on one row. */
+@media (max-width: 860px) {
+  /* The mark stands in for the name; the synthetic-data label stays, shortened. */
+  .brand__name,
+  .appbar__synth-long {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 480px) {
   .appbar { height: auto; grid-template-columns: auto 1fr; padding-block: 6px; }
   .appbar__tabs { min-height: 44px; justify-self: end; }
   .appbar__actions { grid-column: 1 / -1; justify-self: stretch; justify-content: flex-end; }
+
+  /* Phone: the clock and speed get their own row, so the playback bar fits a 320 px screen. */
+  .controls {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "timeline timeline timeline"
+      "clock . speed"
+      "transport . full";
+  }
 }
 
 @media (max-width: 1100px) {
@@ -39,20 +62,32 @@
 }
 
 @media (max-width: 720px) {
+  /* Full time: a compact card inside the pitch, below the scoreline (which already
+     shows "Full time" and the score), so the overlays never cover its buttons. */
+  .stage__scrim--light {
+    position: absolute;
+    align-items: end;
+    overflow: visible;
+    padding: var(--hud-clear, 144px) 12px 12px;
+  }
+
+  .stage__scrim--light .card {
+    padding: 14px;
+  }
+
+  .stage__scrim--light .kicker,
+  .stage__scrim--light .versus {
+    display: none;
+  }
+
+  .stage__scrim--light .card__actions {
+    gap: 8px;
+    margin-top: 0;
+  }
+
   .appbar {
     gap: 8px;
     padding: 0 12px;
-  }
-
-  /* The mark stands in for the name; the synthetic-data label stays, shortened. */
-  .brand__name,
-  .appbar__synth-long {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
   }
 
   .appbar__tabs button {

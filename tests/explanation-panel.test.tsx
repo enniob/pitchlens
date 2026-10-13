@@ -69,7 +69,7 @@ describe("explanation panel interaction", () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(() => new Promise((r) => { resolve = r; }));
     vi.stubGlobal("fetch", fetcher);
     await render(); await click("Pause and explain");
-    expect(button("Explaining…").disabled).toBe(true);
+    expect(button("Explaining…").getAttribute("aria-disabled")).toBe("true");
     await render(9_000);
     expect(fetcher.mock.calls[0]![1]?.signal?.aborted).toBe(true);
     await act(async () => resolve(new Response(JSON.stringify(response()))));
