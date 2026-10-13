@@ -207,3 +207,37 @@ Offline, `npm run check` passed 60 files / 1,469 tests, type checking and the
 production build. A full 36-case live rerun on these changes was started
 before merge; its results will be recorded separately. Until then, release
 readiness remains unestablished.
+
+## Verified facts: partial live run
+
+Facts are now built in code (`src/explain/factCatalog.ts`); the analyst
+chooses among them and writes the headline, explanation and interpretation.
+A full 36-case run on commit `4aea640` (DeepSeek-V4-Flash for both roles,
+`json_schema`, reasoning `none`, temperature 0, normal pacing) was stopped
+after 24 cases because the evaluation machine ran low on memory. It is not
+a completed release evaluation.
+
+| Result (24 cases) | Cases |
+| --- | ---: |
+| Usable explanations | 21 |
+| Fallbacks | 3 |
+| Timeouts | 0 |
+
+Cases that fell back or were incomplete in the earlier runs were usable:
+`demo-goal-recorded` (Analyst), `seed6-offside-recorded` (both),
+`seed6-offside-kick-frame` (Analyst) and `seed24-offside-recorded` (Analyst).
+The three fallbacks:
+
+- Both `demo-recap` answers: the verifier read the final score at 24 s, the
+  demo's full time, as a match in progress, and the Casual draft also
+  speculated about an equaliser, which the verifier rightly rejected.
+- `seed9-formation-before` (Analyst): the explanation claimed a possession
+  spell ended, which the evidence does not show; grounding rejected it in
+  the draft and the revision.
+
+Most first drafts were marked explained with an empty facts list and needed
+a revision. Commit `583e367` adds the required verified facts to such a
+draft in code (then checks and reviews it as usual) and tells the verifier
+when it reviews a full-time summary. These two changes have offline tests
+only; they have not been measured live. A full 36-case run on the merged
+revision is still needed to establish release readiness.
