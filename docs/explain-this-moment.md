@@ -90,7 +90,7 @@ positions are rounded to 0.1 m.
   `generator` metadata (seed, simulator version, config key) is left out as
   well: it is for debugging and reproducing a match, stays in the fixture, and
   adds nothing to explaining the football. Generated `matchId`s still contain
-  the seed (`sim-v4-<seed>-…`); that does not reveal a result by itself, but if
+  the seed (`sim-v5-<seed>-…`); that does not reveal a result by itself, but if
   a model is ever given simulator tools it should get an opaque match ID and no
   access to data after the selected time.
 - **Score** counts goals with `t ≤ selectedMs`, including those before the

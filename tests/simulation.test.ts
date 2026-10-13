@@ -1,10 +1,12 @@
 import {describe,it,expect} from 'vitest';
-import {generateMatch,MAX_PLAYER_SPEED} from '@/simulation/generate';
+import {generateMatch,KEEPER_REACH,MAX_PLAYER_SPEED} from '@/simulation/generate';
 import {validateFixture} from '@/match/validate';
 import {PlaybackEngine} from '@/playback/engine';
 import {sampleFixture} from '@/match/fixture';
 
 describe('seeded simulator',()=>{
+ let sampled:ReturnType<typeof generateMatch>[]|undefined;
+ const sample=()=>sampled??=Array.from({length:20},(_,seed)=>generateMatch({seed,durationMs:120000}));
  it('is repeatable and varies by seed',()=>{
   expect(generateMatch({seed:42})).toEqual(generateMatch({seed:42}));
   expect(generateMatch({seed:43}).events).not.toEqual(generateMatch({seed:42}).events);
@@ -42,8 +44,36 @@ describe('seeded simulator',()=>{
  });
  it('covers goals, saves, misses and interceptions across seeds',()=>{
   const outcomes=new Set<string>();
-  for(let seed=0;seed<20;seed++) for(const e of generateMatch({seed,durationMs:120000}).events) outcomes.add(e.outcome);
+  for(const f of sample()) for(const e of f.events) outcomes.add(e.outcome);
   for(const outcome of ['scored','saved','missed','intercepted']) expect(outcomes.has(outcome),outcome).toBe(true);
+ });
+ it('never lets a carrier dribble up to the goalkeeper and score from beside them',()=>{
+  let goals=0;
+  for(const f of sample()) for(const goal of f.events.filter(e=>e.type==='goal')) {
+   goals++;
+   const shot=f.events.filter(e=>e.type==='shot'&&e.t<=goal.t).at(-1)!;
+   const keeper=f.roster.find(p=>p.role==='GK'&&p.teamId!==goal.teamId)!.id;
+   const gk=f.snapshots.find(s=>s.t===shot.t)!.players.find(p=>p.playerId===keeper)!;
+   expect(Math.hypot(shot.start!.x-gk.x,shot.start!.y-gk.y),`${f.matchId} at ${goal.t}`).toBeGreaterThanOrEqual(KEEPER_REACH);
+  }
+  expect(goals).toBeGreaterThan(5);
+ });
+ it('brings the goalkeeper off their line to meet a carrier who is in on goal',()=>{
+  let rushes=0;
+  for(const f of sample()) {
+   const line=new Map(f.roster.filter(p=>p.role==='GK').map(p=>[p.id,f.snapshots[0]!.players.find(q=>q.playerId===p.id)!.x]));
+   for(const s of f.snapshots) {
+    const carrier=s.possession?.playerId&&s.players.find(p=>p.playerId===s.possession!.playerId);
+    if(!carrier) continue;
+    for(const [id,x] of line) {
+     const gk=s.players.find(p=>p.playerId===id)!;
+     const team=f.roster.find(p=>p.id===id)!.teamId;
+     if(team===s.possession!.teamId||Math.hypot(carrier.x-x,carrier.y-34)>10) continue;
+     if(Math.abs(gk.x-x)>1.5) rushes++;
+    }
+   }
+  }
+  expect(rushes).toBeGreaterThan(0);
  });
  it('does not mutate the original demo',()=>{
   const before=JSON.stringify(sampleFixture);generateMatch({seed:42});expect(JSON.stringify(sampleFixture)).toBe(before);

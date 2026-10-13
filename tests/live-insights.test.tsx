@@ -256,7 +256,7 @@ describe("live insights", () => {
     expect(container.querySelector(".insight__answer")).not.toBeNull();
   });
 
-  it("keeps a card on screen while replaying its cited evidence", async () => {
+  it("hides the whole card during citation replay and restores it at its cutoff", async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
       const request = JSON.parse(String(init?.body));
       const body = response(sampleFixture, request.timeMs, request.audience);
@@ -269,11 +269,16 @@ describe("live insights", () => {
     await act(async () => container.querySelector<HTMLButtonElement>(`.insights [aria-label="Replay event at ${formatClock(goal.t)}"]`)!.click());
     expect(replay).toHaveBeenCalledWith(goal.t - 3_000);
     await render(goal.t - 3_000);
-    expect(feedText()).toContain("Replaying cited evidence");
-    expect(feedText()).toContain("A goal was recorded.");
-    // Any other backward seek hides it.
+    expect(feedText()).not.toContain("A goal was recorded.");
+    expect(feedText()).not.toContain("Goal");
+    expect(feedText()).not.toContain(`Insight at ${goal.t}`);
+    await click("Analyst"); await click("Casual Fan");
+    expect(feedText()).not.toContain("A goal was recorded.");
     await render(2_000);
     expect(feedText()).not.toContain("A goal was recorded.");
+    await render(goal.t, "paused");
+    expect(feedText()).toContain("A goal was recorded.");
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it("runs one request at a time and only the newest waiting moment", async () => {

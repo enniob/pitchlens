@@ -47,8 +47,8 @@ describe("live evaluation bounds", () => {
   });
 
   it("can select scenarios and audiences, but never beyond the hard ceilings", () => {
-    const some = liveBoundsFromEnv({ PITCHLENS_LIVE_SCENARIOS: "seed2-offside-kick-frame, demo-sparse", PITCHLENS_LIVE_AUDIENCES: "analyst", PITCHLENS_LIVE_MAX_CASES: "1" });
-    expect(selectCases(EVAL_SCENARIOS, some).map((c) => [c.scenario.id, c.audience])).toEqual([["seed2-offside-kick-frame", "analyst"]]);
+    const some = liveBoundsFromEnv({ PITCHLENS_LIVE_SCENARIOS: "seed6-offside-kick-frame, demo-sparse", PITCHLENS_LIVE_AUDIENCES: "analyst", PITCHLENS_LIVE_MAX_CASES: "1" });
+    expect(selectCases(EVAL_SCENARIOS, some).map((c) => [c.scenario.id, c.audience])).toEqual([["seed6-offside-kick-frame", "analyst"]]);
     const all = liveBoundsFromEnv({ PITCHLENS_LIVE_SCENARIOS: "all", PITCHLENS_LIVE_MAX_CASES: "10000", PITCHLENS_LIVE_MAX_MODEL_CALLS: "10000" });
     expect(all).toMatchObject({ maxCases: LIVE_CEILINGS.cases, maxModelCalls: LIVE_CEILINGS.modelCalls });
     expect(selectCases(EVAL_SCENARIOS, all)).toHaveLength(Math.min(LIVE_CEILINGS.cases, EVAL_SCENARIOS.length * 2));

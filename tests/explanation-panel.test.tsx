@@ -152,10 +152,16 @@ describe("explanation panel interaction", () => {
     expect(container.textContent).toContain("Observable facts"); expect(container.textContent).toContain("Tactical interpretation");
     await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="Replay event at ${formatClock(event.t)}"]`)!.click());
     expect(replay).toHaveBeenCalledWith(Math.max(0, event.t - 3_000));
-    // Replaying cited evidence rewinds playback but keeps the explanation on screen.
+    // The replay action survives, but later claims and evidence disappear.
     await render(Math.max(0, event.t - 3_000));
-    expect(container.textContent).toContain("A goal was recorded.");
-    expect(container.textContent).toContain("Replaying cited evidence");
+    expect(container.textContent).not.toContain("A goal was recorded.");
+    expect(container.textContent).not.toContain("This may illustrate an attacking pattern.");
+    expect(container.querySelector('[aria-label^="Replay event"]')).toBeNull();
+    await click("Analyst"); await click("Casual Fan");
+    expect(answerText()).toBe("");
+    await render(event.t);
+    expect(answerText()).toContain("A goal was recorded.");
+    expect(container.querySelector('[aria-label^="Replay event"]')).not.toBeNull();
   });
 
   it("keeps the same button while the clock runs, so a click during playback lands", async () => {
@@ -177,10 +183,9 @@ describe("explanation panel interaction", () => {
     expect(container.textContent).toContain("Play has moved on");
     await render(9_000);
     expect(container.textContent).not.toContain("Not enough evidence");
-    // Hidden, not lost: back past its time it is listed again, but not reopened by itself.
+    // Hidden, not lost: the selected answer reappears at its cutoff.
     await render(12_000);
-    expect(answerText()).toBe("");
-    expect(historyText()).toContain("Casual Fan");
+    expect(answerText()).toContain("Not enough evidence");
   });
 
   it("only offers to pause while the match is playing", async () => {
@@ -231,7 +236,7 @@ describe("explanation history", () => {
     await render(9_000);
     expect(container.textContent).not.toContain("Answer at 9400");
     await render(9_400);
-    expect(historyText()).toContain("Answer at 9400");
+    expect(answerText()).toContain("Answer at 9400");
   });
 
   it("switching audience keeps the other audience's answer to switch back to", async () => {

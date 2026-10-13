@@ -116,8 +116,6 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
   const [sent, setSent] = useState(false);
   // Only an answer for the selected audience shows; the others stay in the history.
   const answer = saved.find((s) => s.id === shownId && s.audience === audience) ?? null;
-  // Earliest time a citation replay may rewind to while the answer stays on screen.
-  const [replayFloor, setReplayFloor] = useState<number | null>(null);
   const [error, setError] = useState("");
   const pending = useRef<AbortController | null>(null);
   useEffect(() => () => { pending.current?.abort(); }, []);
@@ -130,19 +128,9 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
   // Automatic insights live in the feed above; this part only shows what was asked for here.
   const asked = saved.filter((s) => !s.eventId);
 
-  // An answer may only stay visible while playback is at or after its cutoff, or
-  // while replaying its own cited evidence (already seen when it was requested).
-  // Any other backward seek hides it (it stays saved), so nothing past the selected time shows.
-  const visible = answer && (timeMs >= answer.atMs || (replayFloor !== null && timeMs >= replayFloor)) ? answer : null;
-  const [prevTime, setPrevTime] = useState(timeMs);
-  if (timeMs !== prevTime) {
-    setPrevTime(timeMs);
-    if (answer && !visible) setReplayFloor(null);
-    else if (answer && replayFloor !== null && timeMs >= answer.atMs) setReplayFloor(null);
-  }
-  useEffect(() => {
-    if (answer && !visible) onShow(null);
-  }, [answer, visible, onShow]);
+  // Citation replay has the same cutoff as every other backward seek. Keep the
+  // selection saved so it can reappear when playback reaches its cutoff again.
+  const visible = answer && timeMs >= answer.atMs ? answer : null;
   // Seeking back past an in-flight request's time abandons it.
   useEffect(() => {
     if (pendingAt !== null && timeMs < pendingAt) cancel();
@@ -172,11 +160,10 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
       const wanted = () => allowedRef.current && timeRef.current >= atMs;
       const result = await scheduler.schedule({ priority: "manual", signal: controller.signal, wanted, onStart: () => setSent(true) },
         () => requestExplanation(fixture, sampleFixture.matchId, atMs, audience, controller.signal, fetch, "moment", delay => scheduler.defer(delay)));
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && timeRef.current >= atMs && allowedRef.current) {
         const id = `${audience}-${Math.floor(atMs)}-${asked.length}`;
         onSaved({ id, atMs, audience, result });
         onShow(id);
-        setReplayFloor(null);
       }
     } catch (e) {
       if (!controller.signal.aborted) setError(e instanceof Error && !(e instanceof TypeError || e instanceof SyntaxError)
@@ -187,20 +174,18 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
   }
 
   function open(s: SavedExplanation) {
-    setReplayFloor(null);
     if (s.audience !== audience) onAudience(s.audience);
     onShow(s.id);
   }
 
   function replay(t: number) {
     const from = Math.max(0, t - 3_000);
-    setReplayFloor(from);
     onReplayFrom(from);
   }
 
   const loading = pendingAt !== null;
   const fallback = visible?.result.verification?.outcome === "fallback";
-  const stale = visible !== null && Math.floor(timeMs) > Math.floor(visible.atMs) && replayFloor === null;
+  const stale = visible !== null && Math.floor(timeMs) > Math.floor(visible.atMs);
   // Only offer to pause when there is something to pause.
   const label = loading ? "Explaining…" : error ? "Try again"
     : fallback ? (showsMatchFacts(visible!.result) ? "Get AI explanation" : "Try again")
@@ -233,12 +218,11 @@ function ExplanationRequest({ fixture, timeMs, playback, audience, onAudience, o
         <span>{audienceName(audience)} · explained at {formatClock(visible.atMs)}</span>
         <button className="btn btn--ghost btn--icon btn--small" type="button" aria-label="Close explanation"
           title="Close. It stays under Your explanations."
-          onClick={() => { onShow(null); setReplayFloor(null); }}>
+          onClick={() => onShow(null)}>
           <Icon name="close" size={16} />
         </button>
       </div>
       {stale && <p className="explain__notice">Play has moved on since this explanation. Explain again for the current moment.</p>}
-      {replayFloor !== null && <p className="explain__notice">Replaying cited evidence up to {formatClock(visible.atMs)}.</p>}
       <ExplanationBody fixture={fixture} result={visible.result} audience={audience} onReplay={replay} />
     </article>}
 

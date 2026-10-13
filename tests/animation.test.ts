@@ -16,7 +16,7 @@ import {
 import { ballRadiusAtZoom } from "@/scene/Ball";
 import { positionsAt } from "@/playback/derive";
 import { facingToRotationY, toScene } from "@/scene/coords";
-import { DIVE_ANGLE, poseFor } from "@/scene/pose";
+import { DIVE_SIDE, poseFor } from "@/scene/pose";
 import {
   ANKLE_HEIGHT,
   FOREARM_LENGTH,
@@ -335,7 +335,7 @@ describe("ball contacts recognised from snapshots match what the simulator did",
     const rig = new Rig();
     let dives = 0;
     for (const { f, contacts } of all) {
-      for (const c of contacts.filter((x) => x.kind === "save" && Math.atan2(Math.abs(x.side), Math.max(0.3, x.height - 0.1)) > DIVE_ANGLE)) {
+      for (const c of contacts.filter((x) => x.kind === "save" && Math.abs(x.side) > DIVE_SIDE)) {
         dives++;
         const t = c.t + 150;
         const keeper = positionsAt(f, t).players.find((p) => p.playerId === c.playerId)!;
@@ -351,6 +351,28 @@ describe("ball contacts recognised from snapshots match what the simulator did",
       }
     }
     expect(dives).toBeGreaterThan(3);
+  });
+
+  it("shows the conceding goalkeeper diving or reaching for every goal shot at them", () => {
+    let goals = 0;
+    for (const { f, contacts } of all) {
+      for (const goal of f.events.filter((e) => e.type === "goal")) {
+        const keeper = f.roster.find((p) => p.role === "GK" && p.teamId !== goal.teamId)!.id;
+        goals++;
+        expect(contacts.some((c) => c.kind === "save" && c.playerId === keeper && c.t <= goal.t && goal.t - c.t < 2500)).toBe(true);
+      }
+    }
+    expect(goals).toBeGreaterThan(3);
+  });
+
+  it("only shows a goalkeeper diving at a shot by the other team", () => {
+    for (const { f, contacts } of all) {
+      const strikes = contacts.filter((c) => c.kind === "kick" || c.kind === "throw");
+      for (const c of contacts.filter((x) => x.kind === "save")) {
+        const strike = strikes.filter((s) => s.t < c.t).at(-1)!;
+        expect(role(f, strike.playerId) === "GK" || f.roster.find((p) => p.id === strike.playerId)!.teamId !== f.roster.find((p) => p.id === c.playerId)!.teamId).toBe(true);
+      }
+    }
   });
 
   it("only shows a block where the ball came off that player, and a save only by a goalkeeper", () => {
@@ -390,10 +412,30 @@ describe("contact poses", () => {
     // Model right is +z when facing +x.
     expect(h.z * side).toBeGreaterThan(1.5);
     expect(h.y).toBeLessThan(0.9);
-    // The dive pivots on the feet, which stay at the player's recorded position.
-    for (const leg of [0, 1] as const) expect(Math.abs(worldPoint(r.foot[leg], 0, -ANKLE_HEIGHT, 0).z)).toBeLessThan(0.8);
     // Up again once the animation ends.
     expect(head(solve(act("save", CONTACT_WINDOW.save[1], { side: side * 1.2, height: 0.3 }))).y).toBeCloseTo(standingHead, 1);
+  });
+
+  it.each([1, -1])("launches a diving goalkeeper off the ground towards side %s", (side) => {
+    const feet = (r: Rig) => [0, 1].map((i) => worldPoint(r.foot[i as 0 | 1], 0, -ANKLE_HEIGHT, 0));
+    const action = { side: side * 2.5, height: 1.2 };
+    // In the air at the moment of contact, feet and all, having pushed off towards the ball.
+    for (const foot of feet(solve(act("save", 0, action)))) {
+      expect(foot.y).toBeGreaterThan(0.3);
+      expect(foot.z * side).toBeGreaterThan(0.8);
+    }
+    // Hands out to where the ball passes.
+    for (const hand of hands(solve(act("save", 0, action)))) expect(hand.z * side).toBeGreaterThan(2);
+    // Back on the grass after landing.
+    for (const foot of feet(solve(act("save", 400, action)))) expect(foot.y).toBeLessThan(0.3);
+  });
+
+  it("catches a ball near the body standing up, even a low one", () => {
+    for (const height of [0.3, 1.2]) {
+      const r = solve(act("save", 0, { side: 0.4, height }));
+      expect(Math.abs(head(r).z)).toBeLessThan(0.5);
+      for (const leg of [0, 1] as const) expect(worldPoint(r.foot[leg], 0, -ANKLE_HEIGHT, 0).y).toBeLessThan(0.1);
+    }
   });
 
   it("catches a high ball overhead without diving", () => {

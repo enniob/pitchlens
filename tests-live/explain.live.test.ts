@@ -16,9 +16,8 @@
  * selected case to complete with usable quality or honest insufficient
  * evidence. Exploratory runs may explicitly disable that gate.
  */
-import { execSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { explainMoment, WORKFLOW_LIMITS } from "@/server/analyst";
 import { FoundryClient, foundryConfigFromEnv, ModelError } from "@/server/foundry";
 import { assess } from "../tests/support/assess";
@@ -34,6 +33,7 @@ import {
   type LiveResult,
 } from "../tests/support/liveReport";
 import { EVAL_SCENARIOS } from "../tests/support/scenarios";
+import { evaluationRevision } from "../tests/support/revision";
 
 const config = foundryConfigFromEnv(process.env);
 if (process.env.PITCHLENS_LIVE_EVAL === "1" && !config.ok)
@@ -46,6 +46,7 @@ const cases = selectCases(EVAL_SCENARIOS, bounds);
 const secrets = [process.env.FOUNDRY_API_KEY, process.env.FOUNDRY_ENDPOINT, process.env.PITCHLENS_EXPLAIN_ACCESS_TOKEN];
 
 const results: LiveResult[] = [];
+const revision = evaluationRevision();
 let callsUsed = 0;
 let lastFinished = 0;
 const rawCooldown = process.env.PITCHLENS_LIVE_COOLDOWN_MS ?? "65000";
@@ -53,6 +54,10 @@ const cooldownMs = Number(rawCooldown);
 if (!Number.isInteger(cooldownMs) || cooldownMs < 0 || cooldownMs > 120_000) throw new Error("Invalid PITCHLENS_LIVE_COOLDOWN_MS");
 
 describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
+  afterEach(() => {
+    const path = process.env.PITCHLENS_LIVE_REPORT?.trim();
+    if (path) writeFileSync(`${path}.progress.json`, JSON.stringify({ revision, results }, null, 2), "utf8");
+  });
   for (const { scenario: s, audience } of cases)
     it(`${s.id}: ${s.title} (${audience})`, { timeout: 210_000 }, async () => {
       if (!config.ok) throw new Error("not configured");
@@ -110,7 +115,7 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
     const { deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature } = config.config;
     let commit = "unknown";
     try {
-      commit = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
+      commit = revision;
     } catch {}
     const summary = summarise(results, prices);
     const failures = releaseFailures(results, cases);
@@ -123,6 +128,7 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
     // Optional copy for a pull request; choose a path outside the repository or a git-ignored one.
     const path = process.env.PITCHLENS_LIVE_REPORT?.trim();
     if (path) writeFileSync(path, `${report}\n`, "utf8");
+    expect(evaluationRevision(), "implementation changed during evaluation").toBe(revision);
     if (process.env.PITCHLENS_LIVE_RELEASE_GATE !== "0") {
       expect(failures, failures.join("\n")).toEqual([]);
     }

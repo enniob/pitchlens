@@ -55,7 +55,7 @@ describe("match references", () => {
   it("rejects malformed or out-of-range references", () => {
     const good = {
       kind: "generated",
-      matchId: "sim-v4-1-10000-abc",
+      matchId: "sim-v5-1-10000-abc",
       seed: 1,
       durationMs: 10_000,
       tactics: { home: { formation: "4-3-3", changes: [] }, away: { formation: "4-4-2", changes: [{ t: 5_000, formation: "4-3-3" }] } },

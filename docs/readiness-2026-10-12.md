@@ -1,5 +1,28 @@
 # Implementation and verification — October 12, 2026
 
+## October 13 final-revision follow-up
+
+The citation-replay cutoff is fixed for manual answers, automatic cards and
+recap navigation, with saved-answer restoration at the cutoff. The final
+offline run passed 1,314 tests, type checking and build; it required a
+15-second test-runner timeout on this host. Default-timeout stability under
+load remains a limitation.
+
+Live release readiness is **not established**. All 36 cases were attempted
+on base `482a824dee7585a0f2911c0f6c1908b271558ad7`, working-tree fingerprint
+`80f04c5471b14542664ee809de551e0127dca1bfea7cde0f9c43e83c1dc8f1d5`:
+26 reviewed explanations, eight fallbacks, one timeout and one provider rate
+limit. The strict gate failed. Manual review identified seven accepted answers
+with incorrect claims and one additional unsupported directional label.
+Two independent judge sessions and same-session admission recovery were
+exercised locally; public judge-deployment verification remains outstanding.
+Known aggregate usage was 101 model calls and 703,724 tokens, excluding
+unreported usage from the two failed workflows. No merge or deployment occurred.
+
+See [final revision, complete matrix, manual findings and reproducible commands](replay-reliability-2026-10-12.md).
+This follow-up supersedes the earlier verification and remaining-work status
+below; those sections record the preceding implementation history.
+
 This update implements AI reliability, measured patterns, and team/player
 personalization. Hosting and deployment remain deferred. The submission guide
 contains the elevator pitch, recording script, and remaining submission tasks.
