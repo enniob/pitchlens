@@ -119,5 +119,13 @@ export async function requestExplanation(
   }
   if (!validateExplanation(explanation, session.context()).ok)
     throw new Error("The explanation could not be checked against this moment. Please try again.");
+  // Catalog labels are model-facing indexes, not replay citations. Remove
+  // parenthesized labels from display prose only, after validating the answer;
+  // the actual facts, structured evidence and server review remain unchanged.
+  const displayProse = (text: string) => text.replace(/\s*\((?:F\d+|T\d+-\d+)(?:\s*[,;]\s*(?:F\d+|T\d+-\d+))*\)/g, "").trim() || text;
+  body.explanation = { ...explanation,
+    headline: displayProse(explanation.headline),
+    explanation: displayProse(explanation.explanation),
+  };
   return body as ExplainSuccess;
 }

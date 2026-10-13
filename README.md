@@ -151,7 +151,8 @@ The design, limits and failure handling are documented in
   TypeScript. **Microsoft Agent Framework** was evaluated but is not used; see
   [why](docs/explain-service.md#why-not-microsoft-agent-framework).
 
-Azure hosting, Fabric, MCP and managed databases are not used.
+Azure App Service hosts the deployed application. Fabric, MCP and managed
+databases are not used.
 
 ## Quick start
 
@@ -234,6 +235,9 @@ Azure App Service (Linux, Node 22) as one prebuilt zip. The web app needs:
   production values for the access code and session secret.
 - A single instance: allowances and the answer cache are kept in memory.
 
+See the [hosting runbook](docs/hosting-runbook.md) for release checks and rollback,
+and [judge instructions](docs/judge-instructions.md) for the public walkthrough.
+
 ## Project structure
 
 ```
@@ -281,7 +285,8 @@ build) on pull requests and pushes to `main`. Live model quality is measured sep
   quality.
 - Players are drawn larger than life so they stay readable from the
   full-pitch camera.
-- Hosting for judges is not set up yet; the app runs locally.
+- Azure App Service deployment is available. The hosted judge walkthrough and
+  live evaluation status are tracked in [release readiness](docs/release-readiness.md).
 
 ## Documentation
 

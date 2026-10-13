@@ -1,5 +1,13 @@
 # AI evaluation of "Explain this moment"
 
+**Latest release follow-up (October 13, 2026):** all 36 cases completed on an
+unchanged model workflow after the pass-duration fix, with 36 usable answers,
+no fallbacks/errors and a passing strict release gate. The deployed two-session
+smoke also passed. A later browser-only cleanup removes catalog labels; all
+36 retained answers passed its offline replay. Readability notes and remaining
+deployment/submission steps are documented in [release readiness](release-readiness.md).
+The older results below are historical.
+
 **Latest targeted follow-up (October 13, 2026):** timestamp parsing and
 possession grounding fixes passed 1,460 offline tests, type checking and build.
 The 26 affected live cases returned 13 usable answers, ten fallbacks and three
