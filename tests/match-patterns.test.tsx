@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MatchPatterns } from "@/components/MatchPatterns";
 import { sampleFixture } from "@/match/fixture";
+import { eventsAt } from "@/playback/derive";
+import { measureEvents } from "@/playback/patterns";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let container: HTMLDivElement;
@@ -31,6 +33,16 @@ describe("measured pattern cards", () => {
     expect(container.querySelector("details ol")?.children.length).toBe(5);
     await render(shot.t - 1);
     expect(container.textContent).not.toContain("Turnover to shot");
+  });
+
+  it("shows no card for an activity comparison, which stays in the measurements", async () => {
+    const end = sampleFixture.durationMs;
+    const measured = measureEvents(eventsAt(sampleFixture, end), sampleFixture.teams, end).patterns;
+    expect(measured.some((p) => p.kind === "activity-change")).toBe(true);
+    await render(end);
+    expect(container.textContent).not.toContain("Activity comparison");
+    expect(container.querySelector('button[aria-label^="Replay activity-change"]')).toBeNull();
+    expect(container.textContent).toContain("Turnover to shot");
   });
 
   it("filters cards by team and participant without changing measurements", async () => {

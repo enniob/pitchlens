@@ -63,11 +63,11 @@ evidence.
 
 ### Measure what happened
 
-![Top view with live numbers and measured patterns: turnover-to-shot sequences and activity comparisons](docs/screenshots/readme/top-view-tactics.jpg)
+![Top view with live numbers and measured patterns](docs/screenshots/readme/top-view-tactics.jpg)
 
 The **Tactics** tab shows possession, completed passes and shots so far, and
-**Patterns so far**: turnover-to-shot sequences, repeated flank actions and
-activity comparisons between adjacent time windows. Each pattern lists its
+**Patterns so far**: turnover-to-shot sequences and repeated flank actions.
+Each pattern lists its
 supporting events and can be replayed. Patterns describe recorded actions only,
 not pressure, intent or chance quality. See the
 [pattern definitions](docs/match-patterns.md).
