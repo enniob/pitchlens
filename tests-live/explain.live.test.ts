@@ -16,6 +16,13 @@
  * the right match and time. The default release gate also requires every
  * selected case to complete with usable quality or honest insufficient
  * evidence. Exploratory runs may explicitly disable that gate.
+ *
+ * Every explained answer is also exported for Microsoft Foundry cloud
+ * evaluation (tests/support/foundryEval.ts) with the exact evidence the
+ * analyst received. With PITCHLENS_LIVE_REPORT set, the rows are written next
+ * to the report; with PITCHLENS_FOUNDRY_EVAL=1 they are also scored in the
+ * Foundry project and the scores are added to the report. Foundry scores are
+ * informational and never change the release gate.
  */
 import { writeFileSync } from "node:fs";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
@@ -36,11 +43,23 @@ import {
 import { ADVERSARIAL_SCENARIOS } from "../tests/support/adversarial";
 import { EVAL_SCENARIO_VERSION, EVAL_SCENARIOS, scenarioFingerprint } from "../tests/support/scenarios";
 import { evaluationRevision } from "../tests/support/revision";
+import {
+  exportAnswer,
+  foundryEvalConfigFromEnv,
+  RecordingClient,
+  scoreAndFormat,
+  toJsonl,
+  type ExcludedAnswer,
+  type FoundryEvalRow,
+} from "../tests/support/foundryEval";
 
 const config = foundryConfigFromEnv(process.env);
 if (process.env.PITCHLENS_LIVE_EVAL === "1" && !config.ok)
   throw new Error(`Live evaluation was explicitly enabled but configuration is missing or invalid: ${[...config.missing, ...config.invalid].join(", ")}`);
 const enabled = process.env.PITCHLENS_LIVE_EVAL === "1" && config.ok;
+const foundryEval = foundryEvalConfigFromEnv(process.env);
+if (foundryEval.enabled && !foundryEval.ok)
+  throw new Error(`Foundry evaluation was explicitly enabled but configuration is missing or invalid: ${[...foundryEval.missing, ...foundryEval.invalid].join(", ")}`);
 // Settings are validated even when the run is skipped, so a typo is caught before anything is paid for.
 const bounds = liveBoundsFromEnv(process.env);
 const prices = pricesFromEnv(process.env);
@@ -49,6 +68,9 @@ const secrets = [process.env.FOUNDRY_API_KEY, process.env.FOUNDRY_ENDPOINT, proc
 
 const results: LiveResult[] = [];
 const revision = evaluationRevision();
+const scenarioSet = `version ${EVAL_SCENARIO_VERSION}, fingerprint ${scenarioFingerprint()}`;
+/** Explained answers for Foundry evaluation, and the answers that are not scored. */
+const foundry: { rows: FoundryEvalRow[]; excluded: ExcludedAnswer[] } = { rows: [], excluded: [] };
 let callsUsed = 0;
 let lastFinished = 0;
 const rawCooldown = process.env.PITCHLENS_LIVE_COOLDOWN_MS ?? "65000";
@@ -58,7 +80,7 @@ if (!Number.isInteger(cooldownMs) || cooldownMs < 0 || cooldownMs > 120_000) thr
 describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
   afterEach(() => {
     const path = process.env.PITCHLENS_LIVE_REPORT?.trim();
-    if (path) writeFileSync(`${path}.progress.json`, JSON.stringify({ revision, results }, null, 2), "utf8");
+    if (path) writeFileSync(`${path}.progress.json`, JSON.stringify({ revision, scenarioSet, results, foundry }, null, 2), "utf8");
   });
   for (const { scenario: s, audience } of cases)
     it(`${s.id}: ${s.title} (${audience})`, { timeout: 210_000 }, async () => {
@@ -72,8 +94,9 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
       if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
       const started = Date.now();
       let out: Awaited<ReturnType<typeof explainMoment>>;
+      const client = new RecordingClient(new FoundryClient(config.config));
       try {
-        out = await explainMoment({ fixture: s.fixture, timeMs: s.timeMs, audience, focus: s.focus, client: new FoundryClient(config.config) });
+        out = await explainMoment({ fixture: s.fixture, timeMs: s.timeMs, audience, focus: s.focus, client });
       } catch (e) {
         lastFinished = Date.now();
         // A failed call may still have been billed; count the worst case against the budget.
@@ -102,6 +125,10 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
         trace: out.trace,
         ...(prices ? { cost: estimateCost(out.trace, prices) } : {}),
       });
+      const exported = exportAnswer({ scenario: s, scenarioSet, audience, explanation: out.explanation, verification: out.verification, verdict,
+        analystRequests: client.analystRequests }, `r${String(foundry.rows.length + 1).padStart(2, "0")}`);
+      if ("row" in exported) foundry.rows.push(exported.row);
+      else foundry.excluded.push(exported.excluded);
 
       // Release blockers, whatever the model wrote.
       expect(verdict.blockers, JSON.stringify(verdict.blockers)).toEqual([]);
@@ -114,7 +141,7 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
       }
     });
 
-  afterAll(() => {
+  afterAll(async () => {
     if (!config.ok) return;
     const { deployment, verifierDeployment, structuredOutput, reasoningEffort, verifierReasoningEffort, temperature } = config.config;
     let commit = "unknown";
@@ -125,19 +152,29 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
     const failures = releaseFailures(results, cases);
     const report = formatReport(
       { commit, date: new Date().toISOString(), settings: { deployment, verifierDeployment, structuredOutput, reasoningEffort, verifierReasoningEffort, temperature }, bounds,
-        scenarios: `version ${EVAL_SCENARIO_VERSION}, fingerprint ${scenarioFingerprint()}` },
+        scenarios: scenarioSet },
       results,
       summary,
     ) + `\n\nRelease gate: ${process.env.PITCHLENS_LIVE_RELEASE_GATE === "0" ? "disabled (exploratory)" : failures.length ? "FAILED" : "passed"}. Coverage: ${results.filter((r) => r.outcome !== "error" && r.outcome !== "skipped").length}/${cases.length} selected cases answered.\n${failures.map((f) => `- ${f}`).join("\n")}`;
-    console.info(`\nLIVE evaluation (real model calls; results vary between runs)\n\n${report}\n`);
-    // Optional copy for a pull request; choose a path outside the repository or a git-ignored one.
+    // Optional copies for a pull request; choose a path outside the repository or a git-ignored one.
     const path = process.env.PITCHLENS_LIVE_REPORT?.trim();
-    if (path) writeFileSync(path, `${report}\n`, "utf8");
+    if (path) {
+      writeFileSync(`${path}.foundry.jsonl`, toJsonl(foundry.rows), "utf8");
+      writeFileSync(`${path}.foundry-excluded.jsonl`, toJsonl(foundry.excluded), "utf8");
+    }
+    // Informational: scored after the release gate is computed, and never part of it.
+    let full = report;
+    if (foundryEval.enabled && foundryEval.ok) {
+      const { createEvalsApi, FOUNDRY_EVAL_SDK } = await import("../tests/support/foundryClient");
+      full += `\n\n${await scoreAndFormat(foundry, foundryEval.settings, revision, () => createEvalsApi(foundryEval.settings.projectEndpoint), FOUNDRY_EVAL_SDK)}`;
+    }
+    console.info(`\nLIVE evaluation (real model calls; results vary between runs)\n\n${full}\n`);
+    if (path) writeFileSync(path, `${full}\n`, "utf8");
     expect(evaluationRevision(), "implementation changed during evaluation").toBe(revision);
     if (process.env.PITCHLENS_LIVE_RELEASE_GATE !== "0") {
       expect(failures, failures.join("\n")).toEqual([]);
     }
-  });
+  }, foundryEval.enabled && foundryEval.ok ? 2 * foundryEval.settings.timeoutMs + 300_000 : undefined);
 });
 
 describe.runIf(!enabled)("LIVE evaluation", () => {
