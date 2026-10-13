@@ -9,6 +9,10 @@ on:
       - 'main'
   workflow_dispatch:
 
+concurrency:
+  group: deploy-pitchlens
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,17 +27,26 @@ jobs:
         with:
           node-version: '22.x'
 
-      - name: npm install, build, and test
+      - name: Install, build and test
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
         run: |
-          npm install
-          npm run build --if-present
-          npm run test --if-present
+          npm ci
+          npm run build
+          npm test
+
+      # One zip keeps the hidden .next build output (upload-artifact skips
+      # hidden files) and node_modules exactly as built. App Service must not
+      # rebuild it: SCM_DO_BUILD_DURING_DEPLOYMENT=false on the web app.
+      - name: Package the built app
+        run: zip -r -y -q release.zip . -x ".git/*" ".github/*" ".next/cache/*"
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: .
+          path: release.zip
+          retention-days: 1
 
   deploy:
     runs-on: ubuntu-latest
@@ -61,5 +74,5 @@ jobs:
         with:
           app-name: 'pitchlens'
           slot-name: 'Production'
-          package: .
+          package: release.zip
           
