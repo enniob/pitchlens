@@ -175,7 +175,11 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
         const citedIds = new Set(scope.events.map((e) => e.id));
         const windowClaim = /(?:last|previous)\s+$/.test(prefix);
         const measuredWindow = windowClaim && context.measurements?.patterns.some((p) => p.kind === "activity-change" && p.eventIds.length > 0 && p.eventIds.every((id) => citedIds.has(id)) && p.values.windowMs === ms);
-        if (windowClaim ? !measuredWindow : !times.some((a) => times.some((b) => a !== b && Math.abs(Math.abs(a - b) - ms) <= tolerance)))
+        // A possession spell's duration comes from every snapshot in it, not two cited times; the claim must cite the spell's own endpoints.
+        const citedSnapshots = new Set(scope.snapshotTimes ?? []);
+        const measuredSpell = context.measurements?.possessionSpells?.some((sp) => Math.abs(sp.durationMs - ms) <= tolerance &&
+          sp.cite.every((ref) => ref.kind === "event" ? citedIds.has(ref.id) : citedSnapshots.has(ref.t)));
+        if (!measuredSpell && (windowClaim ? !measuredWindow : !times.some((a) => times.some((b) => a !== b && Math.abs(Math.abs(a - b) - ms) <= tolerance))))
           issues.push(`${where} gives the duration ${m[0].trim()}, which is not supported by two cited time endpoints${windowClaim ? "" : durationHint(context, scope, ms, tolerance)}`);
       } else if (!times.some((t) => Math.abs(t - ms) <= tolerance)) {
         issues.push(`${where} gives the time ${m[0].trim()}, which matches nothing it cites`);

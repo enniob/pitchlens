@@ -248,7 +248,9 @@ export function assess({ scenario, audience, explanation, verification, envelope
             const ids = new Set(cited.map((e) => e.id));
             const windowClaim = /(?:last|previous)\s+$/.test(before);
             const window = windowClaim && evidence.measurements?.patterns.some((p) => p.kind === "activity-change" && p.eventIds.length && p.eventIds.every((id) => ids.has(id)) && p.values.windowMs === ms);
-            if (windowClaim ? !window : !intervals.some((value) => Math.abs(value - ms) <= tolerance)) unsupported.push(`${where} gives the duration ${m[0].trim()}, without cited endpoints supporting it`);
+            const cites = new Set(snapshotTimes);
+            const spell = evidence.measurements?.possessionSpells?.some((sp) => Math.abs(sp.durationMs - ms) <= tolerance && sp.cite.every((ref) => ref.kind === "event" ? ids.has(ref.id) : cites.has(ref.t)));
+            if (!spell && (windowClaim ? !window : !intervals.some((value) => Math.abs(value - ms) <= tolerance))) unsupported.push(`${where} gives the duration ${m[0].trim()}, without cited endpoints supporting it`);
           } else if (!times.some((t) => Math.abs(t - ms) <= tolerance)) unsupported.push(`${where} gives the time ${m[0].trim()}, which matches nothing it cites`);
         }
       }
