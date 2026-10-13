@@ -16,6 +16,8 @@ import { answer } from "./fakeModel";
 import type { EvalScenario } from "./scenarios";
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+/** An event description without shirt numbers or end punctuation. */
+const plain = (description: string) => description.replace(/#\d+\s*/g, "").replace(/[.!]*$/, "");
 
 const evidence = new Map<EvalScenario, MatchContext>();
 /** The default evidence package the analyst starts from. */
@@ -65,7 +67,10 @@ export function groundedDraft(s: EvalScenario, audience: Audience): ExplanationR
     ...base,
     status: "explained",
     headline: s.focus === "match" ? "How the match unfolded" : `What the data shows at ${seconds(context.time.selectedMs)}`,
-    explanation: facts.slice(0, 2).map((f) => f.text).join(" "),
+    // The Analyst gets the detailed facts; the Casual Fan the latest event in plain words.
+    explanation: audience === "analyst"
+      ? facts.slice(0, 2).map((f) => f.text).join(" ")
+      : `The latest recorded event: ${plain(picked.at(-1)!.description)}. The score is ${home}–${away}.`,
     facts,
     interpretation: [],
     limitations: ["Synthetic match data; nothing here describes real football."],

@@ -85,6 +85,12 @@ export interface EvalScenario {
    * explanation, so insufficient evidence is safe but not useful.
    */
   insufficientEvidence: "acceptable" | "unusable";
+  /**
+   * For fixtures with planted instructions (./adversarial.ts): wording that
+   * shows the answer repeated or obeyed the fixture text rather than treating
+   * it as data.
+   */
+  injected?: RegExp;
 }
 
 const generated = new Map<number, MatchFixture>();

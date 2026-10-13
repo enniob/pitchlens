@@ -8,7 +8,9 @@
  */
 import type { Audience, ExplainTrace, VerificationSummary } from "@/explain/api";
 import { WORKFLOW_LIMITS } from "@/server/analyst";
+import type { ExplanationResponse } from "@/explain/response";
 import type { Quality } from "./assess";
+import { assessAudiences, type AudienceAssessment } from "./audience";
 import { EVAL_AUDIENCES, type EvalScenario } from "./scenarios";
 
 type Env = Record<string, string | undefined>;
@@ -18,7 +20,8 @@ export const LIVE_CEILINGS = { cases: 40, modelCalls: 320 } as const;
 export const LIVE_DEFAULT_CASES = 14;
 
 export interface LiveBounds {
-  scenarios: "default" | "all" | string[];
+  /** `all`: the scenario matrix; `adversarial`: the planted-instruction scenarios; or IDs from either. */
+  scenarios: "default" | "all" | "adversarial" | string[];
   audiences: Audience[];
   maxCases: number;
   /** Model calls for the whole run. A case starts only if a worst-case workflow still fits. */
@@ -41,7 +44,8 @@ export function liveBoundsFromEnv(env: Env): LiveBounds {
   const errors: string[] = [];
   const list = (name: string) => env[name]?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
   const ids = list("PITCHLENS_LIVE_SCENARIOS");
-  const scenarios = ids.length === 0 || (ids.length === 1 && ids[0] === "default") ? "default" : ids.length === 1 && ids[0] === "all" ? "all" : ids;
+  const keyword = ids.length === 1 && ["default", "all", "adversarial"].includes(ids[0]!) ? (ids[0] as "default" | "all" | "adversarial") : undefined;
+  const scenarios = ids.length === 0 ? "default" : keyword ?? ids;
   const audiences = list("PITCHLENS_LIVE_AUDIENCES");
   if (audiences.some((a) => !(EVAL_AUDIENCES as readonly string[]).includes(a))) errors.push("PITCHLENS_LIVE_AUDIENCES");
   const maxCases = positiveInt(env, "PITCHLENS_LIVE_MAX_CASES", LIVE_DEFAULT_CASES, LIVE_CEILINGS.cases, errors);
@@ -53,8 +57,9 @@ export function liveBoundsFromEnv(env: Env): LiveBounds {
 /** The cases a live run makes, in order, at most `maxCases`. Unknown scenario IDs throw. */
 export function selectCases(all: readonly EvalScenario[], bounds: LiveBounds): { scenario: EvalScenario; audience: Audience }[] {
   let picked: EvalScenario[];
-  if (bounds.scenarios === "default") picked = all.filter((s) => s.live);
-  else if (bounds.scenarios === "all") picked = [...all];
+  if (bounds.scenarios === "default") picked = all.filter((s) => s.live && !s.injected);
+  else if (bounds.scenarios === "all") picked = all.filter((s) => !s.injected);
+  else if (bounds.scenarios === "adversarial") picked = all.filter((s) => s.injected);
   else {
     const unknown = bounds.scenarios.filter((id) => !all.some((s) => s.id === id));
     if (unknown.length > 0) throw new Error(`Unknown evaluation scenario(s): ${unknown.join(", ")}`);
@@ -149,7 +154,34 @@ export function releaseFailures(results: LiveResult[], expected: { scenario: { i
     else if (r.blockers.length || r.leaks.length || r.unsupported.length || !["usable", "honest-insufficient"].includes(r.quality ?? "")) failures.push(`${label}: safety or quality gate failed`);
     if (r.outcome !== "error" && r.outcome !== "skipped" && !r.answer) failures.push(`${label}: answer was not retained`);
   }
+  for (const p of audiencePairs(results)) for (const c of p.conflicts) failures.push(`${p.scenario} (both audiences): ${c}`);
   return failures;
+}
+
+/** The final explanation in a retained answer, or undefined when it was not retained or cannot be read. */
+function retainedExplanation(r: LiveResult): ExplanationResponse | undefined {
+  try {
+    return r.answer ? (JSON.parse(r.answer) as { explanation: ExplanationResponse }).explanation : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The paired audience assessment for every scenario where both audiences
+ * returned an answer. Conflicts fail the release gate; readability and detail
+ * flags are for human review.
+ */
+export function audiencePairs(results: LiveResult[]): ({ scenario: string } & AudienceAssessment)[] {
+  const out: ({ scenario: string } & AudienceAssessment)[] = [];
+  for (const scenario of [...new Set(results.map((r) => r.scenario))]) {
+    const [casual, analyst] = (["casual", "analyst"] as const).map((a) => {
+      const r = results.find((x) => x.scenario === scenario && x.audience === a);
+      return r && retainedExplanation(r);
+    });
+    if (casual && analyst) out.push({ scenario, ...assessAudiences(casual, analyst) });
+  }
+  return out;
 }
 
 export interface LiveSummary {
@@ -234,6 +266,19 @@ export function formatReport(meta: LiveMeta, results: LiveResult[], summary: Liv
     for (const r of flagged)
       for (const f of [...r.blockers.map((b) => `BLOCKER ${b}`), ...r.leaks.map((l) => `leak? ${l}`), ...r.unsupported.map((u) => `unsupported? ${u}`)])
         lines.push(`- ${r.scenario} (${r.audience}): ${f.replace(/\|/g, "\\|")}`);
+  }
+  const pairs = audiencePairs(results);
+  if (pairs.length > 0) {
+    lines.push(
+      "",
+      "### Audience pairs",
+      "",
+      "Both audiences receive the same evidence. Conflicts mean the two answers disagree about the match and fail the release gate. Readability (Casual Fan) and detail (Analyst) are wording heuristics for human review, not measures of clarity or usefulness.",
+      "",
+      "| Scenario | Conflicts | Casual readability | Analyst detail |",
+      "| --- | --- | --- | --- |",
+      ...pairs.map((p) => `| ${p.scenario} | ${[p.conflicts, p.readability, p.detail].map((f) => (f.length ? f.join("; ").replace(/\|/g, "\\|") : "-")).join(" | ")} |`),
+    );
   }
   for (const r of results.filter((r) => r.answer)) {
     lines.push("", `### Retained answer: ${r.scenario} (${r.audience})`, "", ...r.answer!.split("\n").map((line) => `    ${line}`));
