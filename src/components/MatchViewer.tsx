@@ -64,7 +64,7 @@ interface UiState {
 
 export interface MatchViewerProps {
   fixture: MatchFixture;
-  /** Tactics (Pro data) tab: every touch with data chips in a live feed in the dock, extra numbers. */
+  /** Tactics (Pro data) tab: every touch with data chips in a live feed in the dock, extra numbers. Also starts explanations in Analyst. */
   pro?: boolean;
   onTogglePro?: () => void;
   /** Opens the "Set up match" drawer; the button is hidden without it. */
@@ -173,7 +173,9 @@ function PlaybackViewer({ fixture, pro = false, onTogglePro, onOpenSetup, showWe
   const [synthOpen, setSynthOpen] = useState(false);
   const [appView, setAppView] = useState<AppView>("match");
   // One audience for the panel and the recap, so switching views keeps the choice.
-  const [audience, setAudience] = useState<Audience>("casual");
+  // A match starts in Analyst with Pro data on; toggling Tactics later leaves the
+  // choice alone, since changing audience cancels a pending explanation.
+  const [audience, setAudience] = useState<Audience>(pro ? "analyst" : "casual");
   const [focus, setFocus] = useState<Focus>(ALL_MATCH);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const openAccessSettings = useOpenAccessSettings();

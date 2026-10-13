@@ -53,7 +53,8 @@ evidence.
 - **Ask about any moment.** Pause anywhere and press **Pause and explain**.
 - **Two audiences, one set of evidence.** *Casual Fan* gets a short plain
   account; *Analyst* gets observed facts, an optional tactical reading and
-  stated limitations.
+  stated limitations. A match starts in *Analyst* when the **Tactics** tab is
+  on, and in *Casual Fan* otherwise; switching audience is always available.
 - **See the evidence.** Each claim cites the events or positions it is based
   on, and every cited event has a **Replay** button.
 - **Honest failures.** When an answer does not pass the checks, PitchLens does
