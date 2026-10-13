@@ -5,6 +5,7 @@ import { extractMatchContext } from "@/explain/context";
 import { insufficientEvidence } from "@/explain/response";
 import { recordedSummary } from "@/explain/recorded";
 import { ExplanationScheduler } from "@/explain/scheduler";
+import { goalExplanation } from "./support/fakeModel";
 
 const signal = new AbortController().signal;
 const answer = (timeMs = 9_400) => ({
@@ -18,6 +19,16 @@ const busy = (retryAfterMs?: number, headers?: HeadersInit) => new Response(JSON
 afterEach(() => vi.useRealTimers());
 
 describe("viewer explanation transport", () => {
+  it("hides model catalog labels in prose while preserving facts and replay citations", async () => {
+    const explanation = { ...goalExplanation(), headline: "Castell scores (F1)",
+      explanation: "Castell scored at 9.4 s (F1, F2). The score is 1–0 (T1-1)." };
+    const result = await requestExplanation(sampleFixture, sampleFixture.matchId, 9_400, "casual", signal,
+      reply({ ...answer(), explanation }));
+    expect(result.explanation.headline).toBe("Castell scores");
+    expect(result.explanation.explanation).toBe("Castell scored at 9.4 s. The score is 1–0.");
+    expect(result.explanation.facts).toEqual(explanation.facts);
+    expect(result.explanation.interpretation).toEqual(explanation.interpretation);
+  });
   it("holds the next nearby event through the failed retry's latest cooldown", async () => {
     vi.useFakeTimers();
     const scheduler = new ExplanationScheduler(3_000);

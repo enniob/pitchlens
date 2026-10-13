@@ -296,6 +296,19 @@ function checkIntervals(issues: string[], where: string, text: string, scope: Sc
       const to = Math.min(next, ...breaks.filter((b) => b > m.index!));
       const clause = sentence.slice(from, to);
       const kinds = ENDPOINTS.filter((k) => k.pattern.test(clause));
+      // "Played three passes in 6.4 s" describes the passes' own travel
+      // interval, not a turnover-to-shot interval elsewhere in the evidence.
+      // Window counts ("passes in the last 5 s") are a different measurement.
+      if (kinds.length === 1 && kinds[0]!.kind === "pass" &&
+          /\b(?:played|completed|made)\b[^.;]*\bpasses?\b/i.test(clause) &&
+          !/\b(?:last|previous|window)\b/i.test(clause)) {
+        const ms = writtenTimeMs(m);
+        const tolerance = m[3]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** (m[2]?.length ?? 0);
+        const times = scope.events.filter((e) => e.type === "pass").flatMap(kinds[0]!.times);
+        if (!times.some((a) => times.some((b) => Math.abs(Math.abs(a - b) - ms) <= tolerance)))
+          issues.push(`${where} gives ${m[0].trim()} for completed passes, but no cited pass endpoints span that duration; do not reuse a turnover-to-shot interval as pass travel time`);
+        return;
+      }
       if (kinds.length < 2) return;
       const ms = writtenTimeMs(m);
       const tolerance = m[3]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** (m[2]?.length ?? 0);

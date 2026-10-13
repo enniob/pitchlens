@@ -10,6 +10,18 @@ describe("October 13 live regressions", () => {
   const goal = scenarioById("demo-goal-recorded");
   const context = new EvidenceSession(goal.fixture, goal.timeMs, goal.focus).context();
   const draft = (text: string): ExplanationResponse => ({ ...goalExplanation(), facts: [{ text, evidence: [{ kind: "event", id: "e6-goal" }] }], interpretation: [], limitations: [] });
+  it("does not describe the turnover-to-shot interval as the duration of the passes", () => {
+    const s = scenarioById("demo-shot-in-flight");
+    const evidence = new EvidenceSession(s.fixture, s.timeMs, s.focus).context();
+    const answer = { ...goalExplanation(), timeMs: s.timeMs,
+      headline: "Castell takes a shot",
+      explanation: "Harbor City won the ball at 2.4 s, then played three completed forward passes in 6.4 s. Castell took a shot at 8.8 s; its result is not yet known.",
+      facts: [{ text: "Castell took a shot at 8.8 s.", evidence: [{ kind: "event" as const, id: "e5-shot" }] }],
+      interpretation: [], limitations: [] };
+    expect(checkGrounding(answer, evidence, "analyst")).toContainEqual(expect.stringContaining("no cited pass endpoints span that duration"));
+    expect(checkGrounding({ ...answer,
+      explanation: "The shot came 6.4 s after Harbor City won the ball, with three completed passes in between." }, evidence, "analyst")).toEqual([]);
+  });
   it("accepts grouped millisecond timestamps and rejects malformed grouping", () => {
     expect(checkGrounding(draft("Castell scored at 9,400 ms."), context, "analyst")).toEqual([]);
     expect(assess({ scenario: goal, audience: "analyst", explanation: draft("Castell scored at 9,400 ms.") }).unsupported).toEqual([]);

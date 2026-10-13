@@ -57,16 +57,22 @@ unsafe-eval; development permits it for the Next.js runtime. Inline styles
 remain allowed for React/Three.js layout. Dynamic page rendering trades static
 caching for nonce safety.
 
-## Hosting work still required
+## Deployed hosting and operational limits
+
+The application is deployed on Azure App Service (Linux, Node.js 22).
+HTTPS, judge-session sign-in/logout and two independent live explanation
+sessions have been verified against the deployed app. See
+[release readiness](release-readiness.md) for the tested revision and scope.
 
 Counters and cache are in memory: restarts reset allowances, replicas each get
 their own allowance, and a new login obtains a fresh session quota. These are
 application safeguards, not a durable billing cap or distributed rate limiter.
 Prompt token estimation and provider usage can differ from billed usage.
 
-Before public hosting, configure HTTPS, gateway connection/body/rate limits,
+For the deployed environment, confirm gateway connection/body/rate limits,
 trusted proxy handling, shared durable counters if running multiple instances,
 Foundry deployment quotas, billing alerts and operational monitoring. Azure
 budget alerts alone do not stop spending. Configure HSTS at the HTTPS edge.
-Validate session Origin handling behind the chosen proxy. Public hosting and
-deployment are a separate delivery step.
+Session Origin handling was verified through deployed sign-in and explanation
+requests. Operational billing/alert settings and continued judging-period
+availability require confirmation in the hosting account.
