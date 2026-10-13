@@ -63,7 +63,7 @@ export function solveRig(rig: Rig, x: number, z: number, rotationY: number, pose
   // roll (about forward, +x) leans towards the right (+z); tilt (about −z) leans forwards.
   // Turning adds to the facing (towards the player's right), and rotation.y = −facing.
   rig.root.makeRotationY(rotationY - pose.turn).setPosition(x, 0, z);
-  rig.root.multiply(local.makeTranslation(pose.advance * MODEL_SCALE, pose.rise * MODEL_SCALE, 0));
+  rig.root.multiply(local.makeTranslation(pose.advance * MODEL_SCALE, pose.rise * MODEL_SCALE, pose.shift * MODEL_SCALE));
   rig.root.multiply(body.makeRotationX(pose.roll));
   rig.root.multiply(local.makeRotationZ(-pose.tilt));
   rig.root.scale(scale);

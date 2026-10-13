@@ -41,9 +41,9 @@ export function strideLength(speed: number): number {
  * kick: the ball leaves a player's foot. throw: it leaves their hands (a
  * throw-in), including the time they hold it overhead beforehand.
  * receive: a player takes control of a free ball. save: a goalkeeper stops or
- * parries a shot. tackle: a player takes the ball off an opponent, or fouls
- * them. block: an outfield player deflects the ball. fall: a fouled player
- * goes down.
+ * parries a shot, or dives at one that goes past them. tackle: a player takes
+ * the ball off an opponent, or fouls them. block: an outfield player deflects
+ * the ball. fall: a fouled player goes down.
  */
 export type ContactKind = "kick" | "throw" | "receive" | "save" | "tackle" | "block" | "fall";
 
@@ -137,6 +137,14 @@ const DEFLECTION_ANGLE = 0.5;
 const DEFLECTION_REACH = 1.6;
 /** How long after striking the ball a kicker cannot touch it again. */
 const KICKER_CLEAR_MS = 400;
+/**
+ * A goalkeeper dives at an opponent's shot that passes within this distance
+ * to their side, below this height, without them touching it, metres.
+ */
+const BEATEN_SIDE = 5;
+const BEATEN_HEIGHT = 3;
+/** ...if it passes them within this long of the strike. */
+const BEATEN_AFTER_STRIKE_MS = 2500;
 
 const playerAt = (s: Snapshot, id: string) => s.players.find((p) => p.playerId === id);
 const moved = (a: Snapshot, b: Snapshot) => Math.hypot(b.ball.x - a.ball.x, b.ball.y - a.ball.y, b.ball.z - a.ball.z);
@@ -183,6 +191,9 @@ function recognise(fixture: MatchFixture): BallContact[] {
   const snaps = fixture.snapshots;
   const teamOf = new Map(fixture.roster.map((p) => [p.id, p.teamId]));
   const found: BallContact[] = [];
+  const keepers = fixture.roster.filter((p) => p.role === "GK");
+  /** Goalkeepers beaten by a shot, kept only if they did not touch it (see below). */
+  const beaten: BallContact[] = [];
   let lastStrike = { t: -Infinity, teamId: "", playerId: "" };
   const add = (s: Snapshot, playerId: string, kind: ContactKind, start?: number, from?: Snapshot, next?: Snapshot) => {
     const [before, after] = CONTACT_WINDOW[kind];
@@ -245,6 +256,21 @@ function recognise(fixture: MatchFixture): BallContact[] {
       }
       continue;
     }
+    if (!had && !has && b.t - lastStrike.t <= BEATEN_AFTER_STRIKE_MS && moved(a, b) / ((b.t - a.t) / 1000) > SAVE_SPEED) {
+      // A shot passing the opposing goalkeeper: they dive at it as it goes closest to them.
+      const gap = (s: Snapshot, id: string) => {
+        const p = playerAt(s, id)!;
+        return Math.hypot(s.ball.x - p.x, s.ball.y - p.y);
+      };
+      for (const k of keepers) {
+        if (k.teamId === lastStrike.teamId || !playerAt(b, k.id)) continue;
+        if (gap(b, k.id) >= gap(a, k.id) || (continues && gap(c, k.id) < gap(b, k.id))) continue;
+        const r = relative(b, k.id, a);
+        if (Math.abs(r.side) > BEATEN_SIDE || b.ball.z > BEATEN_HEIGHT) continue;
+        const [before, after] = CONTACT_WINDOW.save;
+        beaten.push({ t: b.t, playerId: k.id, kind: "save", ...r, power: 0, loft: 0, start: b.t - before, end: b.t + after });
+      }
+    }
     if (!had && !has && continues && !c.possession) {
       // A free ball turning sharply next to a player has come off them (a ground bounce keeps its heading).
       const inX = b.ball.x - a.ball.x;
@@ -268,7 +294,10 @@ function recognise(fixture: MatchFixture): BallContact[] {
       else if (who) add(b, who, "block");
     }
   }
-  return found;
+  // A goalkeeper who got to the ball already animates that save or catch.
+  for (const d of beaten)
+    if (!found.some((c) => c.playerId === d.playerId && Math.abs(c.t - d.t) <= CONTACT_WINDOW.save[1])) found.push(d);
+  return found.sort((x, y) => x.t - y.t);
 }
 
 function motionIndex(fixture: MatchFixture): MotionIndex {

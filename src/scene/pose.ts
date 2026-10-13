@@ -8,10 +8,12 @@
  * Angles are radians about the player's sideways axis. Positive hip/shoulder
  * angles swing the limb forwards; knee and elbow values are flexion (≥ 0).
  * Index 0 is the left limb, 1 the right. Whole-body tilt and roll pivot on the
- * feet, so a dive or a fall lays the body down beside the recorded position.
+ * feet, so a fall lays the body down beside the recorded position; a dive also
+ * launches the feet sideways off the ground.
  */
 import type { PlayerAction, PlayerMotion } from "@/playback/animation";
 import { CONTACT_WINDOW, KICK_RECOVER_MS, KICK_WINDUP_MS } from "@/playback/animation";
+import { MODEL_SCALE } from "./rig";
 
 export interface Pose {
   hip: [number, number];
@@ -30,13 +32,19 @@ export interface Pose {
   rise: number;
   /** Whole body shifted forwards along the facing (a slide), model units. */
   advance: number;
+  /** Whole body shifted towards the player's right (negative = left), as in a dive, model units. */
+  shift: number;
   /** Whole body turned about the vertical from the recorded facing, radians (positive = towards the right). */
   turn: number;
 }
 
 const SPRINT_SPEED = 6.5;
-/** A goalkeeper dives when the ball is further than this from vertical above their feet, radians. */
-export const DIVE_ANGLE = 0.45;
+/** A goalkeeper dives when the ball passes further than this to their side, metres; nearer, they catch it. */
+export const DIVE_SIDE = 0.7;
+/** Of the ball's sideways distance, the share a diving goalkeeper covers by launching off their feet... */
+const DIVE_LAUNCH_SHARE = 0.5;
+/** ...up to this far, metres. The outstretched body covers the rest. */
+const DIVE_LAUNCH_MAX = 1.5;
 /** A tackle made from further than this away from the ball is a sliding tackle, metres. */
 export const SLIDE_REACH = 1;
 
@@ -84,7 +92,7 @@ function blend(pose: Pose, target: Partial<Pose>, w: number): void {
     const t = target[key];
     if (t) for (const side of [0, 1] as const) pose[key][side] = mix(pose[key][side], t[side], w);
   }
-  for (const key of ["lean", "bob", "tilt", "roll", "rise", "advance", "turn"] as const) {
+  for (const key of ["lean", "bob", "tilt", "roll", "rise", "advance", "shift", "turn"] as const) {
     const t = target[key];
     if (t !== undefined) pose[key] = mix(pose[key], t, w);
   }
@@ -143,21 +151,25 @@ function receive(pose: Pose, a: PlayerAction, leg: 0 | 1): void {
   blend(pose, target, envelope(a, 100, 160));
 }
 
-/** Goalkeeper: a catch at the ball's height, or a dive towards it that lands on the side and gets back up. */
+/** Goalkeeper: a catch at the ball's height, or a leap sideways at it that lands on the side and gets back up. */
 function save(pose: Pose, a: PlayerAction): void {
-  const towards = Math.atan2(Math.abs(a.side), Math.max(0.3, a.height - 0.1));
-  const dive = towards > DIVE_ANGLE;
+  const off = Math.abs(a.side);
   const side = a.side < 0 ? -1 : 1;
   // Square up to the shot, crouch ready, spring at the ball, lie there briefly, then get up.
   const launch = smoothstep(-a.lead, 0, a.ms);
   const square = a.turn * smoothstep(-a.lead, -a.lead / 2, a.ms);
   const down = smoothstep(80, 320, a.ms);
   const up = smoothstep(420, 720, a.ms);
-  if (dive) {
-    const lay = Math.min(1.35, towards);
+  if (off > DIVE_SIDE) {
+    // Push off sideways and fly, the body laid out towards where the ball passes from where the feet land.
+    const leap = Math.min(DIVE_LAUNCH_MAX, off * DIVE_LAUNCH_SHARE);
+    const lay = Math.min(1.45, Math.max(0.6, Math.atan2(off - leap, Math.max(0.3, a.height - 0.1))));
+    // Higher balls are met higher in the air; the body comes down to the grass after the contact.
+    const flight = (0.2 + 0.3 * clamp01(a.height / 2)) * Math.sin(Math.PI * 0.5 * launch) * (1 - down);
     const target: Partial<Pose> = {
       roll: side * mix(lay * launch, 1.45, down) * (1 - up),
-      rise: (0.22 * launch * (1 - down) + 0.05) * (1 - up),
+      rise: (flight + 0.05) * (1 - up),
+      shift: (side * leap * launch * (1 - up)) / MODEL_SCALE,
       shoulder: [2.9, 2.9],
       elbow: [0.15, 0.15],
       hip: legs(side > 0 ? 1 : 0, 0.1, 0.35),
@@ -177,8 +189,8 @@ function save(pose: Pose, a: PlayerAction): void {
     knee: a.height < 0.7 ? [0.9, 0.9] : [0.25, 0.25],
     hip: a.height < 0.7 ? [0.5, 0.5] : [0, 0],
     bob: a.height < 0.7 ? -0.12 : 0,
-    rise: a.height >= 1.7 ? 0.18 * launch * (1 - smoothstep(60, 260, a.ms)) : 0,
-    roll: side * Math.min(0.25, towards * 0.5),
+    rise: a.height >= 1.7 ? 0.25 * launch * (1 - smoothstep(60, 260, a.ms)) : 0,
+    roll: side * Math.min(0.25, Math.atan2(off, Math.max(0.3, a.height - 0.1)) * 0.5),
     turn: square,
   };
   blend(pose, target, envelope(a, 120, 260));
@@ -277,6 +289,7 @@ export function poseFor(motion: Pick<PlayerMotion, "speed" | "stride" | "action"
     roll: 0,
     rise: 0,
     advance: 0,
+    shift: 0,
     turn: 0,
   };
   for (const side of [0, 1] as const) {
