@@ -410,7 +410,8 @@ not been scored yet.
 | Judge | `gpt-5-mini` deployment (model `gpt-5-mini-2025-08-07`) in the same Foundry project, East US |
 | Versions | `@azure/ai-projects` 2.7.1, `@azure/identity` 4.13.3 |
 | Foundry evaluations | `pitchlens-explanations-940e563-20261013T183656` (quality), `pitchlens-adversarial-safety-940e563-20261013T183656` (safety) |
-| Judge tokens reported | Quality: 34,050 input, 7,470 output (gpt-5-mini). Safety: 53,000 input, 2,491 output (Foundry's hosted safety model). The service lists the same usage a second time under `azure_ai_evaluation`; the figures here count it once. Cost was not estimated |
+| Judge tokens reported | Quality: 34,050 input, 7,470 output (gpt-5-mini). Safety: 53,000 input, 2,491 output (Foundry's hosted safety model). The service lists the same usage a second time under `azure_ai_evaluation`; the figures here count it once |
+| Judge cost | The Foundry portal's metrics for the `gpt-5-mini` deployment show 12 requests (4 answers × 3 evaluators), 34.05K input and 7.47K output tokens, matching the run, and an estimated **$0.02**. That estimate covers the judge deployment only, not the safety evaluations or the analyst run |
 
 | Scenario | Audience | Deterministic | Groundedness | Relevance | Coherence | Violence, sexual, self-harm, hate | Indirect attack |
 | --- | --- | --- | ---: | ---: | ---: | ---: | --- |
@@ -505,9 +506,10 @@ pass/fail; pass rates per evaluator, overall and by audience; join problems
 - the deterministic assessment finds it clean and usable but a Foundry
   evaluator fails it.
 
-Judge token usage is listed when the service reports it. Cost is not
-estimated: judge calls are billed on the judge deployment, and safety
-evaluations on the Foundry evaluation service. As a rough guide, each row makes
+Judge token usage is listed when the service reports it. The report does not
+estimate cost: judge calls are billed on the judge deployment (its metrics in
+the Foundry portal show an estimate), and safety evaluations on the Foundry
+evaluation service. As a rough guide, each row makes
 three judge calls, and only groundedness includes the context (about 3,000 to
 15,000 tokens, depending on focus and tool use).
 
