@@ -5,6 +5,7 @@ import type { ExplanationResponse } from "@/explain/response";
 import { sampleFixture } from "@/match/fixture";
 import { generateMatch } from "@/simulation/generate";
 import { goalExplanation } from "./support/fakeModel";
+import { evalMatch } from "./support/scenarios";
 
 const atGoal = extractMatchContext(sampleFixture, 9_400);
 const beforeGoal = extractMatchContext(sampleFixture, 9_050);
@@ -300,5 +301,68 @@ describe("duration hint ambiguity", () => {
     };
     const issue = checkGrounding(draft, context, "casual").find((i) => i.includes("not supported by two cited time endpoints"));
     expect(issue).toMatch(/cite both events it is measured between in this claim, or remove the duration$/);
+  });
+});
+
+// Defects found by manual review of live answers (docs/replay-reliability-2026-10-12.md).
+describe("checks added after the live evaluation", () => {
+  const only = (r: ExplanationResponse, patch: Partial<ExplanationResponse>) => ({ ...r, interpretation: [], limitations: [], ...patch });
+  const ev = (...ids: string[]) => ids.map((id) => ({ kind: "event" as const, id }));
+
+  it("reject a duration whose named endpoints are not the events it spans", () => {
+    // Turnover 2.4 s, shot 8.8 s, goal 9.4 s: 6.4 s is turnover to shot, 7.0 s turnover to goal.
+    const wrong = only(goalExplanation(), { explanation: "The goal came 6.4 s after S. Okafor won the ball." });
+    expect(issues(wrong)).toContainEqual(expect.stringContaining("6.4 s between a goal, turnover"));
+    expect(issues(only(goalExplanation(), { explanation: "The goal came 7.0 s after S. Okafor won the ball." }))).toEqual([]);
+    expect(issues(only(goalExplanation(), { explanation: "The shot came 6.4 s after the turnover, and the goal followed." }))).toEqual([]);
+    const fact = (text: string) => only(goalExplanation(), { facts: [{ text, evidence: ev("e1-turnover", "e5-shot", "e6-goal") }] });
+    expect(issues(fact("The turnover-to-goal interval took 6.4 s."))).toContainEqual(expect.stringContaining("no such pair"));
+    expect(issues(fact("The turnover-to-shot interval took 6.4 s."))).toEqual([]);
+    // Each duration is judged on its own clause.
+    expect(issues(fact("The shot came 6.4 s after the turnover and the goal 0.6 s later."))).toEqual([]);
+  });
+
+  it("reject a pass called forward when it moved backward, and the reverse", () => {
+    // Seed 3: Novak to Haddad from x=78.3 to x=58.4 while Harbor City attack increasing x.
+    const fixture = evalMatch(3);
+    const pass = fixture.events.find((e) => e.type === "pass" && e.start!.x - e.end!.x > 15 && e.teamId === "hcf")!;
+    const context = extractMatchContext(fixture, pass.t);
+    const r = (text: string): ExplanationResponse => ({
+      explanationVersion: "1.0.0", matchId: fixture.matchId, timeMs: pass.t, status: "explained",
+      headline: "A pass", explanation: "A pass was played.", facts: [{ text, evidence: ev(pass.id) }], interpretation: [], limitations: [],
+    });
+    expect(issues(r("The pass moved play forward."), context)).toContainEqual(expect.stringContaining("moved backward"));
+    expect(issues(r("The pass went backward."), context)).toEqual([]);
+    // The live answer said it in the explanation, which cites nothing: the sentence names passer and recipient.
+    const surname = (id?: string) => fixture.roster.find((p) => p.id === id)!.name.split(" ").pop();
+    const prose = `${surname(pass.playerId)} completed a pass to ${surname(pass.recipientId)}, moving play forward.`;
+    expect(issues({ ...r("The pass was completed."), explanation: prose }, context)).toContainEqual(expect.stringContaining("explanation calls play forward"));
+    expect(issues({ ...r("The pass was completed."), explanation: prose.replace("forward", "backward") }, context)).toEqual([]);
+    expect(issues(only(goalExplanation(), { facts: [{ text: "The pass went backwards.", evidence: ev("e2-pass") }] }))).toContainEqual(expect.stringContaining("moved forward"));
+    expect(issues(only(goalExplanation(), { facts: [{ text: "The pass moved play forward.", evidence: ev("e2-pass") }] }))).toEqual([]);
+  });
+
+  it("reject play placed in the wrong team's half", () => {
+    // Seed 9: Northvale win the ball at x=94.5; Northvale attack decreasing x, so that is their own half.
+    const fixture = evalMatch(9);
+    const turnover = fixture.events.find((e) => e.type === "turnover" && e.teamId === "nvr" && e.start!.x > 90)!;
+    const context = extractMatchContext(fixture, turnover.t);
+    const r = (text: string): ExplanationResponse => ({
+      explanationVersion: "1.0.0", matchId: fixture.matchId, timeMs: turnover.t, status: "explained",
+      headline: "Northvale win the ball", explanation: "Northvale won the ball.", facts: [{ text, evidence: ev(turnover.id) }], interpretation: [], limitations: [],
+    });
+    expect(issues(r("Northvale won the ball deep in Harbor City's half."), context)).toContainEqual(expect.stringContaining("Harbor City FC's half"));
+    expect(issues(r("Northvale won the ball deep in Northvale Rovers' own half."), context)).toEqual([]);
+  });
+
+  it("reject left/right touchline, flank and wing labels", () => {
+    for (const label of ["right touchline", "left flank", "right wing"])
+      expect(issues(only(goalExplanation(), { explanation: `The move began near the ${label}.` }))).toContainEqual(expect.stringContaining("zone label"));
+  });
+
+  it("reject a count of filtered events of one type, even in a limitation", () => {
+    const r = only(goalExplanation(), { limitations: ["22 ordinary passes were filtered out of this summary."] });
+    expect(issues(r)).toContainEqual(expect.stringContaining("only a total of filtered events"));
+    expect(issues(only(goalExplanation(), { limitations: ["22 other events were filtered out of this summary."] }))).toEqual([]);
   });
 });

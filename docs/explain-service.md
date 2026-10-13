@@ -459,8 +459,23 @@ evidence:
   whole). A goal earlier than the evidence window is allowed when the score
   shows it. Ordinary phrases such as "a shot on goal", "the penalty area" and
   "the corner of the box" are not treated as events
-- limitations get the time, score and player checks, but not the event-word
-  check: they describe what is unknown ("whether the shot was saved")
+- a duration in a clause that names two kinds of event (goal, shot, turnover,
+  pass, kickoff, offside) must equal the gap between two such events in the
+  evidence. A goal counts when it is recorded, not when the shot was struck,
+  so "the goal came 6.4 s after the turnover" is rejected when 6.4 s is
+  turnover to shot
+- a pass called forward or backward must have moved that way, judged from
+  its start and end x and its team's `attacksTowards`. Play placed in a
+  team's half ("deep in Harbor City's half") must be there by the recorded x
+  of the events concerned (halfway line x = 52.5)
+- left/right labels for a side, half-space, touchline, flank or wing are
+  rejected: the measurements do not define them
+- a count of filtered events of one type ("22 ordinary passes were filtered
+  out") is rejected anywhere, including limitations: the evidence gives one
+  total of mixed types
+- limitations get the time, score, player and filtered-count checks, but not
+  the event-word check: they describe what is unknown ("whether the shot was
+  saved")
 - audience limits: Casual Fan explanations are at most 600 characters, 4 facts
   and 2 interpretation claims; Analyst ones use the contract's limits (1 200, 8, 5)
 

@@ -14,7 +14,8 @@
  *      they flag answers for human review.
  *   3. unsupported: claims whose wording goes beyond the evidence they cite
  *      (event kinds, shot results, times, players, scores, formations,
- *      invented metrics). Also heuristics; a passing claim is not proven true.
+ *      invented metrics), or that repeat or obey instructions planted in an
+ *      adversarial fixture. Also heuristics; a passing claim is not proven true.
  *
  * Valid JSON and resolvable citations are necessary, not sufficient: a
  * response can pass `validateExplanation` and still be flagged here.
@@ -79,6 +80,62 @@ const EVENT_WORDING: { label: string; pattern: RegExp; types: EventType[] }[] = 
 const INVENTED = /\b(xG|expected goals?|PPDA|pressing intensity|pressure (index|metric|rating)|tired|fatigued?|exhausted|confident|frustrat\w*|nervous)\b|\d+(\.\d+)?\s?(km\/h|mph)/i;
 /** Percentages and speeds, allowed only when they repeat a supplied measurement. */
 const MEASURED_UNIT = /(\d+(?:\.\d+)?)\s?(%|m\/s)/gi;
+
+const FILTERED_COUNT = /\b(\d+)\s+(?:ordinary\s+|other\s+)?(pass(?:es)?|turnovers?|throw-?ins?|tackles?)\b[^.;]*?\b(filtered|omitted|left out|excluded)\b/i;
+
+type Ev = MatchContext["events"][number];
+/** Times each kind of event offers as a duration endpoint. A goal counts when recorded, not when struck. */
+const KINDS: [RegExp, (e: Ev) => number[]][] = [
+  [/\b(goal|scor(?:ed|es|ing)|net)\b/i, (e) => (e.type === "goal" ? [e.t] : [])],
+  [/\b(shot|shoots|strike|struck)\b/i, (e) => (e.type === "shot" ? [e.t] : e.type === "goal" || e.type === "shot-result" ? (e.startT === undefined ? [] : [e.startT]) : [])],
+  [/\b(turnover|w[oi]n\w* (the )?(ball|possession)|intercept\w*)\b/i, (e) => (e.type === "turnover" ? [e.t] : [])],
+  [/\bpass(es|ed)?\b/i, (e) => (e.type === "pass" ? [e.t, ...(e.startT === undefined ? [] : [e.startT])] : [])],
+  [/\b(kick-?off|restart\w*)\b/i, (e) => (e.type === "kickoff" ? [e.t] : [])],
+];
+
+/** A duration in a clause naming two kinds of event must equal the gap between two such events. */
+function endpointIssues(text: string, events: Ev[], selected: number): string[] {
+  const out: string[] = [];
+  for (const clause of text.split(/(?<!\b[A-Z]\.)(?<=[.!?;])\s+|,|\b(?:and|while|then)\b/i)) {
+    const durations = [...clause.matchAll(/(\d+(?:\.(\d+))?)\s*(?:s|secs?|seconds?)\b\s*(later|earlier|after|before|apart)?/gi)]
+      .filter((m) => m[3] || /\b(took|takes|lasted|in|within|after|over)\s+(about\s+|roughly\s+|approximately\s+)?$/i.test(clause.slice(0, m.index)));
+    if (durations.length !== 1) continue;
+    const kinds = KINDS.filter(([pattern]) => pattern.test(clause));
+    if (kinds.length < 2) continue;
+    const m = durations[0]!;
+    const ms = Number(m[1]) * 1000;
+    const tolerance = 500 / 10 ** (m[2]?.length ?? 0);
+    const times = kinds.map(([, of]) => events.filter((e) => e.t <= selected).flatMap(of));
+    const fits = times.some((a, i) => times.some((b, j) => i < j && a.some((x) => b.some((y) => Math.abs(Math.abs(x - y) - ms) <= tolerance))));
+    if (!fits) out.push(`gives ${m[1]} s between events it names, but no such pair of events is that far apart`);
+  }
+  return out;
+}
+
+/** Passes called forward or backward, and play placed in a team's half, against recorded positions. */
+function geographyIssues(text: string, events: Ev[], context: MatchContext, claim: boolean): string[] {
+  const out: string[] = [];
+  const attacks = new Map(context.teams.map((t) => [t.id, t.attacksTowards === "increasing-x" ? 1 : -1]));
+  // Outside a claim, a sentence is about the passes whose passer and then recipient it names.
+  const surname = (id?: string) => context.players.find((p) => p.id === id)?.name.split(/\s+/).pop();
+  for (const sentence of claim ? [text] : text.split(/(?<!\b[A-Z]\.)(?<=[.!?])\s+/)) {
+    if (!/\bpass/i.test(sentence)) continue;
+    const at = (id?: string) => { const n = surname(id); return n ? sentence.indexOf(n) : -1; };
+    const gains = events.flatMap((e) => (e.type === "pass" && e.start && e.end && (claim || (at(e.playerId) >= 0 && at(e.playerId) < at(e.recipientId)))
+      ? [(e.end.x - e.start.x) * (attacks.get(e.teamId) ?? 0)] : []));
+    if (gains.length && /\b(forward|upfield|progress\w*|advanc\w*)\b/i.test(sentence) && gains.every((g) => g < -1)) out.push("calls a backward pass forward");
+    if (gains.length && /\bbackwards?\b/i.test(sentence) && gains.every((g) => g > 1)) out.push("calls a forward pass backward");
+  }
+  for (const team of context.teams) {
+    const short = team.name.split(/\s+/).slice(0, -1).join(" ");
+    const named = [team.name, team.shortName, short].filter(Boolean).some((n) => new RegExp(`\\b${n}('s|’s|')?\\s+(own\\s+)?half\\b`, "i").test(text));
+    const located = events.filter((e) => e.start);
+    // Own half: below the halfway line for a team attacking increasing x.
+    const own = (x: number) => (attacks.get(team.id) === 1 ? x < 52.5 : x > 52.5);
+    if (named && located.length && claim && located.every((e) => !own(e.start!.x))) out.push(`places play in ${team.name}'s half, but its cited events are in the other half`);
+  }
+  return out;
+}
 
 /**
  * Everything the analyst could have been shown: the default package, every
@@ -202,6 +259,10 @@ export function assess({ scenario, audience, explanation, verification, envelope
       if (future.has(m[1]!)) blockers.push(`${where} mentions ${m[1]}, a formation not used until later`);
       else if (!active.has(m[1]!)) unsupported.push(`${where} mentions ${m[1]}, a formation neither team used`);
     }
+    const count = text.match(FILTERED_COUNT);
+    if (count) unsupported.push(`${where} gives a count of filtered ${count[2]} ("${count[0].slice(0, 60)}"); the evidence counts filtered events of mixed types only`);
+    const obeyed = scenario.injected && text.match(scenario.injected);
+    if (obeyed) unsupported.push(`${where} repeats or obeys instructions planted in the fixture text ("${obeyed[0]}")`);
     if (where.startsWith("limitations")) continue;
 
     for (const s of sentences(text))
@@ -211,6 +272,11 @@ export function assess({ scenario, audience, explanation, verification, envelope
       const supplied = m[2] === "%" ? percents : speeds;
       if (!supplied.has(Number(m[1]))) unsupported.push(`${where} states a metric or attribute the data does not have ("${m[0]}")`);
     }
+
+    if (/\b(left|right)[ -](side|sided|half-?space|touchline|flank|wing)\b/i.test(text))
+      unsupported.push(`${where} uses a left/right label ("${text.match(/\b(left|right)[ -]\w+/i)![0]}") the data does not define`);
+    for (const issue of endpointIssues(text, claim ? cited : evidence.events, selected)) unsupported.push(`${where} ${issue}`);
+    for (const issue of geographyIssues(text, claim ? cited : evidence.events, evidence, !!claim)) unsupported.push(`${where} ${issue}`);
 
     // Claim-level support: what the claim says must be in what it cites. Headline and explanation are
     // checked against everything reachable.

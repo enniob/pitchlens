@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ExplainTrace } from "@/explain/api";
 import { WORKFLOW_LIMITS } from "@/server/analyst";
 import {
+  audiencePairs,
   estimateCost,
   formatReport,
   LIVE_CEILINGS,
@@ -15,7 +16,9 @@ import {
   releaseFailures,
   type LiveResult,
 } from "./support/liveReport";
-import { EVAL_SCENARIOS } from "./support/scenarios";
+import { ADVERSARIAL_SCENARIOS } from "./support/adversarial";
+import { groundedDraft } from "./support/drafts";
+import { EVAL_SCENARIOS, scenarioById } from "./support/scenarios";
 
 const trace = (calls: { role: "analyst" | "verifier"; prompt: number; completion: number }[]): ExplainTrace => ({
   totalMs: 1_000,
@@ -132,5 +135,53 @@ describe("live evaluation report", () => {
     expect(text).not.toContain(key);
     expect(text).not.toContain("res.openai.azure.com");
     expect(redact("Authorization: Bearer abc.def", [])).toBe("Authorization: [redacted]");
+  });
+});
+
+describe("live evaluation: planted instructions and audience pairs", () => {
+  const pool = [...EVAL_SCENARIOS, ...ADVERSARIAL_SCENARIOS];
+
+  it("runs the planted-instruction scenarios only when asked, keeping the default and full matrix unchanged", () => {
+    const ids = (scenarios: string) => new Set(selectCases(pool, liveBoundsFromEnv({ PITCHLENS_LIVE_SCENARIOS: scenarios, PITCHLENS_LIVE_MAX_CASES: "40" })).map((c) => c.scenario.id));
+    const adversarial = new Set(ADVERSARIAL_SCENARIOS.map((s) => s.id));
+    expect(ids("adversarial")).toEqual(adversarial);
+    for (const id of adversarial) {
+      expect(ids("all")).not.toContain(id);
+      expect(ids("default")).not.toContain(id);
+    }
+    expect(ids("all")).toEqual(new Set(EVAL_SCENARIOS.map((s) => s.id)));
+    expect(ids("adversarial-goal-before,demo-sparse")).toEqual(new Set(["adversarial-goal-before", "demo-sparse"]));
+  });
+
+  const s = scenarioById("demo-goal-recorded");
+  const retained = (audience: "casual" | "analyst", explanation: unknown) =>
+    result({ audience, quality: "usable", answer: JSON.stringify({ explanation, verification: {} }) });
+  const expected = [{ scenario: { id: s.id }, audience: "casual" as const }, { scenario: { id: s.id }, audience: "analyst" as const }];
+
+  it("pairs the retained answers and fails the release gate when the audiences disagree", () => {
+    const casual = groundedDraft(s, "casual");
+    const analyst = groundedDraft(s, "analyst");
+    const agree = [retained("casual", casual), retained("analyst", analyst)];
+    expect(audiencePairs(agree)).toEqual([{ scenario: s.id, conflicts: [], readability: [], detail: [] }]);
+    expect(releaseFailures(agree, expected)).toEqual([]);
+    const disagree = [retained("casual", { ...casual, explanation: "Harbor City lead 2–0." }), retained("analyst", analyst)];
+    expect(releaseFailures(disagree, expected).join("\n")).toMatch(/both audiences.*different latest scores/);
+  });
+
+  it("reports readability and detail flags for review without failing the gate", () => {
+    const casual = { ...groundedDraft(s, "casual"), explanation: "Harbor City attacked through the half-space and scored." };
+    const results = [retained("casual", casual), retained("analyst", casual)];
+    expect(releaseFailures(results, expected)).toEqual([]);
+    const report = formatReport({ commit: "abc", date: "2026-10-13", settings: {}, bounds: liveBoundsFromEnv({}) }, results, summarise(results, null));
+    expect(report).toContain("### Audience pairs");
+    expect(formatReport({ commit: "abc", date: "d", settings: {}, bounds: liveBoundsFromEnv({}), scenarios: "version v1, fingerprint f" }, results, summarise(results, null)))
+      .toContain("- Scenario set: version v1, fingerprint f");
+    expect(report).toMatch(/jargon \("half-space"\)/);
+    expect(report).toMatch(/repeats the Casual Fan/);
+  });
+
+  it("skips pairs whose answers were not both retained", () => {
+    expect(audiencePairs([retained("casual", groundedDraft(s, "casual")), result({ audience: "analyst", outcome: "error" })])).toEqual([]);
+    expect(audiencePairs([result({ answer: "not json" }), result({ audience: "analyst", answer: "{}" })])).toEqual([]);
   });
 });

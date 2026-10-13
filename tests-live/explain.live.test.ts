@@ -4,7 +4,8 @@
  *
  *   PITCHLENS_LIVE_EVAL=1 + the FOUNDRY_* variables, then `npm run test:live`
  *
- * It runs the evaluation scenarios (tests/support/scenarios.ts) for both
+ * It runs the evaluation scenarios (tests/support/scenarios.ts), and on
+ * request the planted-instruction ones (tests/support/adversarial.ts), for both
  * audiences, one case at a time, within hard bounds on cases and total model
  * calls (tests/support/liveReport.ts). Each case makes up to
  * WORKFLOW_LIMITS.modelCalls calls.
@@ -32,7 +33,8 @@ import {
   releaseFailures,
   type LiveResult,
 } from "../tests/support/liveReport";
-import { EVAL_SCENARIOS } from "../tests/support/scenarios";
+import { ADVERSARIAL_SCENARIOS } from "../tests/support/adversarial";
+import { EVAL_SCENARIO_VERSION, EVAL_SCENARIOS, scenarioFingerprint } from "../tests/support/scenarios";
 import { evaluationRevision } from "../tests/support/revision";
 
 const config = foundryConfigFromEnv(process.env);
@@ -42,7 +44,7 @@ const enabled = process.env.PITCHLENS_LIVE_EVAL === "1" && config.ok;
 // Settings are validated even when the run is skipped, so a typo is caught before anything is paid for.
 const bounds = liveBoundsFromEnv(process.env);
 const prices = pricesFromEnv(process.env);
-const cases = selectCases(EVAL_SCENARIOS, bounds);
+const cases = selectCases([...EVAL_SCENARIOS, ...ADVERSARIAL_SCENARIOS], bounds);
 const secrets = [process.env.FOUNDRY_API_KEY, process.env.FOUNDRY_ENDPOINT, process.env.PITCHLENS_EXPLAIN_ACCESS_TOKEN];
 
 const results: LiveResult[] = [];
@@ -120,7 +122,8 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
     const summary = summarise(results, prices);
     const failures = releaseFailures(results, cases);
     const report = formatReport(
-      { commit, date: new Date().toISOString(), settings: { deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature }, bounds },
+      { commit, date: new Date().toISOString(), settings: { deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature }, bounds,
+        scenarios: `version ${EVAL_SCENARIO_VERSION}, fingerprint ${scenarioFingerprint()}` },
       results,
       summary,
     ) + `\n\nRelease gate: ${process.env.PITCHLENS_LIVE_RELEASE_GATE === "0" ? "disabled (exploratory)" : failures.length ? "FAILED" : "passed"}. Coverage: ${results.filter((r) => r.outcome !== "error" && r.outcome !== "skipped").length}/${cases.length} selected cases answered.\n${failures.map((f) => `- ${f}`).join("\n")}`;

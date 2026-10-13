@@ -16,9 +16,17 @@
  *     headline and explanation, in any supplied evidence. Only the headline
  *     and explanation may mention a goal the score shows but the evidence
  *     window no longer contains.
+ *   - a duration between two named kinds of event ("the goal came 6.4 s after
+ *     the turnover") that no such pair of events in its evidence spans
+ *   - a pass called forward or backward against its recorded direction, or
+ *     an event placed in a team's half where its recorded position is not
+ *   - a left/right label for a side, half-space, touchline, flank or wing,
+ *     which the measurements do not define
+ *   - a count of filtered events of one type; the evidence gives only a total
  *   - wording too long or too dense for the requested audience
  *
- * Limitations get the time, score and player checks, but not the event ones.
+ * Limitations get the time, score, player and filtered-count checks, but not
+ * the event ones.
  *
  * They are heuristics: passing them does not prove the text is supported, and
  * the word lists are deliberately narrow so that ordinary football language
@@ -142,8 +150,15 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
   const selected = context.time.selectedMs;
   // Measurements define fixed screen thirds, not player-relative left/right
   // zones. A model must not invent that mapping from near-central coordinates.
-  if (events !== "none" && /\b(?:left|right)[ -](?:side(?:d)?|half[ -]?space)\b/i.test(text))
+  if (events !== "none" && /\b(?:left|right)[ -](?:side(?:d)?|half[ -]?space|touchline|flank|wing)\b/i.test(text))
     issues.push(`${where} uses a left/right zone label not defined by the supplied measurements; use a measured channel or omit the geography`);
+  // The evidence reports one total for filtered events of mixed types ("events of other types, such as ordinary passes").
+  const filtered = text.match(FILTERED_COUNT);
+  if (filtered) issues.push(`${where} says "${filtered[0]}", but the evidence gives only a total of filtered events of mixed types; say "${filtered[1]} other events" or omit the count`);
+  if (events !== "none") {
+    checkIntervals(issues, where, text, scope, context);
+    checkGeography(issues, where, text, scope, context);
+  }
 
   // Explicit clock/minute prose needs the same future boundary as seconds.
   // Requiring "at" avoids confusing scorelines or unrelated ratios with clocks.
@@ -161,8 +176,7 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
   for (const m of text.matchAll(TIME)) {
     const ms = m[2]!.toLowerCase() === "ms" ? Number(m[1]) : Number(m[1]) * 1000;
     const prefix = text.slice(Math.max(0, m.index! - 60), m.index).toLowerCase();
-    const suffix = text.slice(m.index! + m[0].length, m.index! + m[0].length + 15).toLowerCase();
-    const duration = !/\bat\s+$/.test(prefix) && (/(?:took|takes|lasted|lasting|within|over|in|for|after|last|previous|duration(?: of)?|elapsed(?: time)?|approximately|about|roughly)\s+(?:(?:approximately|about|roughly|only|just)\s+)?$/.test(prefix) || /^\s+(?:later|earlier|apart|elapsed|after|before)\b/.test(suffix));
+    const duration = isDuration(text, m);
     const times = [...scope.events.flatMap((e) => e.startT !== undefined ? [e.t, e.startT] : [e.t]), ...(scope.snapshotTimes ?? [])];
     const decimals = m[1]!.split(".")[1]?.length ?? 0;
     const tolerance = m[2]!.toLowerCase() === "ms" ? 1 : 500 / 10 ** decimals;
@@ -221,6 +235,111 @@ function check(issues: string[], where: string, text: string, scope: Scope, cont
     // Facts and interpretation must cite the goal itself.
     if (w.label === "a goal" && summary && home + away > 0) continue;
     issues.push(`${where} says "${m[0]}", but the evidence it ${summary ? "has" : "cites"} contains no ${w.label.replace(/^an? /, "")}${summary ? "" : shotHint(w.label, scope, context)}`);
+  }
+}
+
+const FILTERED_COUNT =
+  /\b(\d+)\s+(?:ordinary\s+|other\s+|routine\s+)?(?:pass(?:es)?|turnovers?|throw-?ins?|tackles?|touches)\b[^.;]*?\b(?:filtered|omitted|left out|excluded|not (?:listed|shown|included))\b/i;
+
+/** A time written as an elapsed duration ("took 6.4 s", "6.4 s later"), not a timestamp ("at 6.4 s"). */
+function isDuration(text: string, m: RegExpMatchArray): boolean {
+  const prefix = text.slice(Math.max(0, m.index! - 60), m.index).toLowerCase();
+  const suffix = text.slice(m.index! + m[0].length, m.index! + m[0].length + 15).toLowerCase();
+  return !/\bat\s+$/.test(prefix) && (/(?:took|takes|lasted|lasting|within|over|in|for|after|last|previous|duration(?: of)?|elapsed(?: time)?|approximately|about|roughly)\s+(?:(?:approximately|about|roughly|only|just)\s+)?$/.test(prefix) || /^\s+(?:later|earlier|apart|elapsed|after|before)\b/.test(suffix));
+}
+
+/**
+ * Kinds of event a duration can be measured between, and the times each
+ * event contributes. A goal counts at the moment it is recorded, not when the
+ * shot was struck: "the goal came 6.4 s after the turnover" needs the goal.
+ */
+const ENDPOINTS: { kind: string; pattern: RegExp; times: (e: ContextEvent) => number[] }[] = [
+  { kind: "goal", pattern: /\b(goal|scored|scores|scoring|net)\b/i, times: (e) => (e.type === "goal" ? [e.t] : []) },
+  {
+    kind: "shot",
+    pattern: /\b(shot|shots|shoots|strike|struck)\b/i,
+    times: (e) => (e.type === "shot" ? [e.t] : (e.type === "goal" || e.type === "shot-result") && e.startT !== undefined ? [e.startT] : []),
+  },
+  {
+    kind: "turnover",
+    pattern: /\b(turnover|(?:won|wins|winning|regain\w*|recover\w*) (?:the )?(?:ball|possession)|intercept\w*)\b/i,
+    times: (e) => (e.type === "turnover" ? [e.t] : []),
+  },
+  { kind: "pass", pattern: /\bpass(es|ed)?\b/i, times: (e) => (e.type === "pass" ? (e.startT !== undefined ? [e.startT, e.t] : [e.t]) : []) },
+  { kind: "kickoff", pattern: /\b(kick-?off|restart\w*)\b/i, times: (e) => (e.type === "kickoff" ? [e.t] : []) },
+  { kind: "offside", pattern: /\boffside\b/i, times: (e) => (e.type === "offside" ? [e.t] : []) },
+];
+
+/**
+ * A duration in a clause naming two or more kinds of event must be spanned by
+ * a pair of those kinds in the evidence. Each duration is judged on its own
+ * clause, bounded by commas, semicolons, "and", "while" and "then" and by
+ * other times. A clause naming only one kind is left to the endpoint check.
+ */
+function checkIntervals(issues: string[], where: string, text: string, scope: Scope, context: MatchContext): void {
+  for (const sentence of sentencesOf(text)) {
+    const times = [...sentence.matchAll(TIME)];
+    const breaks = [...sentence.matchAll(/,|;|\b(?:and|while|then)\b/gi)].map((b) => b.index!);
+    times.forEach((m, i) => {
+      if (m[2]!.toLowerCase() === "ms" || !isDuration(sentence, m)) return;
+      const previous = i === 0 ? 0 : times[i - 1]!.index! + times[i - 1]![0].length;
+      const next = i === times.length - 1 ? sentence.length : times[i + 1]!.index!;
+      const from = Math.max(previous, ...breaks.filter((b) => b < m.index!));
+      const to = Math.min(next, ...breaks.filter((b) => b > m.index!));
+      const clause = sentence.slice(from, to);
+      const kinds = ENDPOINTS.filter((k) => k.pattern.test(clause));
+      if (kinds.length < 2) return;
+      const ms = Number(m[1]) * 1000;
+      const tolerance = 500 / 10 ** (m[1]!.split(".")[1]?.length ?? 0);
+      const at = (k: (typeof ENDPOINTS)[number]) => scope.events.filter((e) => e.t <= context.time.selectedMs).flatMap(k.times);
+      const spanned = kinds.some((a, x) => kinds.some((b, y) => x < y && at(a).some((ta) => at(b).some((tb) => Math.abs(Math.abs(ta - tb) - ms) <= tolerance))));
+      if (!spanned)
+        issues.push(`${where} gives ${m[0].trim()} between a ${kinds.map((k) => k.kind).join(", ")}, but no such pair of events in the evidence it ${where === "headline" || where === "explanation" ? "has" : "cites"} is that far apart; state the interval between the events it is actually measured between`);
+    });
+  }
+}
+
+/** Sentences, without splitting after a player's initial ("S. Okafor"). */
+const sentencesOf = (text: string) => text.split(/(?<!\b[A-Z]\.)(?<=[.!?;])\s+/);
+
+const HALF_LINE = 52.5;
+/** Whether x is in the half a team defends, from the direction it attacks. */
+const inOwnHalf = (attacksTowards: string | undefined, x: number) => (attacksTowards === "increasing-x" ? x < HALF_LINE : x > HALF_LINE);
+
+/**
+ * Directions and halves checked against recorded positions: a pass called
+ * forward or backward, and play placed in a named team's half.
+ */
+function checkGeography(issues: string[], where: string, text: string, scope: Scope, context: MatchContext): void {
+  const sign = new Map(context.teams.map((t) => [t.id, t.attacksTowards === "increasing-x" ? 1 : -1]));
+  const claim = where.startsWith("facts[") || where.startsWith("interpretation[");
+  const surname = new Map(context.players.map((p) => [p.id, p.name.split(/\s+/).pop()!]));
+  const at = (id: string | undefined, sentence: string) => (id && surname.has(id) ? sentence.search(new RegExp(`\\b${escape(surname.get(id)!)}\\b`)) : -1);
+  // A claim's passes are the ones it cites. The headline and explanation cite nothing, so a sentence
+  // there is about the passes whose passer and then recipient it names ("Novak ... to Haddad").
+  for (const sentence of claim ? [text] : sentencesOf(text)) {
+    if (!/\bpass(es|ed)?\b/i.test(sentence)) continue;
+    const passes = scope.events.filter((e) => e.type === "pass" && e.start && e.end && sign.has(e.teamId) && e.t <= context.time.selectedMs &&
+      (claim || (at(e.playerId, sentence) >= 0 && at(e.playerId, sentence) < at(e.recipientId, sentence))));
+    const gains = passes.map((e) => (e.end!.x - e.start!.x) * sign.get(e.teamId)!);
+    if (gains.length === 0) continue;
+    const whose = claim ? "the passes it cites" : "the pass it names";
+    if (/\b(forward|upfield|progress\w*|advanc\w*)\b/i.test(sentence) && gains.every((g) => g < -1))
+      issues.push(`${where} calls play forward, but ${whose} moved backward, away from the goal their team attacks`);
+    if (/\b(backwards?|back pass)\b/i.test(sentence) && gains.every((g) => g > 1))
+      issues.push(`${where} calls play backward, but ${whose} moved forward, towards the goal their team attacks`);
+  }
+  for (const sentence of sentencesOf(text)) {
+    for (const team of context.teams) {
+      // "Harbor City FC" is also "Harbor City"; "Northvale Rovers" also "Northvale".
+      const names = [team.name, team.shortName, team.name.replace(/\s+\S+$/, "")].filter((n): n is string => Boolean(n)).map(escape);
+      if (!new RegExp(`\\b(?:${names.join("|")})(?:'s|’s|s'|’)?\\s+(?:own\\s+)?half\\b`, "i").test(sentence)) continue;
+      // The events the sentence is about: those of the kinds it names, or every event in scope.
+      const kinds = ENDPOINTS.filter((k) => k.pattern.test(sentence));
+      const about = scope.events.filter((e) => e.start && e.t <= context.time.selectedMs && (kinds.length === 0 || kinds.some((k) => k.times(e).length > 0)));
+      if (about.length > 0 && about.every((e) => !inOwnHalf(team.attacksTowards, e.start!.x)))
+        issues.push(`${where} places play in ${team.name}'s half, but the recorded positions of the events it ${claim ? "cites" : "describes"} are in the other half`);
+    }
   }
 }
 
