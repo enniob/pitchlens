@@ -165,6 +165,22 @@ describe("analyst workflow", () => {
     expect(out.verification.issues[0]).toMatch(/^removed: facts\[3\]/);
   });
 
+  it("adds the latest event's verified fact to an explained draft with no facts, then reviews it", async () => {
+    const empty = { ...goalExplanation(), facts: [] };
+    const latest = buildFactCatalog(new EvidenceSession(sampleFixture, 9_400).base).filter((f) => f.latest).map(({ text, evidence }) => ({ text, evidence }));
+    const completed = { ...empty, facts: latest };
+    const model = new FakeModel([answer(empty), approve(completed)]);
+    const out = await run(model);
+    expect(model.requests).toHaveLength(2);
+    expect(out.explanation).toEqual(completed);
+    expect(out.verification).toMatchObject({ outcome: "revised", revisions: 0, modelReview: "passed" });
+    expect(out.verification.issues).toEqual([expect.stringMatching(/^added verified fact F1: R\. Castell scored/)]);
+    // A draft with facts of its own is not completed: a wrong one is still rejected.
+    const wrong = { ...goalExplanation(), facts: [{ text: "Castell scored a penalty.", evidence: [{ kind: "event" as const, id: "e6-goal" }] }] };
+    const rejected = await run(new FakeModel([answer(wrong), answer(wrong)]));
+    expect(rejected.verification.outcome).toBe("fallback");
+  });
+
   it("does not remove a claim whose rejected detail the explanation repeats", async () => {
     const draft = goalExplanation();
     draft.explanation = `${draft.explanation} The turnover came 3.3 s after the kickoff.`;

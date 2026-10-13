@@ -29,7 +29,7 @@
 import type { Audience, ExplainTrace, Focus, TraceStep, VerificationSummary } from "@/explain/api";
 import type { MatchFixture } from "@/match/contract";
 import { EvidenceSession, EVIDENCE_TOOLS } from "@/explain/evidence";
-import { buildFactCatalog, catalogMatch, checkFactsFromCatalog } from "@/explain/factCatalog";
+import { buildFactCatalog, catalogMatch, checkFactsFromCatalog, type CatalogFact } from "@/explain/factCatalog";
 import { checkGrounding } from "@/explain/grounding";
 import {
   analystInstructions,
@@ -267,13 +267,38 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
     return { response: valid.response, removed: pruned.removed };
   };
 
-  const evaluate = async (text: string | null): Promise<Evaluation> => {
-    if (text === null) return { response: null, schema: false, grounding: null, modelReview: null, removed: [], issues: ["no answer: the analyst kept calling tools"] };
+  /**
+   * An explained answer with an empty facts list gets the verified facts it
+   * must include: for a moment, the latest events' facts; for a full-time
+   * summary, the recorded goals' (or the first offered) facts. They are
+   * computed from the evidence, so adding one adds nothing unsupported; the
+   * whole answer is still checked and reviewed. A draft that wrote facts of
+   * its own is left as it is: if none of them survives the checks, nothing
+   * of the model's own is grounded, and it is revised or falls back.
+   */
+  const completeFacts = (text: string): { text: string; added: string[] } => {
+    let value: unknown;
+    try { value = JSON.parse(text); } catch { return { text, added: [] }; }
+    const draft = value as { status?: unknown; facts?: unknown };
+    if (!draft || typeof draft !== "object" || draft.status !== "explained" || !Array.isArray(draft.facts) || draft.facts.length > 0)
+      return { text, added: [] };
+    const goals = catalog.filter((c) => /\bscored\b/.test(c.text));
+    const needed: CatalogFact[] = focus === "moment" ? catalog.filter((c) => c.latest) : goals.length > 0 ? goals : catalog.slice(0, 2);
+    if (needed.length === 0) return { text, added: [] };
+    return {
+      text: JSON.stringify({ ...draft, facts: needed.map(({ text: t, evidence }) => ({ text: t, evidence })) }),
+      added: needed.map((c) => `added verified fact ${c.id}: ${c.text}`),
+    };
+  };
+
+  const evaluate = async (raw: string | null): Promise<Evaluation> => {
+    if (raw === null) return { response: null, schema: false, grounding: null, modelReview: null, removed: [], issues: ["no answer: the analyst kept calling tools"] };
     const context = session.context();
+    const { text, added } = completeFacts(raw);
     const parsed = parseExplanation(text, context);
     let response: ExplanationResponse;
-    /** Problems with claims that were removed rather than revised. */
-    let removed: string[] = [];
+    /** Changes made in code rather than by a revision: claims added or removed. */
+    let removed: string[] = [...added];
     if (parsed.ok) response = parsed.response;
     else {
       // Give the revision all detectable problems, even when a length or
@@ -285,7 +310,7 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
       const pruned = parsed.diagnosticCandidate ? prune(parsed.diagnosticCandidate, problems) : null;
       if (!pruned) return { response: null, schema: false, grounding: null, modelReview: null, removed: [], issues: problems };
       response = pruned.response;
-      removed = problems;
+      removed = [...removed, ...problems];
     }
     const grounding = wording(response);
     if (grounding.length > 0) {
@@ -303,7 +328,7 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
       role: "verifier",
       messages: [
         { role: "system", content: VERIFIER_INSTRUCTIONS },
-        { role: "user", content: verifierMessage(context, response, catalog) },
+        { role: "user", content: verifierMessage(context, response, catalog, focus) },
       ],
       schema: { name: "review", schema: reviewSchemaFor(response) },
       maxCompletionTokens: limits.verifierCompletionTokens,
@@ -350,7 +375,7 @@ export async function explainMoment(input: ExplainInput): Promise<ExplainOutput>
       });
       if (e.issues.length === 0 && e.response) {
         explanation = e.response;
-        issues.push(...e.removed.map((i) => `removed: ${i}`.slice(0, 300)));
+        issues.push(...e.removed.map((i) => (i.startsWith("added verified fact") ? i : `removed: ${i}`).slice(0, 300)));
         verification = {
           outcome: e.response.status === "insufficient-evidence" ? "insufficient-evidence" : attempt === 0 && e.removed.length === 0 ? "verified" : "revised",
           revisions: attempt,

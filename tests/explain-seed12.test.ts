@@ -130,24 +130,34 @@ describe("seed 12 both teams 4-3-3 full-time summary", () => {
 
     const shot = session.base.events.find(e => e.type === "shot")!;
     const noFacts = { ...summary, facts: [] };
-    // Without a fact twice: the fallback, with the recorded account.
-    const empty = await explainMoment({ fixture: match, timeMs: end, audience: "casual", focus: "match", client: new FakeModel([answer(noFacts), answer(noFacts)]) });
-    expect(empty.verification).toMatchObject({ outcome: "fallback" });
-    expect(empty.recordedSummary).toEqual(summary);
+    // An unusable answer twice: the fallback, with the recorded account.
+    const broken = await explainMoment({ fixture: match, timeMs: end, audience: "casual", focus: "match", client: new FakeModel([answer("not json"), answer("not json")]) });
+    expect(broken.verification).toMatchObject({ outcome: "fallback" });
+    expect(broken.recordedSummary).toEqual(summary);
+
+    // An explained answer with no facts gets the verified facts it needs, added in code and then reviewed.
+    const completed = { ...noFacts, facts: verifiedClaims(session.base, "match") };
+    const filled = new FakeModel([answer(noFacts), approve(completed)]);
+    const empty = await explainMoment({ fixture: match, timeMs: end, audience: "casual", focus: "match", client: filled });
+    expect(empty.verification).toMatchObject({ outcome: "revised", revisions: 0, modelReview: "passed" });
+    expect(empty.explanation.facts).toEqual(completed.facts);
+    expect(empty.verification.issues[0]).toMatch(/^added verified fact F1/);
 
     // A score fact citing a shot is not a verified fact: it is removed, and the verified ones are kept.
     const verified = verifiedClaims(session.base, "match");
     const scoreFact = { ...summary, facts: [...verified, { text: "The score is 0–0.", evidence: [{ kind: "event" as const, id: shot.id }] }] };
     const kept = { ...scoreFact, facts: verified };
-    const model = new FakeModel([answer(noFacts), answer(scoreFact), approve(kept)]);
+    const model = new FakeModel([answer(scoreFact), approve(kept)]);
     const result = await explainMoment({ fixture: match, timeMs: end, audience: "casual", focus: "match", client: model });
-    expect(result.verification).toMatchObject({ outcome: "revised", modelReview: "passed" });
+    expect(result.verification).toMatchObject({ outcome: "revised", revisions: 0, modelReview: "passed" });
     expect(result.explanation.facts).toEqual(verified);
     expect(result.verification.issues).toContainEqual(expect.stringContaining(`removed: facts[${verified.length}] is not one of verifiedFacts`));
 
     const analyst = model.requests[0]!.messages;
     expect(analyst[0]!.content).toContain("a 0–0 score has no goal event to cite, so never put it in a fact");
     expect(analyst[1]!.content).toContain(`"verifiedFacts":${JSON.stringify(buildFactCatalog(session.base, "match"))}`);
-    expect(model.requests[2]!.messages[0]!.content).toContain("citing shots or other events does not show a score");
+    expect(model.requests[1]!.messages[0]!.content).toContain("citing shots or other events does not show a score");
+    // The verifier is told this is a full-time summary, so the score is final.
+    expect(model.requests[1]!.messages[1]!.content).toMatch(/^This is a full-time summary/);
   });
 });

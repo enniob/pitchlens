@@ -399,7 +399,13 @@ setting values or provider responses.
    earlier events it lists, which an answer may then use. The headline,
    explanation and interpretation remain the model's own words, under the
    checks below. A verifier rejection of a verified fact is not followed: it
-   is computed from the evidence.
+   is computed from the evidence. An explained draft with an empty facts list
+   gets the facts it needs added in code (the latest events' facts for a
+   moment; the recorded goals' facts for a full-time summary), listed in
+   `issues` as `added verified fact ...`, and is then checked and reviewed as
+   usual; a draft that wrote facts of its own is never completed this way.
+   The verifier is told whether it reviews a moment or a full-time summary,
+   so a final score is not mistaken for a match in progress.
 2. **Analyst.** The model may call two tools, at most 6 calls in total:
    - `list_events({ fromMs?, types? })`: revealed events up to the selected
      time, at most 40, from no earlier than 30 s before it
