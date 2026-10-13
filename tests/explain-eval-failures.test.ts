@@ -162,6 +162,25 @@ describe("the endpoint on the evaluation scenarios", () => {
     expect(res.status).toBe(502);
   });
 
+  // Seeking backward: from the recorded goal to 1 ms before it, then forward again.
+  it.each(EVAL_AUDIENCES)("backward seek (%s): the earlier answer is fresh and knows nothing of the later goal", async (audience) => {
+    const after = EVAL_SCENARIOS.find((s) => s.id === "demo-goal-recorded")!;
+    const before = EVAL_SCENARIOS.find((s) => s.id === "demo-goal-before")!;
+    const [late, early] = [groundedDraft(after, audience), groundedDraft(before, audience)];
+    const { model, post } = handler([answer(late), approve(late), answer(early), approve(early)]);
+    expect((await post(after, audience)).json).toMatchObject({ ok: true, timeMs: after.timeMs, cached: false });
+    const back = (await post(before, audience)).json as ExplainSuccess;
+    expect(back).toMatchObject({ ok: true, timeMs: before.timeMs, cached: false, explanation: early });
+    const verdict = assess({ scenario: before, audience, explanation: back.explanation, verification: back.verification, envelope: back });
+    expect(verdict).toMatchObject({ blockers: [], leaks: [] });
+    // The request after the seek sent the model nothing from the later moment.
+    const sent = JSON.stringify(model.requests.slice(2).map((r) => r.messages));
+    for (const e of after.fixture.events.filter((x) => x.t > before.timeMs)) expect(sent, e.id).not.toContain(`"${e.id}"`);
+    // Seeking forward again serves the later answer from the cache, still for its own time.
+    expect((await post(after, audience)).json).toMatchObject({ ok: true, timeMs: after.timeMs, cached: true, explanation: late });
+    expect(model.requests).toHaveLength(4);
+  });
+
   it.each(EVAL_SCENARIOS)("$id: maps failures to safe errors without leaking the key, and does not cache a fallback", async (s) => {
     const good = groundedDraft(s, "analyst");
     const slow = (r: ChatRequest) => new Promise<Error>((resolve) => r.signal.addEventListener("abort", () => resolve(new ModelError("timeout", "slow"))));

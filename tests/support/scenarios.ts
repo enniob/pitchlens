@@ -19,6 +19,7 @@
  * instead of silently testing a different moment. Used by the offline suites
  * and the opt-in live evaluation.
  */
+import { createHash } from "node:crypto";
 import type { Audience, Focus } from "@/explain/api";
 import type { EventType, MatchEvent, MatchFixture } from "@/match/contract";
 import { sampleFixture } from "@/match/fixture";
@@ -188,7 +189,7 @@ function scenarios(): EvalScenario[] {
     forbidden: [
       {
         label: "any event of the move that has not happened yet",
-        pattern: /\b(won the ball|wins the ball|turnover|tackle\w*|intercept\w*|shot|shoots|goal!|scor\w*)\b/i,
+        pattern: /\b(won the ball|wins the ball|turnover|tackle\w*|intercept\w*|shot|shoots|goal!|scor(?:es|ed|ing|er|ers))\b/i,
         probe: "Harbor City won the ball in midfield.",
         caughtBy: "verifier",
       },
@@ -394,3 +395,21 @@ export const scenarioById = (id: string): EvalScenario => {
   if (!s) throw new Error(`unknown scenario ${id}`);
   return s;
 };
+
+/**
+ * The scenario set's version. Bump it whenever the fingerprint changes (a
+ * scenario added or edited, or a simulator change that moves an event), so
+ * live reports from different sets are never compared as if they were alike.
+ * `explain-eval-scenarios.test.ts` pins the fingerprint to this version.
+ */
+export const EVAL_SCENARIO_VERSION = "2026-10-13";
+
+/** A hash of what every scenario tests: its match, moment, focus, expected events and forbidden claims. */
+export function scenarioFingerprint(scenarios: readonly EvalScenario[] = EVAL_SCENARIOS): string {
+  const summary = scenarios.map((s) => [
+    s.id, s.fixture.matchId, s.fixture.generator?.simulatorVersion ?? "scripted", s.timeMs, s.focus, s.insufficientEvidence,
+    s.expected.map((x) => [x.label, x.eventIds ?? [], x.eventTypes ?? [], x.mention?.source ?? ""]),
+    s.forbidden.map((f) => [f.label, f.pattern.source, f.caughtBy]),
+  ]);
+  return createHash("sha256").update(JSON.stringify(summary)).digest("hex").slice(0, 16);
+}

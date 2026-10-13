@@ -231,6 +231,8 @@ export interface LiveMeta {
   /** Deployment names and model settings only; never the endpoint or key. */
   settings: Record<string, string | number | undefined>;
   bounds: LiveBounds;
+  /** The scenario set's version and fingerprint, so reports from different sets are not compared as alike. */
+  scenarios?: string;
 }
 
 /** A Markdown report including redacted synthetic-match answers for local review. */
@@ -241,6 +243,7 @@ export function formatReport(meta: LiveMeta, results: LiveResult[], summary: Liv
     "",
     `- Commit: \`${meta.commit}\`, run ${meta.date}`,
     `- Model settings: ${Object.entries(meta.settings).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${v}`).join(", ")}`,
+    ...(meta.scenarios ? [`- Scenario set: ${meta.scenarios}`] : []),
     `- Bounds: ${meta.bounds.maxCases} cases, ${meta.bounds.maxModelCalls} model calls; scenarios ${Array.isArray(meta.bounds.scenarios) ? meta.bounds.scenarios.join(", ") : meta.bounds.scenarios}`,
     "",
     "| Scenario | Audience | Outcome | Safety | Quality | Flags | Seconds | Model calls | Tool calls | Input tokens | Output tokens | Cost |",

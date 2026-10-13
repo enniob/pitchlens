@@ -75,7 +75,11 @@ production grounding checks. It reports three levels separately:
 3. **Unsupported claims** (wording heuristics). A claim's event wording, shot
    result, time, player, score or formation is not backed by what that claim
    cites, or the claim invents a metric or attribute the data does not have
-   (xG, percentages, speeds, fatigue).
+   (xG, percentages, speeds, fatigue). Also, written independently of the
+   production checks: a duration whose named endpoints are not the events it
+   spans, a pass called forward or backward against its recorded direction,
+   play in the wrong team's half, left/right touchline, flank or wing labels,
+   and a count of filtered events of one type.
 
 Valid JSON and resolvable citations are necessary, not sufficient. The suite
 shows adversarial drafts that pass `validateExplanation` and are still
@@ -220,6 +224,53 @@ The evaluation found three defects in the deterministic grounding checks
    claim accepted as verified, and it reads like a spoiler. That wording now
    needs a revealed goal, shot result, deflection or resolved shot in scope.
 
+### Fixes after the October 12–13 live evaluation
+
+Manual review of the live answers found wrong claims that every automated
+check accepted. Each kind is now rejected by `checkGrounding`, flagged by the
+assessment, covered by a prompt rule, and has regression tests in
+`tests/explain-grounding.test.ts` and `tests/explain-eval-scenarios.test.ts`:
+
+| Finding | Example | Check |
+| --- | --- | --- |
+| Interval endpoint | "the goal came 6.4 s after the turnover" (6.4 s is turnover to shot; goal is 7.0 s) | A duration in a clause naming two kinds of event must equal the gap between two such events. A goal counts when recorded |
+| Pass direction | Seed 3: Novak to Haddad from x=78.3 to x=58.4 called "forward" | Forward/backward wording against the cited passes' start and end x and the team's attack direction |
+| Pitch half | Seed 9: turnover at x=94.5 placed "deep in Harbor City's half" | A named team's half against the recorded x of the events concerned |
+| Undefined label | "near the right touchline" | Left/right touchline, flank and wing join the existing side and half-space labels |
+| Filtered count | "22 ordinary passes were filtered out" (22 events of mixed types) | A filtered count of one event type, anywhere including limitations |
+| Evaluator false positive | "The score remains 0–0." flagged as a future goal in `demo-sparse` | The sparse scenario's pattern matches scoring verbs, not "score" |
+
+In the headline and explanation, which cite nothing, a pass's direction is
+judged for the passes whose passer and then recipient the sentence names.
+
+**Replay of the retained live answers.** All 26 explained answers from the
+October 12–13 matrix and the October 13 planted-instruction run that still
+match the current fixtures were checked again. Seeds 2 and 28 changed in
+simulator v5, so their answers were left out; the seed-3, 9, 20 and 24 answers
+were replayed against the current fixtures, whose events are unchanged.
+`checkGrounding` now rejects all 8 answers with a confirmed wrong claim and
+none of the other 18. The assessment flags 7 of the 8; its half check covers
+cited claims only, so it misses the wrong half in a seed-9 explanation.
+
+These checks are lexical and narrow. Each duration is judged on its own
+clause; a clause naming only one kind of event is left to the existing
+endpoint check. A live rerun is needed to show how often the model now
+revises instead of being caught, and whether more answers fall back.
+
+### Scenario version and backward seeking
+
+`EVAL_SCENARIO_VERSION` and `scenarioFingerprint()` in
+`tests/support/scenarios.ts` identify the scenario set. The fingerprint
+covers every scenario's match ID (which carries the simulator version),
+moment, focus, expected events and forbidden claims. A test pins it to the
+version, so a scenario edit or a simulator change that moves an event fails
+until the version is bumped. Live reports print both.
+
+Backward seeking through the endpoint is evaluated for both audiences: after
+an answer at the recorded goal, an answer 1 ms earlier is computed fresh, the
+model is sent nothing from the later moment, and seeking forward again serves
+the cached later answer for its own time.
+
 ## Remaining risks and limitations
 
 - **Verifier-dependent wording.** Five probe kinds are stopped only by the
@@ -244,7 +295,7 @@ The evaluation found three defects in the deterministic grounding checks
 | --- | --- |
 | Future-event leakage | No leakage into prompts or tool results in any of the 36 cases. Later IDs, times, scores and formations in text are deterministic blockers in the assessment. Guessed future wording: see "Verifier-dependent wording" |
 | Accepted fabricated evidence references | None accepted: invented, missing and later references are rejected in every case, by the server and again by the viewer client |
-| Unsupported claims accepted as verified | Fixed for pending shot results. Other kinds of guessed wording depend on the verifier. **Live behaviour not measured** |
+| Unsupported claims accepted as verified | Fixed for pending shot results, and for the interval, direction, half, label and filtered-count claims found in the October 12–13 live review. Other kinds of guessed wording depend on the verifier. **Not yet measured in a full live rerun** |
 | Secrets exposed | None found. Errors and reports never contain the key or endpoint, and the live report redacts error text. No environment files are committed |
 | Responses shown for the wrong match/time/audience | Refused by the client in all 36 cases. The cache is separated by audience and time |
 

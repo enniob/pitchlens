@@ -12,7 +12,7 @@ import { scoreAt } from "@/playback/derive";
 import { assess, reachableContext } from "./support/assess";
 import { evidenceFor, groundedDraft, lenientVerifier, verifierRejecting, withClaim } from "./support/drafts";
 import { answer, approve, FakeModel, toolCall, type Step } from "./support/fakeModel";
-import { EVAL_AUDIENCES, EVAL_SCENARIOS, EVAL_SEEDS, type Coverage, type EvalScenario } from "./support/scenarios";
+import { EVAL_AUDIENCES, EVAL_SCENARIO_VERSION, EVAL_SCENARIOS, EVAL_SEEDS, scenarioFingerprint, type Coverage, type EvalScenario } from "./support/scenarios";
 
 const cases = EVAL_SCENARIOS.flatMap((s) => EVAL_AUDIENCES.map((audience) => ({ s, audience, name: `${s.id} (${audience})` })));
 const run = (s: EvalScenario, audience: Audience, steps: Step[]) =>
@@ -35,6 +35,11 @@ describe("evaluation scenarios", () => {
     expect([...seeds].sort((a, b) => a - b)).toEqual([...EVAL_SEEDS]);
     expect(EVAL_AUDIENCES).toEqual(["casual", "analyst"]);
     expect(new Set(EVAL_SCENARIOS.map((s) => s.id)).size).toBe(EVAL_SCENARIOS.length);
+  });
+
+  it("are versioned: changing what they test needs a new EVAL_SCENARIO_VERSION", () => {
+    // If this fails, bump EVAL_SCENARIO_VERSION and update both values here.
+    expect({ version: EVAL_SCENARIO_VERSION, fingerprint: scenarioFingerprint() }).toEqual({ version: "2026-10-13", fingerprint: "4ef6d7b78331d548" });
   });
 
   it.each(EVAL_SCENARIOS)("$id is well-formed: expected facts are reachable, forbidden ones are not yet true", (s) => {
@@ -144,5 +149,50 @@ describe("evaluation scenarios", () => {
     expect(out.verification.revisions).toBe(1);
     const verdict = assess({ scenario: s, audience, explanation: out.explanation, verification: out.verification });
     expect(verdict).toMatchObject({ blockers: [], leaks: [], unsupported: [] });
+  });
+});
+
+// Wrong claims found by manual review of live answers (docs/replay-reliability-2026-10-12.md).
+// The production checks now reject them; the assessment flags them independently if one is ever shown.
+describe("assessment of claim types found in the live evaluation", () => {
+  const s = EVAL_SCENARIOS.find((x) => x.id === "demo-goal-recorded")!;
+  const flagged = (patch: Record<string, unknown>) =>
+    assess({ scenario: s, audience: "analyst", explanation: { ...groundedDraft(s, "analyst"), ...patch } }).unsupported.join("\n");
+  const ev = (id: string) => [{ kind: "event", id }];
+
+  it.each([
+    ["a duration with the wrong endpoint", { explanation: "The goal came 6.4 s after S. Okafor won the ball." }, /no such pair/],
+    ["a pass called backward against its direction", { facts: [{ text: "The pass went backwards.", evidence: ev("e2-pass") }] }, /forward pass backward/],
+    ["play in the wrong team's half", { facts: [{ text: "Harbor City won the ball in Harbor City's half.", evidence: ev("e1-turnover") }] }, /in the other half/],
+    ["an undefined touchline label", { explanation: "The move began near the right touchline." }, /left\/right label/],
+    ["a filtered count of one event type", { limitations: ["22 ordinary passes were filtered out."] }, /filtered passes/],
+  ])("flags %s", (_, patch, expected) => {
+    expect(flagged(patch)).toMatch(expected);
+  });
+
+  it("flags a backward pass called forward in the explanation, by the passer and recipient it names", () => {
+    // The October 12–13 Analyst answer for this moment: the pass went from x=78.3 to x=58.4.
+    const seed3 = EVAL_SCENARIOS.find((x) => x.id === "seed3-zero-goal-moment")!;
+    const draft = groundedDraft(seed3, "analyst");
+    const prose = "D. Novak completed a pass to N. Haddad at 43.9 s, moving play forward into central midfield.";
+    expect(assess({ scenario: seed3, audience: "analyst", explanation: { ...draft, explanation: prose } }).unsupported.join("\n")).toMatch(/backward pass forward/);
+    // Haddad's earlier pass to Novak went forward; naming them in the other order is not about it.
+    expect(assess({ scenario: seed3, audience: "analyst", explanation: { ...draft, explanation: prose.replace("forward", "backward") } }).unsupported).toEqual([]);
+  });
+
+  it("does not read the current score as a later goal before any event", () => {
+    // The October 12–13 run flagged "The score remains 0-0." as a future scoring event.
+    const sparse = EVAL_SCENARIOS.find((x) => x.id === "demo-sparse")!;
+    const draft = { ...groundedDraft(sparse, "casual"), explanation: "The score remains 0–0. No event has been recorded yet." };
+    expect(assess({ scenario: sparse, audience: "casual", explanation: draft }).leaks).toEqual([]);
+    const leaky = { ...draft, explanation: "Harbor City scored early." };
+    expect(assess({ scenario: sparse, audience: "casual", explanation: leaky }).leaks).not.toEqual([]);
+  });
+
+  it("accepts the correct versions", () => {
+    expect(flagged({ explanation: "The goal came 7.0 s after S. Okafor won the ball." })).toBe("");
+    expect(flagged({ facts: [{ text: "The pass moved play forward.", evidence: ev("e2-pass") }] })).toBe("");
+    expect(flagged({ facts: [{ text: "Harbor City won the ball in Northvale's half.", evidence: ev("e1-turnover") }] })).toBe("");
+    expect(flagged({ limitations: ["22 other events were filtered out."] })).toBe("");
   });
 });

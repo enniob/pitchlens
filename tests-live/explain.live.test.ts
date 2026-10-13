@@ -34,7 +34,7 @@ import {
   type LiveResult,
 } from "../tests/support/liveReport";
 import { ADVERSARIAL_SCENARIOS } from "../tests/support/adversarial";
-import { EVAL_SCENARIOS } from "../tests/support/scenarios";
+import { EVAL_SCENARIO_VERSION, EVAL_SCENARIOS, scenarioFingerprint } from "../tests/support/scenarios";
 import { evaluationRevision } from "../tests/support/revision";
 
 const config = foundryConfigFromEnv(process.env);
@@ -122,7 +122,8 @@ describe.skipIf(!enabled)("LIVE: analyst workflow on Microsoft Foundry", () => {
     const summary = summarise(results, prices);
     const failures = releaseFailures(results, cases);
     const report = formatReport(
-      { commit, date: new Date().toISOString(), settings: { deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature }, bounds },
+      { commit, date: new Date().toISOString(), settings: { deployment, verifierDeployment, structuredOutput, reasoningEffort, temperature }, bounds,
+        scenarios: `version ${EVAL_SCENARIO_VERSION}, fingerprint ${scenarioFingerprint()}` },
       results,
       summary,
     ) + `\n\nRelease gate: ${process.env.PITCHLENS_LIVE_RELEASE_GATE === "0" ? "disabled (exploratory)" : failures.length ? "FAILED" : "passed"}. Coverage: ${results.filter((r) => r.outcome !== "error" && r.outcome !== "skipped").length}/${cases.length} selected cases answered.\n${failures.map((f) => `- ${f}`).join("\n")}`;

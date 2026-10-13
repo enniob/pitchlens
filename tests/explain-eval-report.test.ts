@@ -174,6 +174,8 @@ describe("live evaluation: planted instructions and audience pairs", () => {
     expect(releaseFailures(results, expected)).toEqual([]);
     const report = formatReport({ commit: "abc", date: "2026-10-13", settings: {}, bounds: liveBoundsFromEnv({}) }, results, summarise(results, null));
     expect(report).toContain("### Audience pairs");
+    expect(formatReport({ commit: "abc", date: "d", settings: {}, bounds: liveBoundsFromEnv({}), scenarios: "version v1, fingerprint f" }, results, summarise(results, null)))
+      .toContain("- Scenario set: version v1, fingerprint f");
     expect(report).toMatch(/jargon \("half-space"\)/);
     expect(report).toMatch(/repeats the Casual Fan/);
   });
