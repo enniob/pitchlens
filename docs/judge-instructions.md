@@ -4,6 +4,10 @@ PitchLens turns synthetic football events into measured patterns and
 Microsoft Foundry explanations beside an interactive 3D replay.
 All teams, players, movement and match events are fictional.
 
+For a recorded walkthrough, see the [finished 1:58.7 demonstration](video-submission/pitchlens-demo-final.mp4)
+and its [narration script](video-submission/narration-script.md). The recording uses a local
+production build; the hosted walkthrough below verifies the deployed experience.
+
 ## Access
 
 Open [PitchLens](https://pitchlens-cubrekc4a8a0g8gp.westus3-01.azurewebsites.net/).

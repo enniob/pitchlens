@@ -1,0 +1,89 @@
+{
+  "voice": "en-US-Grant:MAI-Voice-2.1",
+  "note": "at = start time in the screen recording (seconds); until = latest end before the next on-screen beat. The intro line plays over the title card.",
+  "lines": [
+    {
+      "id": "intro",
+      "at": "intro",
+      "text": "PitchLens: explainable match intelligence, built on Microsoft Foundry and narrated by Microsoft's MAI Voice."
+    },
+    {
+      "id": "hook",
+      "at": 0.4,
+      "until": 7.2,
+      "text": "Statistics tell you what happened. PitchLens explains why a moment matters, with evidence you can replay."
+    },
+    {
+      "id": "setup",
+      "at": 7.6,
+      "until": 16.8,
+      "text": "Every team, player and event is synthetic. A seeded simulator generates the match, so the same settings always play out the same way."
+    },
+    {
+      "id": "play",
+      "at": 22.7,
+      "until": 32.5,
+      "text": "A foul, a free kick, a blocked shot, and Harbor City take the lead. Each insight uses only evidence up to that moment."
+    },
+    {
+      "id": "penalty",
+      "at": 37.7,
+      "until": 42.5,
+      "text": "Then another foul gives Northvale a penalty, and they equalize."
+    },
+    {
+      "id": "tactics",
+      "at": 42.6,
+      "until": 49.7,
+      "text": "Tactics shows patterns measured in code. Counts describe actions, not pressure or intent."
+    },
+    {
+      "id": "casual",
+      "at": 50.0,
+      "until": 60.0,
+      "text": "A Foundry model writes the explanation. Facts are built in code, the model selects and phrases them, and a separate verifier checks the answer first."
+    },
+    {
+      "id": "analyst_ask",
+      "at": 60.3,
+      "until": 63.6,
+      "text": "Switch to Analyst for a fresh live request."
+    },
+    {
+      "id": "analyst",
+      "at": 66.0,
+      "until": 70.4,
+      "text": "More precise detail, from exactly the same evidence."
+    },
+    {
+      "id": "replay",
+      "at": 70.6,
+      "until": 77.3,
+      "text": "Every claim links to evidence you can replay."
+    },
+    {
+      "id": "seek",
+      "at": 77.6,
+      "until": 85.7,
+      "text": "Seek back before the penalty, and the later insight disappears. The model cannot read past the selected time."
+    },
+    {
+      "id": "prefs",
+      "at": 86.0,
+      "until": 93.9,
+      "text": "Preferences focus moments and patterns on a favorite team or player. The evidence stays the same."
+    },
+    {
+      "id": "recap",
+      "at": 94.2,
+      "until": 100.2,
+      "text": "At full time, the recap brings together the result, the defining moments, and every explanation."
+    },
+    {
+      "id": "outro",
+      "at": 100.4,
+      "until": 109.0,
+      "text": "Automated checks reduce mistakes, but can't guarantee every claim is true. PitchLens: match intelligence you can check."
+    }
+  ]
+}

@@ -77,7 +77,8 @@ test-runner allowance. No model requests are made by the retained-answer replay.
 ## Remaining acceptance checks
 
 - Merge and deploy the reviewed pass-duration fix and display cleanup after
-  owner authorization. The current Azure deployment is still `aaef1f3`.
+  owner authorization. The last verified Azure deployment in this report is
+  `aaef1f3`; check the live revision before submitting.
 - Verify the deployed browser flow: judge sign-in, scripted demo, generated
   match, live explanation, audience switching, evidence replay, backward
   seeking, preferences and recap. Record the tested deployment URL and revision.
@@ -86,16 +87,12 @@ test-runner allowance. No model requests are made by the retained-answer replay.
 - Confirm registration, category, submission completion and access through
   the end of judging. Keep judge credentials out of public documentation.
 
-The earlier 35/36 useful-case result combined different implementation
-revisions; it is superseded by the full matrix above. Historical results remain
-in `live-ai-evaluation-2026-10-13.md`. The first attempt in this follow-up was
-stopped after an accepted Analyst answer described the 6.4-second
-turnover-to-shot interval as the duration of three passes. A new grounding
-regression checks pass-duration endpoints and preserves correctly named
-turnover-to-shot intervals. Provider throttling also occurred while the
-deployed-session test shared the model deployment. The isolated rerun above
-passed after the fix. The interrupted run remains a failed diagnostic sample.
+The strict gate passed after the pass-duration fix and display cleanup described
+above. Keep the retained evaluation reports and provider logs outside the public
+repository; they are not needed for the judge walkthrough.
 
 See [judge instructions](judge-instructions.md) and [submission guide](submission.md).
-The [demo recording package](demo-recording.md) is prepared; a recorded and
-published video is a separate remaining deliverable.
+The [finished 1:58.7 demonstration](video-submission/README.md) and exact narration are
+included in the repository. Public video hosting and submission of its URL remain
+outstanding. The recording used the local production build and live Foundry
+requests; it does not establish verification of the latest Azure deployment.

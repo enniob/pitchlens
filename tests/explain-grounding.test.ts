@@ -304,7 +304,7 @@ describe("duration hint ambiguity", () => {
   });
 });
 
-// Defects found by manual review of live answers (docs/replay-reliability-2026-10-12.md).
+// Defects found by manual review of live answers (docs/ai-evaluation.md).
 describe("checks added after the live evaluation", () => {
   const only = (r: ExplanationResponse, patch: Partial<ExplanationResponse>) => ({ ...r, interpretation: [], limitations: [], ...patch });
   const ev = (...ids: string[]) => ids.map((id) => ({ kind: "event" as const, id }));

@@ -299,4 +299,5 @@ build) on pull requests and pushes to `main`. Live model quality is measured sep
 | [Security controls](docs/security-controls.md) | Access, allowances, kill switch, hosting requirements |
 | [3D rendering](docs/3d-rendering.md) | Scene, models and assets |
 | [Submission guide](docs/submission.md) | Elevator pitch and demo script |
-| [Development history](docs/development-history.md) | The milestone-by-milestone record of how PitchLens was built |
+| [Documentation index](docs/README.md) | Current guides, validation evidence and submission materials |
+| [Demo video and narration](docs/video-submission/README.md) | Finished 1:58.7 submission video, narration script and build tools |
