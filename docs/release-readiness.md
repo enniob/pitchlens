@@ -92,7 +92,7 @@ above. Keep the retained evaluation reports and provider logs outside the public
 repository; they are not needed for the judge walkthrough.
 
 See [judge instructions](judge-instructions.md) and [submission guide](submission.md).
-The [finished 1:56 demonstration](demo-recording.md) and exact narration are
+The [finished 1:58.7 demonstration](video-submission/README.md) and exact narration are
 included in the repository. Public video hosting and submission of its URL remain
 outstanding. The recording used the local production build and live Foundry
 requests; it does not establish verification of the latest Azure deployment.

@@ -300,4 +300,4 @@ build) on pull requests and pushes to `main`. Live model quality is measured sep
 | [3D rendering](docs/3d-rendering.md) | Scene, models and assets |
 | [Submission guide](docs/submission.md) | Elevator pitch and demo script |
 | [Documentation index](docs/README.md) | Current guides, validation evidence and submission materials |
-| [Demo video and narration](docs/demo-recording.md) | Finished 1:56 demonstration and exact spoken script |
+| [Demo video and narration](docs/video-submission/README.md) | Finished 1:58.7 submission video, narration script and build tools |

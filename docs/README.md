@@ -9,9 +9,9 @@ screenshots of older interfaces have been removed.
 
 | File | Purpose |
 | --- | --- |
-| [Finished video](pitchlens-demo-smooth.mp4) | Accepted 1:56 demonstration, with English narration |
-| [Exact narration](pitchlens-demo-script.md) | Spoken text, timestamps and reading copy used in that video |
-| [Recording details](demo-recording.md) | Screen sequence, capture verification and publication status |
+| [Finished video](video-submission/pitchlens-demo-final.mp4) | 1:58.7 submission video: intro, screen recording and MAI-Voice narration |
+| [Narration script](video-submission/narration-script.md) | Spoken text, timestamps and reading copy used in that video |
+| [Recording details](video-submission/README.md) | Screen sequence, capture verification and publication status |
 | [Judge instructions](judge-instructions.md) | Hosted access, walkthrough, expected failures and local test build |
 | [Submission guide](submission.md) | Elevator pitch, implemented Microsoft/Azure technologies and submission checklist |
 | [Release readiness](release-readiness.md) | Latest recorded validation, tested revisions and remaining release checks |

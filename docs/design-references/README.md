@@ -15,4 +15,4 @@ the pitch, ball and goal geometry in Three.js; see [3D rendering](../3d-renderin
 | [LED board](led-board.png) | Perimeter board design target |
 
 For the current working interface, use the [README screenshots](../screenshots/readme)
-and [finished demonstration](../pitchlens-demo-smooth.mp4).
+and [finished demonstration](../video-submission/pitchlens-demo-final.mp4).

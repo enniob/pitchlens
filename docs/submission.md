@@ -31,13 +31,14 @@ claimed as implemented technologies. See [service architecture](explain-service.
 for the Agent Framework evaluation and [AI evaluation](ai-evaluation.md) for the
 distinction between offline checks and live quality.
 
-## Finished demonstration: 1 minute 56 seconds
+## Finished demonstration: 1 minute 58.7 seconds
 
-The [finished video](pitchlens-demo-smooth.mp4) and
-[exact timed narration](pitchlens-demo-script.md) are included in this repository.
-See [recording details and verification](demo-recording.md).
+The [finished video](video-submission/pitchlens-demo-final.mp4) and
+[timed narration](video-submission/narration-script.md) are included in this repository.
+See [recording details and verification](video-submission/README.md).
 
-The video shows a generated match at 1×, measured patterns, real Microsoft
+The video opens with a short intro card crediting Microsoft Foundry and
+Microsoft MAI-Voice narration, then shows a generated match at 1×, measured patterns, real Microsoft
 Foundry explanations for both audiences, evidence replay, backward seeking,
 preferences and the full-time recap. AI waiting time is condensed and labelled.
 The capture uses a local production build; it is separate from verification of
@@ -77,7 +78,7 @@ were checked on October 14, 2026. Recheck before submitting.
 - Submission: October 27, 2026, 11:59 p.m. Pacific.
 - Public source: `https://github.com/enniob/pitchlens`.
 - Finalize the project description and category selection on the submission site.
-- Publish the finished 1:56 demonstration to an accepted public video host
+- Publish the finished 1:58.7 demonstration (`docs/video-submission/pitchlens-demo-final.mp4`, with its `.srt` subtitles) to an accepted public video host
   and add its URL.
 - Add a working judge-access link and testing instructions; keep access available
   through November 10, 2026, when judging ends.

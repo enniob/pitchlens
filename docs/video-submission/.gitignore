@@ -1,0 +1,4 @@
+build/
+tools/__pycache__/
+# Source screen recording: kept locally, not committed (28 MB)
+pitchlens-demo-smooth.mp4

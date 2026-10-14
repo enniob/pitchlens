@@ -12,7 +12,7 @@ manual findings and outstanding deployment checks are in
 
 These results are a bounded sample. They do not establish production capacity
 or prove every natural-language claim true. The live requests in the
-[demonstration](demo-recording.md) are separate from the evaluation matrix.
+[demonstration](video-submission/README.md) are separate from the evaluation matrix.
 
 | Check | What it establishes |
 | --- | --- |
