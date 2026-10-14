@@ -158,7 +158,7 @@ describe("evaluation scenarios", () => {
   });
 });
 
-// Wrong claims found by manual review of live answers (docs/replay-reliability-2026-10-12.md).
+// Wrong claims found by manual review of live answers (docs/ai-evaluation.md).
 // The production checks now reject them; the assessment flags them independently if one is ever shown.
 describe("assessment of claim types found in the live evaluation", () => {
   const s = EVAL_SCENARIOS.find((x) => x.id === "demo-goal-recorded")!;

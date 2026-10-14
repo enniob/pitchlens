@@ -24,7 +24,8 @@ the default Blender 5.2 executable, and `--ball` renders only the ball.
 ## Goalkeeper source
 
 `goalkeeper.blend` and `public/models/goalkeeper.glb` are built by
-`scripts/build-goalkeeper.py` and follow the reference sheet in `docs/`. The GLB
+`scripts/build-goalkeeper.py` and follow the reference sheet in
+`docs/design-references/goalkeeper.png`. The GLB
 keeps the footballer's ten joint-local mesh names and joints, with long sleeves
 in `upperArm` and `forearm` and tousled hair. Two extra meshes, `gloveLeft` and
 `gloveRight`, are posed with the forearms. The rig does not mirror limbs, so each

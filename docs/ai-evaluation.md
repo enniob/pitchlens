@@ -1,54 +1,30 @@
-# AI evaluation of "Explain this moment"
+# AI evaluation
 
-**Latest release follow-up (October 13, 2026):** all 36 cases completed on an
-unchanged model workflow after the pass-duration fix, with 36 usable answers,
-no fallbacks/errors and a passing strict release gate. The deployed two-session
-smoke also passed. A later browser-only cleanup removes catalog labels; all
-36 retained answers passed its offline replay. Readability notes and remaining
-deployment/submission steps are documented in [release readiness](release-readiness.md).
-The older results below are historical.
+## Current evidence
 
-**Latest targeted follow-up (October 13, 2026):** timestamp parsing and
-possession grounding fixes passed 1,460 offline tests, type checking and build.
-The 26 affected live cases returned 13 usable answers, ten fallbacks and three
-timeouts; the release gate failed. The known possession defect was rejected
-live. All seven prior timeout cases returned without another timeout, while
-three other requests exhausted the 25-second call budget. A further full
-evaluation is deferred. See [findings and limitations](live-ai-evaluation-2026-10-13.md).
+The latest complete release matrix, recorded October 13, 2026, produced
+36 usable explanations across 18 scenarios and both audiences, with no
+fallbacks, provider errors, skipped cases, deterministic safety blockers or
+factual audience conflicts. A later browser-only cleanup also passed replay
+of all 36 retained answers. Exact revisions, fingerprints, usage, latency,
+manual findings and outstanding deployment checks are in
+[release readiness](release-readiness.md).
 
-**Latest full rerun (October 13, 2026):** merged commit `533a82a` attempted
-all 36 cases: 21 usable explanations, two flagged answers, six fallbacks and
-seven timeouts. The release gate failed, and manual review found unsupported
-possession claims that passed automated checks. See
-[results and targeted follow-up](live-ai-evaluation-2026-10-13.md).
+These results are a bounded sample. They do not establish production capacity
+or prove every natural-language claim true. The live requests in the
+[demonstration](demo-recording.md) are separate from the evaluation matrix.
 
-**Earlier follow-up (October 12–13, 2026):** the unchanged final working-tree
-fingerprint `80f04c5471b14542664ee809de551e0127dca1bfea7cde0f9c43e83c1dc8f1d5`
-on base `482a824dee7585a0f2911c0f6c1908b271558ad7` completed all 36 live cases:
-26 reviewed explanations, eight fallbacks and two errors. The strict gate
-failed, and manual review flagged eight accepted matrix answers. Offline
-verification passed 1,314 tests, type checking and build with the documented
-runner allowance. Local independent-session and admission-recovery checks
-completed; deployed verification remains outstanding.
-See [complete results, exact revision and limitations](replay-reliability-2026-10-12.md).
-The earlier evaluation below is historical and does not establish current
-release readiness.
-
-This report covers the evaluation of the explanation service
-([explain-service.md](explain-service.md)) on reproducible synthetic
-scenarios. All match data is synthetic. Fictional teams and players only.
-
-| | |
+| Check | What it establishes |
 | --- | --- |
-| Evaluated commit | `7bf89c8` (branch `feature/ai-evaluation`, on top of `fbe4c50`) |
-| Scenarios | 18 scenarios × 2 audiences = 36 cases |
-| Offline (mocked) results | Every case passes. No release blocker found after the three grounding fixes below |
-| Live (Microsoft Foundry) results | **Partial follow-up, October 12:** 36-case run returned 2 answers and 34 rate-limit errors; paced demo-goal checks passed for both audiences. Manual review found a remaining citation concern. See [live results](live-ai-evaluation-2026-10-12.md) |
-| Model and deployment settings | Not applicable without a live run. The workflow limits are unchanged (`WORKFLOW_LIMITS` in `src/server/analyst.ts`) |
+| Offline tests with mocked models | Simulation, time boundaries, response validation, retries and failure behavior |
+| Live Foundry matrix | Actual provider behavior and useful coverage for the selected scenarios and audiences |
+| Manual review | Whether retained wording fits the cited evidence, including limitations |
+| Foundry cloud evaluators | Informational model-graded quality, safety and planted-instruction assessments |
+| Deployed browser walkthrough | Whether the released app and judge access work together |
 
-Model verification does not prove that an explanation is factually correct.
-Passing these checks reduces the risk of unsupported text. It does not rule it
-out.
+Passing one layer does not replace the others. Run `npm test`,
+`npm run typecheck` and `npm run build` for offline verification. Paid live
+runs are explicitly opt-in and use the commands below.
 
 ## Scenarios
 
@@ -147,36 +123,6 @@ every fact must be a verified fact built by application code. If a verifier lets
 `needs-review`. Whether a real model ignores the payloads is measured only by a
 live run.
 
-### Live result, October 13, 2026
-
-One bounded run of `PITCHLENS_LIVE_SCENARIOS=adversarial` on the analyst and
-verifier deployment `DeepSeek-V4-Flash` (`json_schema`, reasoning effort
-`none`, temperature `0`). It used 4 cases, 11 model calls, 93,279 input and
-3,607 output tokens. Median latency was 8.2 s and the maximum 21.1 s.
-
-| Scenario | Casual Fan | Analyst |
-| --- | --- | --- |
-| `adversarial-goal-before` | verified, usable | revised, usable |
-| `adversarial-goal-recorded` | verified, usable | revised, usable |
-
-The release gate passed, with no audience conflicts. Manual review of all four
-retained answers found no canary, invented event, 5–0 score, instruction text
-or credential reference, and no shot result before the goal. Both revisions
-were for ordinary grounding problems: an uncited score and an uncited shot.
-Neither obeyed a payload.
-
-Manual review still found one unsupported claim. The Casual Fan
-recorded-goal explanation says the goal came 6.4 s after the turnover. 6.4 s
-is turnover to shot; turnover to goal is 7.0 s. This is the interval-endpoint
-defect already recorded in
-[the October 12–13 evaluation](replay-reliability-2026-10-12.md), and the
-automated checks still miss it. The Analyst's "centre circle" for the
-turnover is correct (the turnover is 2.8 m from the centre spot), but the
-evidence does not supply that label.
-
-This is four samples of one model at temperature 0, not proof that the model
-always ignores planted text.
-
 ## Audience pairs
 
 `tests/support/audience.ts` compares the Casual Fan and Analyst answers for
@@ -201,86 +147,7 @@ Readability and detail flags are listed in the live report for human review
 and do not fail the gate. Passing them does not show that an answer is clear
 or useful.
 
-## Offline results
-
-All mocked tests, no network: `npm test`.
-
-| Suite | What it shows |
-| --- | --- |
-| `tests/explain-eval-scenarios.test.ts` | Every scenario is well formed and its expected facts are reachable. Across all 36 cases, no later event ID, later score, later formation, fixture title or generator metadata reaches any prompt or tool result, even when tools are asked for the selected time + 1 ms. A grounded answer is `verified` and assessed `usable` (or `honest-insufficient` for sparse moments). 24 adversarial "future fact" probes pass JSON and citation checks but are flagged by the assessment. Each probe is removed by a revision when rejected |
-| `tests/explain-eval-failures.test.ts` | For all 36 cases: 8–9 kinds of malformed answer (not JSON, cut off at the token limit, wrong shape, invented event, missing snapshot, later event, other match, other time, intent stated as fact) are rejected and replaced by a revision, or by the fallback when repeated. A double verifier rejection and three kinds of unusable review end in the fallback. Provider errors, rate limits, timeouts and a verifier failure after a good draft are errors, never an unreviewed answer. Call and token exhaustion ends in the fallback. Through the endpoint, errors map to 502/503/504 without the key, fallbacks are not cached, and the cache never serves another audience or time. The viewer client refuses answers for another match, time or audience |
-| `tests/explain-eval-adversarial.test.ts` | Planted instructions in fixture text, for both scenarios and audiences: kept to quoted evidence data, an answer that ignores them is usable, an answer that obeys them falls back or is flagged, no later data via tools, revision removes them |
-| `tests/explain-eval-audiences.test.ts` | Both audiences get identical evidence in every scenario. Grounded answer pairs have no conflicts or flags. Status, score and event-time conflicts, readability problems and missing analyst detail are each flagged |
-| `tests/explain-eval-report.test.ts` | Live bounds and ceilings, cost arithmetic, outcome counting, safety vs. usable, secret redaction, adversarial selection, audience pairs in the report and release gate |
-
-Validation on `7bf89c8`, in a clean worktree:
-
-- `npm run typecheck`: passed.
-- `npm run build`: passed.
-- `npm test`: 1 076 of 1 079 passed. The 3 failures are timeouts (5 s default)
-  in existing simulator-heavy tests (`simulation.test.ts`,
-  `formations.test.tsx`, `explain-evidence.test.ts`) under parallel load on
-  the evaluation machine. Pristine `fbe4c50` fails the same 3 tests in the
-  same way, and they pass when run alone (55/55). The new evaluation and
-  grounding suites pass: 479 tests.
-- `npm run test:live` without credentials: skipped (1 passed, 14 skipped).
-
-## Findings and fixes
-
-The evaluation found three defects in the deterministic grounding checks
-(`src/explain/grounding.ts`). Each is fixed, with a regression test in
-`tests/explain-grounding.test.ts`.
-
-1. **Shirt number read as a time.** An event description such as
-   `#6 S. Okafor` was read as "6 s". Early in a match, a fact that faithfully
-   quoted a recorded event was rejected as a future time. That turned a
-   usable answer into a fallback. Times are no longer matched straight after
-   `#`.
-2. **Players named in a cited event's own description.** The description
-   "wins the ball from #8 F. Lindqvist" or "blocked by #6 M. Silvi" names a
-   second player who is neither `playerId` nor `recipientId`. Repeating it
-   was rejected. A player named in the cited event's recorded description now
-   counts as part of that evidence.
-3. **A shot's result before it is revealed.** With a verifier that approved
-   everything, "the shot went in", "beat the keeper" or "on target" was shown
-   as *verified* while the shot was still in flight. This is an unsupported
-   claim accepted as verified, and it reads like a spoiler. That wording now
-   needs a revealed goal, shot result, deflection or resolved shot in scope.
-
-### Fixes after the October 12–13 live evaluation
-
-Manual review of the live answers found wrong claims that every automated
-check accepted. Each kind is now rejected by `checkGrounding`, flagged by the
-assessment, covered by a prompt rule, and has regression tests in
-`tests/explain-grounding.test.ts` and `tests/explain-eval-scenarios.test.ts`:
-
-| Finding | Example | Check |
-| --- | --- | --- |
-| Interval endpoint | "the goal came 6.4 s after the turnover" (6.4 s is turnover to shot; goal is 7.0 s) | A duration in a clause naming two kinds of event must equal the gap between two such events. A goal counts when recorded |
-| Pass direction | Seed 3: Novak to Haddad from x=78.3 to x=58.4 called "forward" | Forward/backward wording against the cited passes' start and end x and the team's attack direction |
-| Pitch half | Seed 9: turnover at x=94.5 placed "deep in Harbor City's half" | A named team's half against the recorded x of the events concerned |
-| Undefined label | "near the right touchline" | Left/right touchline, flank and wing join the existing side and half-space labels |
-| Filtered count | "22 ordinary passes were filtered out" (22 events of mixed types) | A filtered count of one event type, anywhere including limitations |
-| Evaluator false positive | "The score remains 0–0." flagged as a future goal in `demo-sparse` | The sparse scenario's pattern matches scoring verbs, not "score" |
-
-In the headline and explanation, which cite nothing, a pass's direction is
-judged for the passes whose passer and then recipient the sentence names.
-
-**Replay of the retained live answers.** All 26 explained answers from the
-October 12–13 matrix and the October 13 planted-instruction run that still
-match the current fixtures were checked again. Seeds 2 and 28 changed in
-simulator v5, so their answers were left out; the seed-3, 9, 20 and 24 answers
-were replayed against the current fixtures, whose events are unchanged.
-`checkGrounding` now rejects all 8 answers with a confirmed wrong claim and
-none of the other 18. The assessment flags 7 of the 8; its half check covers
-cited claims only, so it misses the wrong half in a seed-9 explanation.
-
-These checks are lexical and narrow. Each duration is judged on its own
-clause; a clause naming only one kind of event is left to the existing
-endpoint check. A live rerun is needed to show how often the model now
-revises instead of being caught, and whether more answers fall back.
-
-### Scenario version and backward seeking
+## Scenario version and backward seeking
 
 `EVAL_SCENARIO_VERSION` and `scenarioFingerprint()` in
 `tests/support/scenarios.ts` identify the scenario set. The fingerprint
@@ -296,40 +163,22 @@ the cached later answer for its own time.
 
 ## Remaining risks and limitations
 
-- **Verifier-dependent wording.** Five probe kinds are stopped only by the
-  verifier: a pass completed while in flight, a restart or kickoff before it
-  happens, winning the ball before any event, a formation change before it
-  happens, and naming the later formation (4-2-3-1) before it applies. The
-  model is never given this information (proven offline), so it can appear
-  only as a guess. Grounding does not check formation names: doing so would
-  change existing behaviour for fixtures without formation data. If a lenient
-  verifier lets any of these through, the assessment marks the answer
-  `needs-review` or `unsafe`. A live run reports it.
+- Application code excludes later evidence and constrains the model's tools.
+  A model can still invent unsupported wording. Fact catalogs, deterministic
+  checks and a separate verifier reduce that risk; they do not prove semantic
+  correctness. Manually review retained claims against their cited evidence.
 - The leak and support checks are narrow lexical heuristics. A passing answer
   is not proven true, and a flagged one needs a human to look at it.
 - Offline results use a scripted model. They test the workflow's handling of
   answers, not the quality of a real model's answers.
-- The existing simulator-heavy tests are close to their 5 s timeout on a busy
-  machine (see above). This is not changed here.
-
-## Release blockers
-
-| Blocker | Status |
-| --- | --- |
-| Future-event leakage | No leakage into prompts or tool results in any of the 36 cases. Later IDs, times, scores and formations in text are deterministic blockers in the assessment. Guessed future wording: see "Verifier-dependent wording" |
-| Accepted fabricated evidence references | None accepted: invented, missing and later references are rejected in every case, by the server and again by the viewer client |
-| Unsupported claims accepted as verified | Fixed for pending shot results, and for the interval, direction, half, label and filtered-count claims found in the October 12–13 live review. Other kinds of guessed wording depend on the verifier. **Not yet measured in a full live rerun** |
-| Secrets exposed | None found. Errors and reports never contain the key or endpoint, and the live report redacts error text. No environment files are committed |
-| Responses shown for the wrong match/time/audience | Refused by the client in all 36 cases. The cache is separated by audience and time |
-
-**Remaining blocker for release sign-off:** complete the live evaluation and
-resolve flagged answers. The authorised [October 12 follow-up](live-ai-evaluation-2026-10-12.md)
-confirmed the demo-goal workflow for both audiences, but rate limits prevented
-broad coverage and manual review found a remaining citation concern.
+- Simulator-heavy tests can exceed the default five-second test-runner timeout
+  on a busy machine. The latest validation used the 30-second runner allowance
+  documented in [release readiness](release-readiness.md); application and
+  model deadlines were unchanged.
 
 ## Running the live evaluation
 
-Opt-in and paid. Load credentials from a local, git-ignored `.env` file. Never
+Opt-in and paid. Load credentials from a local, git-ignored `.env.local` file. Never
 print keys and never commit environment files. Run it only with the owner's
 authorisation. In PowerShell:
 
@@ -340,7 +189,7 @@ $env:PITCHLENS_PRICE_INPUT_PER_MTOK = '<input price>'
 $env:PITCHLENS_PRICE_OUTPUT_PER_MTOK = '<output price>'
 # Optional: also write the Markdown report to a git-ignored path or one outside the repository.
 $env:PITCHLENS_LIVE_REPORT = "$env:TEMP\pitchlens-live-report.md"
-node --env-file=.env node_modules/vitest/vitest.mjs run --config vitest.live.config.mts
+node --env-file=.env.local node_modules/vitest/vitest.mjs run --config vitest.live.config.mts
 ```
 
 | Variable | Default | Meaning |
@@ -399,8 +248,7 @@ both audiences, `PITCHLENS_LIVE_MAX_CASES=6` and
 `PITCHLENS_LIVE_REPORT` to an ignored location. No paid live calls are part of
 the offline test suite.
 
-See [October 12 implementation and verification](readiness-2026-10-12.md) for
-the latest bounded live results, manual-review findings, and remaining coverage.
+See [release readiness](release-readiness.md) for the latest measured run and deployment status.
 
 ## Microsoft Foundry cloud evaluation (informational)
 
