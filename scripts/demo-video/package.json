@@ -1,0 +1,19 @@
+{
+  "name": "pitchlens-demo-video",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Records the PitchLens demonstration video with captions from a running deployment.",
+  "type": "module",
+  "scripts": {
+    "record": "node record.mjs"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "dependencies": {
+    "playwright-core": "1.56.1"
+  },
+  "optionalDependencies": {
+    "ffmpeg-static": "5.3.0"
+  }
+}
